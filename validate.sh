@@ -64,42 +64,67 @@ if [ "$DO_BUILD" = "1" ] || [ "$DO_BUILD" = "true" ]; then
     if [ $BUILD_EXIT -ne 0 ]; then
         echo "Build failed!"
         if [ -n "$ERROR_FILE" ]; then
-            # Extract ALL compiler/error lines comprehensively.
-            # This captures GCC/Clang style (file:line:col: error:), common vcpkg/cmake
-            # messages, linker errors, and includes surrounding context for each.
+            VCPKG_BUILD_DIR="$VCPKG_ROOT/buildtrees/gdext"
             {
-                # 1. Extract lines matching common error patterns (with line numbers)
-                grep -n \
-                  -e '[.:][0-9]*:[0-9]*:[[:space:]]*error:' \
-                  -e '[.:][0-9]*:[0-9]*:[[:space:]]*fatal error:' \
-                  -e '[.:][0-9]*:[0-9]*:[[:space:]]*warning:' \
-                  -e '[.:][0-9]*:[0-9]*:[[:space:]]*note:' \
-                  -e '[.:][0-9]*:[0-9]*:[[:space:]]*undefined reference' \
-                  -e 'CMake Error' \
-                  -e 'CMake Warning' \
-                  -e 'FAILED:' \
-                  -e 'ninja: build stopped' \
-                  -e 'collect2: error' \
-                  -e 'ld: ' \
-                  -e 'undefined reference to' \
-                  -e 'In file included from' \
-                  -e 'cc1plus:' \
-                  -e 'g\+\+:' \
-                  -e 'error: ' \
-                  -e 'Error: ' \
-                  -e 'BUILD_FAILED' \
-                  -e 'vcpkg_execute_build_process' \
-                  "$BUILD_LOG" 2>/dev/null | head -200 > "$ERROR_FILE"
+                # First pass: try to extract real compiler errors from the ninja build logs.
+                # The vcpkg install output only shows progress; actual errors live in
+                # build-x64-linux-*-out.log files under buildtrees/gdext/.
+                COMPILER_ERRORS_FOUND=false
+                for logfile in "$VCPKG_BUILD_DIR"/build-x64-linux-*-out.log; do
+                    if [ -f "$logfile" ]; then
+                        # Extract lines with real errors: GCC/Clang style, linker, FAILED
+                        # Also grab a few lines of context around each error for the LLM
+                        grep_results=$(grep -n \
+                          -e '[.:][0-9]*:[0-9]*:[[:space:]]*error:' \
+                          -e '[.:][0-9]*:[0-9]*:[[:space:]]*fatal error:' \
+                          -e '[.:][0-9]*:[0-9]*:[[:space:]]*warning:' \
+                          -e '[.:][0-9]*:[0-9]*:[[:space:]]*note:' \
+                          -e 'FAILED:' \
+                          -e 'collect2: error' \
+                          -e 'ld: ' \
+                          -e 'undefined reference' \
+                          -e 'In file included from' \
+                          -e 'cc1plus:' \
+                          "$logfile" 2>/dev/null)
+                        if [ -n "$grep_results" ]; then
+                            # Get unique line numbers for context extraction
+                            line_nums=$(echo "$grep_results" | grep -oP '^\d+' | sort -nu)
+                            echo "$grep_results" > "$ERROR_FILE"
+                            echo "" >> "$ERROR_FILE"
+                            echo "=== Context around error lines ===" >> "$ERROR_FILE"
+                            for ln in $line_nums; do
+                                start=$((ln > 5 ? ln - 5 : 1))
+                                sed -n "${start},$((ln + 5))p" "$logfile" 2>/dev/null >> "$ERROR_FILE"
+                                echo "---" >> "$ERROR_FILE"
+                            done
+                        fi
+                        if [ -s "$ERROR_FILE" ]; then
+                            COMPILER_ERRORS_FOUND=true
+                            break
+                        fi
+                    fi
+                done
+
+                if [ "$COMPILER_ERRORS_FOUND" != "true" ]; then
+                    # Fallback: grep the vcpkg build output for cmake/ninja errors
+                    grep -n \
+                      -e 'CMake Error' \
+                      -e 'CMake Warning' \
+                      -e 'ninja: build stopped' \
+                      -e 'error: ' \
+                      -e 'BUILD_FAILED' \
+                      -e 'vcpkg_execute_build_process' \
+                      "$BUILD_LOG" 2>/dev/null | head -200 > "$ERROR_FILE"
+                fi
 
                 if [ ! -s "$ERROR_FILE" ]; then
-                    # Fall back to the last 500 lines of the build log
-                    echo "=== Last 500 lines of build output ===" > "$ERROR_FILE"
-                    tail -500 "$BUILD_LOG" >> "$ERROR_FILE"
+                    # Ultimate fallback: last 500 lines of the build log
+                    {
+                        echo "=== Last 500 lines of build output ==="
+                        tail -500 "$BUILD_LOG"
+                    } > "$ERROR_FILE"
                 fi
-            } 2>/dev/null || {
-                # Ultimate fallback: capture the whole tail of build
-                tail -500 "$BUILD_LOG" > "$ERROR_FILE"
-            }
+            } 2>/dev/null
         fi
         exit 1
     fi
@@ -178,7 +203,7 @@ export GODOT_TEST_RUNNER_TIMEOUT=60000 # 1 minute
 "$GODOT_BIN" --frame-delay 1000 --import --path "$SCRIPT_DIR/demo" --headless --quit 2>&1 | tee -a "$IMPORT_LOG"
 IMPORT_EXIT=${PIPESTATUS[0]}
 if [ $IMPORT_EXIT -ne 0 ]; then
-    IMPORT_LOG "✗ Import failed - exit code $IMPORT_EXIT" >> "$IMPORT_LOG"
+    echo "✗ Import failed - exit code $IMPORT_EXIT" >> "$IMPORT_LOG"
 fi
 timeout --preserve-status $((GODOT_TEST_RUNNER_TIMEOUT * 2 / 1000)) "$GODOT_BIN" --path "$SCRIPT_DIR/demo" --headless 2>&1 | tee -a "$RUNTIME_LOG"
 RUNTIME_EXIT=${PIPESTATUS[0]}
@@ -190,12 +215,13 @@ fi
 unset LD_PRELOAD LSAN_OPTIONS
 
 _extract_errors() {
-    echo "$1" | \
-    grep -E -v "(ObjectDB|RID).*leaked|resources still in use at exit" | \
-    grep -i -E "failed|error|warning|crash|assert|exception|abort|segfault|undefined|not found|no such|TESTS FAILED" || return 0
+    # Strip ANSI escape codes (print_rich output) so patterns match clean text
+    cat "$1" "$2" 2>/dev/null | sed 's/\x1b\[[0-9;]*[a-zA-Z]//g' | \
+    grep -E -v "(ObjectDB|RID).*leaked|resources still in use at exit|PASSED|✓" | \
+    grep -i -E "failed|error|warning|crash|assert|exception|abort|segfault|undefined|not found|no such|TESTS FAILED|SCRIPT ERROR|✗|Expected" || return 0
 }
 
-ERRORS=$(_extract_errors "$IMPORT_LOG"$'\n'"$RUNTIME_LOG")
+ERRORS=$(_extract_errors "$IMPORT_LOG" "$RUNTIME_LOG")
 
 if [ -n "$ERRORS" ]; then
     echo "✗ Runtime validation failed - errors detected"

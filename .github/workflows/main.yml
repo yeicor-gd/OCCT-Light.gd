@@ -592,13 +592,19 @@ jobs:
       actions: write
     steps:
       - name: Check dependency status
-        if: needs.test.result != 'success'
+        if: needs.test.result != 'success' && github.run_attempt < 5
+        shell: bash
         run: |
           set -ex
           sleep $((RANDOM % 120 + 10))
           gh workflow run retry-workflow.yml -F run_id=${{ github.run_id }}
-          echo "Required tests did not succeed (status: ${{ needs.test.result }})"
-          exit 1
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+      - name: Check dependency status
+        if: needs.test.result != 'success'
+        shell: bash
+        run: |
+          set -ex
+          echo "Workflow failed. Please check the logs for details."
+          exit 1

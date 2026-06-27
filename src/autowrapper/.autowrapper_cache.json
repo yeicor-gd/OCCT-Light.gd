@@ -1,0 +1,233 @@
+{
+  "1a3c1d67d9c6e1219c7be9561e18d382e211ce5c23277ea1220d4720a0a554df": {
+    "to_generate": [
+      {
+        "type": "function",
+        "name": "status_to_string",
+        "return_type": "String",
+        "arguments": [
+          {
+            "type": "int",
+            "name": "status"
+          }
+        ],
+        "body": "occtl_status_t s = static_cast<occtl_status_t>(status);\nconst char* result = ::occtl_status_to_string(s);\nreturn String(result);",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar result = w.status_to_string(0)\nif result == \"\":\n\treturn \"FAIL: status_to_string returned empty string for status 0\"\nreturn \"\"",
+        "doc": "Returns a human-readable name for a status code. Useful for logging. The string is library-owned and valid for the lifetime of the process; do not free it. Returns \"OCCTL_UNKNOWN\" if status is not a recognised value. Thread-safe.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      }
+    ]
+  },
+  "4b1744d3ebf3e217c13bc0713f0f92c89f381f28e771cd23576431ecd951e2c8": {
+    "to_generate": [
+      {
+        "type": "function",
+        "name": "error_last",
+        "return_type": "Dictionary",
+        "arguments": [],
+        "body": "const occtl_error_t* err = ::occtl_error_last();\nDictionary d;\nd[\"status\"] = static_cast<int64_t>(err->status);\nd[\"message\"] = String(err->message);\nd[\"source\"] = static_cast<int64_t>(err->source.bits);\nd[\"extended\"] = static_cast<int64_t>(err->extended);\nreturn d;",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar result = w.error_last()\nif result[\"status\"] < 0:\n    return \"unexpected negative status\"\nreturn \"\"",
+        "doc": "Returns the thread-local last error. Always returns a non-NULL pointer; an all-zero status field means no error pending on this thread. Valid until the next OCCT-Light call on this thread.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      }
+    ]
+  },
+  "84c24380c527c0ca8bca4c72ec0c5ac8d93ada5c881039d7eb96511acf742a71": {
+    "to_generate": [
+      {
+        "type": "function",
+        "name": "runtime_occt_version",
+        "return_type": "String",
+        "arguments": [],
+        "body": "return String(::occtl_runtime_occt_version());",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar version = w.runtime_occt_version()\nif version == null or version == \"\":\n\treturn \"runtime_occt_version returned empty string\"",
+        "doc": "Returns the OCCT version OCCT-Light was built against. Diagnostic only; not part of OCCT-Light's ABI promise. Returns a borrowed pointer to a NUL-terminated UTF-8 string of the form \"7.x.y\". The string is library-owned and valid for the process lifetime. This function is thread-safe.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      }
+    ]
+  },
+  "2863f56023aed0ecdc0ada4c8b0515a748a2f35c04a88b1709c4851c580a61d6": {
+    "to_generate": [
+      {
+        "type": "function",
+        "name": "version_major",
+        "return_type": "int",
+        "arguments": [],
+        "body": "return OCCTL_VERSION_MAJOR;",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar major = w.version_major()\nif major < 0:\n\treturn \"version_major returned negative: \" + str(major)\nreturn \"\"",
+        "doc": "Return the major version number from OCCTL_VERSION_MAJOR.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      },
+      {
+        "type": "function",
+        "name": "version_minor",
+        "return_type": "int",
+        "arguments": [],
+        "body": "return OCCTL_VERSION_MINOR;",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar minor = w.version_minor()\nif minor < 0:\n\treturn \"version_minor returned negative: \" + str(minor)\nreturn \"\"",
+        "doc": "Return the minor version number from OCCTL_VERSION_MINOR.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      },
+      {
+        "type": "function",
+        "name": "version_patch",
+        "return_type": "int",
+        "arguments": [],
+        "body": "return OCCTL_VERSION_PATCH;",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar patch = w.version_patch()\nif patch < 0:\n\treturn \"version_patch returned negative: \" + str(patch)\nreturn \"\"",
+        "doc": "Return the patch version number from OCCTL_VERSION_PATCH.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      }
+    ]
+  },
+  "cd509d865d11b7faaa4c78f291c393e205aeb03ce7cba4317cebaf039ba6911e": {
+    "to_generate": [
+      {
+        "type": "function",
+        "name": "occtl_abi_version",
+        "return_type": "int",
+        "arguments": [],
+        "body": "return 1;",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar version = w.occtl_abi_version()\nif version <= 0:\n    return \"occtl_abi_version returned non-positive value: \" + str(version)\nreturn \"\"",
+        "doc": "ABI version. Bumped only on hard breakage. Independent of SemVer. Consumers may compare this against occtl_runtime_abi_version at load time and refuse to proceed on mismatch.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      }
+    ]
+  },
+  "48fd75b74d78f883a719f7ff49e4965d73df574eedb6c611a59fdd72a66d5915": {
+    "to_generate": [
+      {
+        "type": "function",
+        "name": "occtl_error_last",
+        "return_type": "Dictionary",
+        "arguments": [],
+        "body": "const occtl_error_t* err = ::occtl_error_last();\nDictionary d;\nd[\"status\"] = static_cast<int>(err->status);\nd[\"message\"] = String(err->message);\nd[\"source_bits\"] = static_cast<int64_t>(err->source.bits);\nd[\"extended\"] = static_cast<int64_t>(err->extended);\nreturn d;",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar err = w.occtl_error_last()\nif not err.has(\"status\"):\n    return \"missing status\"\nif not err.has(\"message\"):\n    return \"missing message\"\nif not err.has(\"source_bits\"):\n    return \"missing source_bits\"\nif not err.has(\"extended\"):\n    return \"missing extended\"\nreturn \"\"",
+        "doc": "Returns a dictionary with the thread-local last error info: status (int), message (String), source_bits (int64_t), extended (int64_t).",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      },
+      {
+        "type": "function",
+        "name": "occtl_error_clear",
+        "return_type": "void",
+        "arguments": [],
+        "body": "::occtl_error_clear();",
+        "test_body": "var w = OcctlCoreWrapper.new()\nw.occtl_error_clear()\nvar err = w.occtl_error_last()\nvar status = err.get(\"status\")\nif status != 0:\n    return \"expected status 0 after clear\"\nreturn \"\"",
+        "doc": "Clears the thread-local last error. After calling this, occtl_error_last will return status 0 (OCCTL_OK).",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      }
+    ]
+  },
+  "683afb6498c5c04621e5834d1cad910c977da2f52200ede31fa715f495dd9e25": {
+    "to_generate": [
+      {
+        "type": "function",
+        "name": "occtl_error_clear",
+        "return_type": "void",
+        "arguments": [],
+        "body": "::occtl_error_clear();",
+        "test_body": "var w = OcctlCoreWrapper.new()\nw.occtl_error_clear()\nreturn \"\"",
+        "doc": "Clears the thread-local last error.\n\nCalling this is optional \u2014 every public function that returns OCCTL_OK already clears the slot. Use it explicitly when you want to assert \"no prior failure\" before a sequence of calls.\n\nThread-safe (per-thread).",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      }
+    ]
+  },
+  "523371454d9c87cbb86a4a12111adc207e8834f35522a11188a6c4fa8d209471": {
+    "to_generate": [
+      {
+        "type": "function",
+        "name": "occtl_runtime_init_info_version_1",
+        "return_type": "int64_t",
+        "arguments": [],
+        "body": "return static_cast<int64_t>(OCCTL_RUNTIME_INIT_INFO_VERSION_1);",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar v = w.occtl_runtime_init_info_version_1()\nif v < 0:\n    return \"version should be non-negative\"\nreturn \"\"",
+        "doc": "Init info versioning constant. New fields are appended under new version constants in future releases.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      }
+    ]
+  },
+  "688c2cdb6e023ccda45ac0b7748e8dc2b6d2adb2afd104e2b23956acca44f88c": {
+    "to_generate": [
+      {
+        "type": "handle",
+        "handle_type": "occtl_runtime_init_info_t",
+        "doc": "Configuration struct for occtl_runtime_init(). Construct with OCCTL_RUNTIME_INIT_INFO_INIT or zero-initialise and set struct_version explicitly. Fields: struct_version (must be OCCTL_RUNTIME_INIT_INFO_VERSION_1), p_next (reserved, must be NULL).",
+        "condition_directive": null,
+        "condition_expression": null
+      }
+    ]
+  },
+  "ea5376eae070898cba626f5552d8e17d733c3e73e650993348c84f68ce9f18f2": {
+    "to_generate": [
+      {
+        "type": "function",
+        "name": "runtime_init_info_init",
+        "return_type": "Dictionary",
+        "arguments": [],
+        "body": "Dictionary d;\n  d[\"struct_version\"] = static_cast<int64_t>(OCCTL_RUNTIME_INIT_INFO_VERSION_1);\n  d[\"p_next\"] = static_cast<int64_t>(0);\n  return d;",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar info = w.runtime_init_info_init()\nif info[\"struct_version\"] != 1:\n    return \"Expected struct_version=1, got \" + str(info[\"struct_version\"])\nif info[\"p_next\"] != 0:\n    return \"Expected p_next=0, got \" + str(info[\"p_next\"])\nreturn \"\"",
+        "doc": "Returns a Dictionary representing the default occtl_runtime_init_info_t values as defined by the OCCTL_RUNTIME_INIT_INFO_INIT macro ({OCCTL_RUNTIME_INIT_INFO_VERSION_1, NULL}).",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      }
+    ]
+  },
+  "0aeec5a7909b5a71d95014066ed131e1eadee88ba9ac104efca2ef580f7ab486": {
+    "to_generate": [
+      {
+        "type": "function",
+        "name": "runtime_init",
+        "return_type": "int",
+        "arguments": [],
+        "body": "return static_cast<int>(::occtl_runtime_init(nullptr));",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar result = w.runtime_init()\nif result != 0:\n    return \"runtime_init returned %d, expected 0\" % result\nreturn \"\"",
+        "doc": "Initialises the OCCT-Light runtime. Calling this is optional: every entry point lazy-initialises with defaults if needed. Subsequent calls return OCCTL_INVALID_ARGUMENT and have no effect.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      }
+    ]
+  },
+  "74513758e3ad715049e0bb8e6c3bc15f7ed8efd7c2f22d88ff984c24d103469f": {
+    "to_generate": []
+  },
+  "fc372624c8d1970a46bf5b14a56ff5d32c190fa93c2dd8e9a81855d3356259cd": {
+    "to_generate": [
+      {
+        "type": "function",
+        "name": "occtl_runtime_abi_version",
+        "return_type": "int64_t",
+        "arguments": [],
+        "body": "return static_cast<int64_t>(::occtl_runtime_abi_version());",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar version = w.occtl_runtime_abi_version()\nif version < 0:\n\treturn \"expected non-negative version, got: \" + str(version)\nreturn \"\"",
+        "doc": "Returns the runtime ABI version. Compare to OCCTL_ABI_VERSION at load time and refuse to load if they differ \u2014 that protects against mixing a newer header with an older binary.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      }
+    ]
+  }
+}
