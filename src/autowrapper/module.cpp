@@ -12,6 +12,8 @@ void gdext_initialize_module_auto(ModuleInitializationLevel p_level) {
 
     // Register wrapped classes
     GDREGISTER_CLASS(OcctlCoreWrapper);
+    GDREGISTER_CLASS(OcctlRuntimeInitInfoTHandle);
+    GDREGISTER_CLASS(Uint64THandle);
 }
 
 void gdext_uninitialize_module_auto(ModuleInitializationLevel p_level) {

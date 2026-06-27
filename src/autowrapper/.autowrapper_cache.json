@@ -229,5 +229,1019 @@
         "condition_expression": null
       }
     ]
+  },
+  "b31f32496046f27583c037115d9f90cba6f95aff7f55b32ebb4303ee5090fd9d": {
+    "to_generate": []
+  },
+  "55c1199b44c3aa5fbf91cdfcab8b40570a2b9e73be40bf165c5bd51d87e221cc": {
+    "to_generate": []
+  },
+  "a0bbda66ad9a477ef42f8795fce4377ab6b775c680c694940f8941738aa8027f": {
+    "to_generate": []
+  },
+  "3f70015a25d9bf2ef6324f407d3ec7e79c08293fee15185ac6cc929599eb4de3": {
+    "to_generate": [
+      {
+        "type": "function",
+        "name": "occtl_pi",
+        "return_type": "double",
+        "arguments": [],
+        "body": "return OCCTL_PI;",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar pi = w.occtl_pi()\nif pi <= 0.0:\n\treturn \"OCCTL_PI returned non-positive value: \" + str(pi)\nif abs(pi - 3.14159) > 0.01:\n\treturn \"OCCTL_PI seems unexpected: \" + str(pi)\nreturn \"\"",
+        "doc": "Mathematical constant PI (3.14159265358979323846) shared across public C headers.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      }
+    ]
+  },
+  "459b78a7c2e98bc6af25073fbb3a0f37270dcfeb73c4b30a1181c4ccde025d40": {
+    "to_generate": [
+      {
+        "type": "function",
+        "name": "occtl_two_pi",
+        "return_type": "double",
+        "arguments": [],
+        "body": "return 2.0 * OCCTL_PI;",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar val = w.occtl_two_pi()\nif val <= 6.0:\n\treturn \"Expected OCCTL_TWO_PI > 6.0, got \" + str(val)\nreturn \"\"",
+        "doc": "2 * PI constant, approximately 6.28318",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      }
+    ]
+  },
+  "ead07d07fa0cf7edb7b2e938cf167c12b59d66a0e2398aa2b28cc5d5ebf0abb3": {
+    "to_generate": [
+      {
+        "type": "function",
+        "name": "occtl_pi_over_two",
+        "return_type": "double",
+        "arguments": [],
+        "body": "return 0.5 * OCCTL_PI;",
+        "test_body": "var w = OcctlCoreWrapper.new();\nvar val = w.occtl_pi_over_two();\nvar expected_min = 1.5;\nvar expected_max = 1.6;\nif (val < expected_min or val > expected_max):\n    return \"Expected pi/2 to be around 1.57, got: \" + str(val);\nreturn \"\";",
+        "doc": "OCCTL_PI / 2",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      }
+    ]
+  },
+  "ec7b5cb190752381460955ceb647f3248bcd3ed583c3e3b956ff216731fd9bf9": {
+    "to_generate": [
+      {
+        "type": "function",
+        "name": "occtl_rad_per_deg",
+        "return_type": "double",
+        "arguments": [],
+        "body": "return OCCTL_RAD_PER_DEG;",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar val = w.occtl_rad_per_deg()\nif val <= 0 or val >= 1:\n\treturn \"rad_per_deg should be between 0 and 1\"\nreturn \"\"",
+        "doc": "Radians in one degree.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      }
+    ]
+  },
+  "3e750c4586c775ae7b2cbefcdc4cda0787bcaca3948afdd9793e9dadd659d2d5": {
+    "to_generate": [
+      {
+        "type": "function",
+        "name": "occtl_angle_5_deg_rad",
+        "return_type": "double",
+        "arguments": [],
+        "body": "return 5.0 * OCCTL_RAD_PER_DEG;",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar val = w.occtl_angle_5_deg_rad()\nif val < 0.0 or val > 1.0:\n\treturn \"Expected angle in [0, 1] radians, got \" + str(val)\nreturn \"\"",
+        "doc": "5 degrees in radians.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      }
+    ]
+  },
+  "bccd50e9beca30ccee343b0c3298c46336dc1fe160655d7bc7da243a67a4ec9d": {
+    "to_generate": [
+      {
+        "type": "function",
+        "name": "angle_20_deg_rad",
+        "return_type": "float",
+        "arguments": [],
+        "body": "return (20.0 * OCCTL_RAD_PER_DEG);",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar val = w.angle_20_deg_rad()\nif val <= 0:\n    return \"angle_20_deg_rad returned non-positive value: %s\" % val\nreturn \"\"",
+        "doc": "20 degrees in radians.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      }
+    ]
+  },
+  "d7958db7ff3187875e98418f44346c471fcd5506b6a9f063d7bdcd2729ba77cb": {
+    "to_generate": [
+      {
+        "type": "function",
+        "name": "occtl_angle_30_deg_rad",
+        "return_type": "float",
+        "arguments": [],
+        "body": "return (float)(30.0 * OCCTL_RAD_PER_DEG);",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar val = w.occtl_angle_30_deg_rad()\nif val <= 0:\n\treturn \"Expected positive value for 30 degrees in radians\"\nif val > 1.0:\n\treturn \"Expected value around 0.524 for 30 degrees\"\nreturn \"\"",
+        "doc": "30 degrees in radians.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      }
+    ]
+  },
+  "9629da2b9e30e2a5774b148506403da13e0883a73e11cbbb51ebd6a5b1cb3565": {
+    "to_generate": [
+      {
+        "type": "function",
+        "name": "occtl_angle_1_deg_rad",
+        "return_type": "double",
+        "arguments": [],
+        "body": "return OCCTL_RAD_PER_DEG;",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar val = w.occtl_angle_1_deg_rad()\nif val <= 0.0:\n\treturn \"Expected positive value for OCCTL_ANGLE_1_DEG_RAD\"\nreturn \"\"",
+        "doc": "1 degree in radians. Equals OCCTL_RAD_PER_DEG (OCCTL_PI / 180.0).",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      }
+    ]
+  },
+  "7fc73b77df0d743184ab729f7bad39ae9a120db2ae929875246877f841ff283c": {
+    "to_generate": [
+      {
+        "type": "function",
+        "name": "angle_90_deg_rad",
+        "return_type": "double",
+        "arguments": [],
+        "body": "return OCCTL_ANGLE_90_DEG_RAD;",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar v = w.angle_90_deg_rad()\n# 90 degrees in radians is pi/2 \u2248 1.570796\nif v < 1.5 or v > 1.6:\n\treturn \"Expected ~1.5708, got \" + str(v)\nreturn \"\"",
+        "doc": "90 degrees in radians.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      }
+    ]
+  },
+  "2c6a5cedf86dc9a78ff67c90eb7be70841c4faf290d344b9976045d5c6e11086": {
+    "to_generate": []
+  },
+  "b545756f516fc3a0bbef9269fd753bdda73d41b44142afbed32d222842542790": {
+    "to_generate": []
+  },
+  "b346b29b225b02a082c34868fafa1a6e3e5c8e197c73f627adb9d2620d245879": {
+    "to_generate": []
+  },
+  "9800ff3a946b29fc0dd0db16200c50048330205a082ab8f750f5ab39d4981489": {
+    "to_generate": []
+  },
+  "ad59ccf1c3470feafc6030c3cb9891a8cde450b3d4a8aff5aead9f91e6b0dcbc": {
+    "to_generate": []
+  },
+  "05435069ef9bcbec342289c966b618f39cd8ac0369a8e48dca0d7d205f119542": {
+    "to_generate": [
+      {
+        "type": "function",
+        "name": "occtl_ok",
+        "return_type": "int",
+        "arguments": [],
+        "body": "return static_cast<int>(OCCTL_OK);",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar result = w.occtl_ok()\nif result != 0:\n\treturn \"expected occtl_ok to be 0, got %d\" % result\nreturn \"\"",
+        "doc": "Returns OCCTL_OK (0): Success.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      },
+      {
+        "type": "function",
+        "name": "occtl_error",
+        "return_type": "int",
+        "arguments": [],
+        "body": "return static_cast<int>(OCCTL_ERROR);",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar result = w.occtl_error()\nif result != 1:\n\treturn \"expected occtl_error to be 1, got %d\" % result\nreturn \"\"",
+        "doc": "Returns OCCTL_ERROR (1): Generic failure; see occtl_error_last.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      },
+      {
+        "type": "function",
+        "name": "occtl_invalid_argument",
+        "return_type": "int",
+        "arguments": [],
+        "body": "return static_cast<int>(OCCTL_INVALID_ARGUMENT);",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar result = w.occtl_invalid_argument()\nif result != 2:\n\treturn \"expected occtl_invalid_argument to be 2, got %d\" % result\nreturn \"\"",
+        "doc": "Returns OCCTL_INVALID_ARGUMENT (2): A required pointer was NULL or an argument was malformed.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      },
+      {
+        "type": "function",
+        "name": "occtl_invalid_handle",
+        "return_type": "int",
+        "arguments": [],
+        "body": "return static_cast<int>(OCCTL_INVALID_HANDLE);",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar result = w.occtl_invalid_handle()\nif result != 3:\n\treturn \"expected occtl_invalid_handle to be 3, got %d\" % result\nreturn \"\"",
+        "doc": "Returns OCCTL_INVALID_HANDLE (3): A handle was NULL or had been freed.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      },
+      {
+        "type": "function",
+        "name": "occtl_not_found",
+        "return_type": "int",
+        "arguments": [],
+        "body": "return static_cast<int>(OCCTL_NOT_FOUND);",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar result = w.occtl_not_found()\nif result != 4:\n\treturn \"expected occtl_not_found to be 4, got %d\" % result\nreturn \"\"",
+        "doc": "Returns OCCTL_NOT_FOUND (4): Requested entity does not exist.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      },
+      {
+        "type": "function",
+        "name": "occtl_out_of_memory",
+        "return_type": "int",
+        "arguments": [],
+        "body": "return static_cast<int>(OCCTL_OUT_OF_MEMORY);",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar result = w.occtl_out_of_memory()\nif result != 5:\n\treturn \"expected occtl_out_of_memory to be 5, got %d\" % result\nreturn \"\"",
+        "doc": "Returns OCCTL_OUT_OF_MEMORY (5): Allocation failed.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      },
+      {
+        "type": "function",
+        "name": "occtl_out_of_range",
+        "return_type": "int",
+        "arguments": [],
+        "body": "return static_cast<int>(OCCTL_OUT_OF_RANGE);",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar result = w.occtl_out_of_range()\nif result != 6:\n\treturn \"expected occtl_out_of_range to be 6, got %d\" % result\nreturn \"\"",
+        "doc": "Returns OCCTL_OUT_OF_RANGE (6): A numeric argument was outside the valid range.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      },
+      {
+        "type": "function",
+        "name": "occtl_not_done",
+        "return_type": "int",
+        "arguments": [],
+        "body": "return static_cast<int>(OCCTL_NOT_DONE);",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar result = w.occtl_not_done()\nif result != 7:\n\treturn \"expected occtl_not_done to be 7, got %d\" % result\nreturn \"\"",
+        "doc": "Returns OCCTL_NOT_DONE (7): An OCCT operation reported IsDone()==false.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      },
+      {
+        "type": "function",
+        "name": "occtl_geometry_invalid",
+        "return_type": "int",
+        "arguments": [],
+        "body": "return static_cast<int>(OCCTL_GEOMETRY_INVALID);",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar result = w.occtl_geometry_invalid()\nif result != 8:\n\treturn \"expected occtl_geometry_invalid to be 8, got %d\" % result\nreturn \"\"",
+        "doc": "Returns OCCTL_GEOMETRY_INVALID (8): Input geometry was not well-formed.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      },
+      {
+        "type": "function",
+        "name": "occtl_topology_invalid",
+        "return_type": "int",
+        "arguments": [],
+        "body": "return static_cast<int>(OCCTL_TOPOLOGY_INVALID);",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar result = w.occtl_topology_invalid()\nif result != 9:\n\treturn \"expected occtl_topology_invalid to be 9, got %d\" % result\nreturn \"\"",
+        "doc": "Returns OCCTL_TOPOLOGY_INVALID (9): Input topology was not well-formed.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      },
+      {
+        "type": "function",
+        "name": "occtl_io_error",
+        "return_type": "int",
+        "arguments": [],
+        "body": "return static_cast<int>(OCCTL_IO_ERROR);",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar result = w.occtl_io_error()\nif result != 10:\n\treturn \"expected occtl_io_error to be 10, got %d\" % result\nreturn \"\"",
+        "doc": "Returns OCCTL_IO_ERROR (10): Filesystem or I/O failure.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      },
+      {
+        "type": "function",
+        "name": "occtl_format_error",
+        "return_type": "int",
+        "arguments": [],
+        "body": "return static_cast<int>(OCCTL_FORMAT_ERROR);",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar result = w.occtl_format_error()\nif result != 11:\n\treturn \"expected occtl_format_error to be 11, got %d\" % result\nreturn \"\"",
+        "doc": "Returns OCCTL_FORMAT_ERROR (11): File contents were malformed.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      },
+      {
+        "type": "function",
+        "name": "occtl_unsupported",
+        "return_type": "int",
+        "arguments": [],
+        "body": "return static_cast<int>(OCCTL_UNSUPPORTED);",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar result = w.occtl_unsupported()\nif result != 12:\n\treturn \"expected occtl_unsupported to be 12, got %d\" % result\nreturn \"\"",
+        "doc": "Returns OCCTL_UNSUPPORTED (12): Operation not supported in this build/configuration.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      },
+      {
+        "type": "function",
+        "name": "occtl_cancelled",
+        "return_type": "int",
+        "arguments": [],
+        "body": "return static_cast<int>(OCCTL_CANCELLED);",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar result = w.occtl_cancelled()\nif result != 13:\n\treturn \"expected occtl_cancelled to be 13, got %d\" % result\nreturn \"\"",
+        "doc": "Returns OCCTL_CANCELLED (13): A cooperative cancellation was honoured.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      },
+      {
+        "type": "function",
+        "name": "occtl_buffer_too_small",
+        "return_type": "int",
+        "arguments": [],
+        "body": "return static_cast<int>(OCCTL_BUFFER_TOO_SMALL);",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar result = w.occtl_buffer_too_small()\nif result != 14:\n\treturn \"expected occtl_buffer_too_small to be 14, got %d\" % result\nreturn \"\"",
+        "doc": "Returns OCCTL_BUFFER_TOO_SMALL (14): Two-call pattern: caller buffer was too small.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      },
+      {
+        "type": "function",
+        "name": "occtl_version_mismatch",
+        "return_type": "int",
+        "arguments": [],
+        "body": "return static_cast<int>(OCCTL_VERSION_MISMATCH);",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar result = w.occtl_version_mismatch()\nif result != 15:\n\treturn \"expected occtl_version_mismatch to be 15, got %d\" % result\nreturn \"\"",
+        "doc": "Returns OCCTL_VERSION_MISMATCH (15): Options struct_version is not supported.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      },
+      {
+        "type": "function",
+        "name": "occtl_internal",
+        "return_type": "int",
+        "arguments": [],
+        "body": "return static_cast<int>(OCCTL_INTERNAL);",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar result = w.occtl_internal()\nif result != 16:\n\treturn \"expected occtl_internal to be 16, got %d\" % result\nreturn \"\"",
+        "doc": "Returns OCCTL_INTERNAL (16): C++ exception caught at the ABI boundary.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      },
+      {
+        "type": "function",
+        "name": "occtl_wrong_kind",
+        "return_type": "int",
+        "arguments": [],
+        "body": "return static_cast<int>(OCCTL_WRONG_KIND);",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar result = w.occtl_wrong_kind()\nif result != 17:\n\treturn \"expected occtl_wrong_kind to be 17, got %d\" % result\nreturn \"\"",
+        "doc": "Returns OCCTL_WRONG_KIND (17): Handle holds a different kind than the extractor expects.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      },
+      {
+        "type": "function",
+        "name": "occtl_status_reserved_future",
+        "return_type": "int",
+        "arguments": [],
+        "body": "return static_cast<int>(OCCTL_STATUS_RESERVED_FUTURE);",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar result = w.occtl_status_reserved_future()\nif result != 0x7fffffff:\n\treturn \"expected reserved_future to be 0x7fffffff, got %d\" % result\nreturn \"\"",
+        "doc": "Returns OCCTL_STATUS_RESERVED_FUTURE (0x7fffffff): Sentinel forcing int32_t storage.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      }
+    ]
+  },
+  "3091dc51e9816cb3fd293e07423625d56c685f12842aee9b415f193ab1aa2685": {
+    "to_generate": []
+  },
+  "3c166d973a260ef68fcb13e83dc97e31029af4d70980e2fe57e0b31e34accdf5": {
+    "to_generate": [
+      {
+        "type": "function",
+        "name": "occtl_succeeded",
+        "return_type": "bool",
+        "arguments": [
+          {
+            "type": "int",
+            "name": "status"
+          }
+        ],
+        "body": "return status == 0;",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar result_success = w.occtl_succeeded(0)\nif result_success != true:\n\treturn \"Expected occtl_succeeded(0) to return true\"\nvar result_fail = w.occtl_succeeded(1)\nif result_fail != false:\n\treturn \"Expected occtl_succeeded(1) to return false\"\nreturn \"\"",
+        "doc": "Returns true if the status indicates success (i.e., status equals OCCTL_OK which is 0).",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      }
+    ]
+  },
+  "493c8ca6bf092832c3181f520967ae18444ec3c12b56b3b29f1bcd4ef819fa92": {
+    "to_generate": [
+      {
+        "type": "function",
+        "name": "occtl_kind_invalid",
+        "return_type": "int",
+        "arguments": [],
+        "body": "return 0;",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar v = w.occtl_kind_invalid()\nif v != 0:\n\treturn \"expected 0, got %d\" % v\nreturn \"\"",
+        "doc": "Invalid / zero sentinel. Value is 0 so calloc/memset-zero IDs are naturally invalid.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      },
+      {
+        "type": "function",
+        "name": "occtl_kind_solid",
+        "return_type": "int",
+        "arguments": [],
+        "body": "return 1;",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar v = w.occtl_kind_solid()\nif v != 1:\n\treturn \"expected 1, got %d\" % v\nreturn \"\"",
+        "doc": "Solid node kind. Value is 1.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      },
+      {
+        "type": "function",
+        "name": "occtl_kind_shell",
+        "return_type": "int",
+        "arguments": [],
+        "body": "return 2;",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar v = w.occtl_kind_shell()\nif v != 2:\n\treturn \"expected 2, got %d\" % v\nreturn \"\"",
+        "doc": "Shell node kind. Value is 2.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      },
+      {
+        "type": "function",
+        "name": "occtl_kind_face",
+        "return_type": "int",
+        "arguments": [],
+        "body": "return 3;",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar v = w.occtl_kind_face()\nif v != 3:\n\treturn \"expected 3, got %d\" % v\nreturn \"\"",
+        "doc": "Face node kind. Value is 3.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      },
+      {
+        "type": "function",
+        "name": "occtl_kind_wire",
+        "return_type": "int",
+        "arguments": [],
+        "body": "return 4;",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar v = w.occtl_kind_wire()\nif v != 4:\n\treturn \"expected 4, got %d\" % v\nreturn \"\"",
+        "doc": "Wire node kind. Value is 4.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      },
+      {
+        "type": "function",
+        "name": "occtl_kind_edge",
+        "return_type": "int",
+        "arguments": [],
+        "body": "return 5;",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar v = w.occtl_kind_edge()\nif v != 5:\n\treturn \"expected 5, got %d\" % v\nreturn \"\"",
+        "doc": "Edge node kind. Value is 5.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      },
+      {
+        "type": "function",
+        "name": "occtl_kind_vertex",
+        "return_type": "int",
+        "arguments": [],
+        "body": "return 6;",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar v = w.occtl_kind_vertex()\nif v != 6:\n\treturn \"expected 6, got %d\" % v\nreturn \"\"",
+        "doc": "Vertex node kind. Value is 6.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      },
+      {
+        "type": "function",
+        "name": "occtl_kind_compound",
+        "return_type": "int",
+        "arguments": [],
+        "body": "return 7;",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar v = w.occtl_kind_compound()\nif v != 7:\n\treturn \"expected 7, got %d\" % v\nreturn \"\"",
+        "doc": "Compound node kind. Value is 7.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      },
+      {
+        "type": "function",
+        "name": "occtl_kind_compsolid",
+        "return_type": "int",
+        "arguments": [],
+        "body": "return 8;",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar v = w.occtl_kind_compsolid()\nif v != 8:\n\treturn \"expected 8, got %d\" % v\nreturn \"\"",
+        "doc": "CompSolid node kind. Value is 8.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      },
+      {
+        "type": "function",
+        "name": "occtl_kind_coedge",
+        "return_type": "int",
+        "arguments": [],
+        "body": "return 9;",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar v = w.occtl_kind_coedge()\nif v != 9:\n\treturn \"expected 9, got %d\" % v\nreturn \"\"",
+        "doc": "CoEdge (half-edge) node kind. Value is 9.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      },
+      {
+        "type": "function",
+        "name": "occtl_kind_product",
+        "return_type": "int",
+        "arguments": [],
+        "body": "return 10;",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar v = w.occtl_kind_product()\nif v != 10:\n\treturn \"expected 10, got %d\" % v\nreturn \"\"",
+        "doc": "Product (assembly root) node kind. Value is 10.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      },
+      {
+        "type": "function",
+        "name": "occtl_kind_occurrence",
+        "return_type": "int",
+        "arguments": [],
+        "body": "return 11;",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar v = w.occtl_kind_occurrence()\nif v != 11:\n\treturn \"expected 11, got %d\" % v\nreturn \"\"",
+        "doc": "Occurrence (assembly instance) node kind. Value is 11.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      },
+      {
+        "type": "function",
+        "name": "occtl_node_kind_reserved_future",
+        "return_type": "int",
+        "arguments": [],
+        "body": "return 2147483647;",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar v = w.occtl_node_kind_reserved_future()\nif v != 2147483647:\n\treturn \"expected 2147483647, got %d\" % v\nreturn \"\"",
+        "doc": "Reserved future sentinel. Value is 0x7fffffff (2147483647). New kinds are appended before this value.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      }
+    ]
+  },
+  "afa49c4f915786305362d5f21d018d22c30f271a8453fb8ee91662433870fc14": {
+    "to_generate": [
+      {
+        "type": "function",
+        "name": "occtl_rep_kind_invalid",
+        "return_type": "int",
+        "arguments": [],
+        "body": "return OCCTL_REP_KIND_INVALID;",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar val = w.occtl_rep_kind_invalid()\nif val != 0:\n\treturn \"Expected OCCTL_REP_KIND_INVALID == 0, got \" + str(val)\nreturn \"\"",
+        "doc": "Invalid / zero sentinel.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      },
+      {
+        "type": "function",
+        "name": "occtl_rep_kind_surface",
+        "return_type": "int",
+        "arguments": [],
+        "body": "return OCCTL_REP_KIND_SURFACE;",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar val = w.occtl_rep_kind_surface()\nif val != 1:\n\treturn \"Expected OCCTL_REP_KIND_SURFACE == 1, got \" + str(val)\nreturn \"\"",
+        "doc": "3D surface geometry.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      },
+      {
+        "type": "function",
+        "name": "occtl_rep_kind_curve3d",
+        "return_type": "int",
+        "arguments": [],
+        "body": "return OCCTL_REP_KIND_CURVE3D;",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar val = w.occtl_rep_kind_curve3d()\nif val != 2:\n\treturn \"Expected OCCTL_REP_KIND_CURVE3D == 2, got \" + str(val)\nreturn \"\"",
+        "doc": "3D curve geometry.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      },
+      {
+        "type": "function",
+        "name": "occtl_rep_kind_curve2d",
+        "return_type": "int",
+        "arguments": [],
+        "body": "return OCCTL_REP_KIND_CURVE2D;",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar val = w.occtl_rep_kind_curve2d()\nif val != 3:\n\treturn \"Expected OCCTL_REP_KIND_CURVE2D == 3, got \" + str(val)\nreturn \"\"",
+        "doc": "2D parametric curve on a face (PCurve).",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      },
+      {
+        "type": "function",
+        "name": "occtl_rep_kind_triangulation",
+        "return_type": "int",
+        "arguments": [],
+        "body": "return OCCTL_REP_KIND_TRIANGULATION;",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar val = w.occtl_rep_kind_triangulation()\nif val != 4:\n\treturn \"Expected OCCTL_REP_KIND_TRIANGULATION == 4, got \" + str(val)\nreturn \"\"",
+        "doc": "Surface triangulation.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      },
+      {
+        "type": "function",
+        "name": "occtl_rep_kind_polygon3d",
+        "return_type": "int",
+        "arguments": [],
+        "body": "return OCCTL_REP_KIND_POLYGON3D;",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar val = w.occtl_rep_kind_polygon3d()\nif val != 5:\n\treturn \"Expected OCCTL_REP_KIND_POLYGON3D == 5, got \" + str(val)\nreturn \"\"",
+        "doc": "3D polyline along an edge.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      },
+      {
+        "type": "function",
+        "name": "occtl_rep_kind_polygon2d",
+        "return_type": "int",
+        "arguments": [],
+        "body": "return OCCTL_REP_KIND_POLYGON2D;",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar val = w.occtl_rep_kind_polygon2d()\nif val != 6:\n\treturn \"Expected OCCTL_REP_KIND_POLYGON2D == 6, got \" + str(val)\nreturn \"\"",
+        "doc": "2D polyline.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      },
+      {
+        "type": "function",
+        "name": "occtl_rep_kind_polygon_on_tri",
+        "return_type": "int",
+        "arguments": [],
+        "body": "return OCCTL_REP_KIND_POLYGON_ON_TRI;",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar val = w.occtl_rep_kind_polygon_on_tri()\nif val != 7:\n\treturn \"Expected OCCTL_REP_KIND_POLYGON_ON_TRI == 7, got \" + str(val)\nreturn \"\"",
+        "doc": "Polyline indexed onto a triangulation.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      },
+      {
+        "type": "function",
+        "name": "occtl_rep_kind_reserved_future",
+        "return_type": "int",
+        "arguments": [],
+        "body": "return OCCTL_REP_KIND_RESERVED_FUTURE;",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar val = w.occtl_rep_kind_reserved_future()\nif val != 0x7fffffff:\n\treturn \"Expected OCCTL_REP_KIND_RESERVED_FUTURE == 0x7fffffff, got \" + str(val)\nreturn \"\"",
+        "doc": "Reserved future sentinel value.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      }
+    ]
+  },
+  "61efe85ca6b6147489f2637339e47b66a49e20335fd0cff8aef18ecf5f6694f5": {
+    "to_generate": [
+      {
+        "type": "function",
+        "name": "occtl_ref_kind_invalid",
+        "return_type": "int",
+        "arguments": [],
+        "body": "return 0;",
+        "test_body": "var w = OcctlCoreWrapper.new()\nif w.occtl_ref_kind_invalid() != 0:\n\treturn \"occtl_ref_kind_invalid wrong: got %d\" % w.occtl_ref_kind_invalid()\nreturn \"\"",
+        "doc": "Invalid / zero sentinel.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      },
+      {
+        "type": "function",
+        "name": "occtl_ref_kind_shell",
+        "return_type": "int",
+        "arguments": [],
+        "body": "return 1;",
+        "test_body": "var w = OcctlCoreWrapper.new()\nif w.occtl_ref_kind_shell() != 1:\n\treturn \"occtl_ref_kind_shell wrong: got %d\" % w.occtl_ref_kind_shell()\nreturn \"\"",
+        "doc": "Usage of a Shell definition.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      },
+      {
+        "type": "function",
+        "name": "occtl_ref_kind_face",
+        "return_type": "int",
+        "arguments": [],
+        "body": "return 2;",
+        "test_body": "var w = OcctlCoreWrapper.new()\nif w.occtl_ref_kind_face() != 2:\n\treturn \"occtl_ref_kind_face wrong: got %d\" % w.occtl_ref_kind_face()\nreturn \"\"",
+        "doc": "Usage of a Face definition.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      },
+      {
+        "type": "function",
+        "name": "occtl_ref_kind_wire",
+        "return_type": "int",
+        "arguments": [],
+        "body": "return 3;",
+        "test_body": "var w = OcctlCoreWrapper.new()\nif w.occtl_ref_kind_wire() != 3:\n\treturn \"occtl_ref_kind_wire wrong: got %d\" % w.occtl_ref_kind_wire()\nreturn \"\"",
+        "doc": "Usage of a Wire definition.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      },
+      {
+        "type": "function",
+        "name": "occtl_ref_kind_coedge",
+        "return_type": "int",
+        "arguments": [],
+        "body": "return 4;",
+        "test_body": "var w = OcctlCoreWrapper.new()\nif w.occtl_ref_kind_coedge() != 4:\n\treturn \"occtl_ref_kind_coedge wrong: got %d\" % w.occtl_ref_kind_coedge()\nreturn \"\"",
+        "doc": "Usage of a CoEdge definition.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      },
+      {
+        "type": "function",
+        "name": "occtl_ref_kind_vertex",
+        "return_type": "int",
+        "arguments": [],
+        "body": "return 5;",
+        "test_body": "var w = OcctlCoreWrapper.new()\nif w.occtl_ref_kind_vertex() != 5:\n\treturn \"occtl_ref_kind_vertex wrong: got %d\" % w.occtl_ref_kind_vertex()\nreturn \"\"",
+        "doc": "Usage of a Vertex definition.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      },
+      {
+        "type": "function",
+        "name": "occtl_ref_kind_solid",
+        "return_type": "int",
+        "arguments": [],
+        "body": "return 6;",
+        "test_body": "var w = OcctlCoreWrapper.new()\nif w.occtl_ref_kind_solid() != 6:\n\treturn \"occtl_ref_kind_solid wrong: got %d\" % w.occtl_ref_kind_solid()\nreturn \"\"",
+        "doc": "Usage of a Solid definition.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      },
+      {
+        "type": "function",
+        "name": "occtl_ref_kind_child",
+        "return_type": "int",
+        "arguments": [],
+        "body": "return 7;",
+        "test_body": "var w = OcctlCoreWrapper.new()\nif w.occtl_ref_kind_child() != 7:\n\treturn \"occtl_ref_kind_child wrong: got %d\" % w.occtl_ref_kind_child()\nreturn \"\"",
+        "doc": "Generic mixed-kind child reference.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      },
+      {
+        "type": "function",
+        "name": "occtl_ref_kind_occurrence",
+        "return_type": "int",
+        "arguments": [],
+        "body": "return 8;",
+        "test_body": "var w = OcctlCoreWrapper.new()\nif w.occtl_ref_kind_occurrence() != 8:\n\treturn \"occtl_ref_kind_occurrence wrong: got %d\" % w.occtl_ref_kind_occurrence()\nreturn \"\"",
+        "doc": "Usage of an Occurrence.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      },
+      {
+        "type": "function",
+        "name": "occtl_ref_kind_reserved_future",
+        "return_type": "int",
+        "arguments": [],
+        "body": "return 2147483647;",
+        "test_body": "var w = OcctlCoreWrapper.new()\nif w.occtl_ref_kind_reserved_future() != 2147483647:\n\treturn \"occtl_ref_kind_reserved_future wrong: got %d\" % w.occtl_ref_kind_reserved_future()\nreturn \"\"",
+        "doc": "Reserved future sentinel.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      }
+    ]
+  },
+  "653a02c804863edbb067e03ae06f8846243ebe6373a3581f16a0f66ea374f338": {
+    "to_generate": [
+      {
+        "type": "function",
+        "name": "rep_id_invalid",
+        "return_type": "int64_t",
+        "arguments": [],
+        "body": "occtl_rep_id_t val = {0};\nreturn static_cast<int64_t>(val.bits);",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar result = w.rep_id_invalid()\nif result != 0:\n\treturn \"Expected rep_id_invalid to be 0, got %d\" % result\nreturn \"\"",
+        "doc": "Returns zero-initialized occtl_rep_id_t as the sentinel value for an invalid/empty representation ID.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      }
+    ]
+  },
+  "ad23923c16b76cf6163f79c35938fdf160ef0eb5456cd7c877ef8a16cc36db0a": {
+    "to_generate": [
+      {
+        "type": "function",
+        "name": "rep_id_invalid",
+        "return_type": "int64_t",
+        "arguments": [],
+        "body": "occtl_rep_id_t val = {};\nreturn static_cast<int64_t>(val.bits);",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar invalid = w.rep_id_invalid()\nif invalid != 0:\n\treturn \"expected OCCTL_REP_ID_INVALID to be 0 but got \" + str(invalid)\nreturn \"\"",
+        "doc": "Invalid sentinel for occtl_rep_id_t, a zero-initialized 64-bit identifier.",
+        "extra_headers": [
+          "occtl/occtl_core.h"
+        ],
+        "condition_directive": null,
+        "condition_expression": null
+      }
+    ]
+  },
+  "1ca829ca33a222e25fb1e5796de75d447baf9eeacfc81eb97306bedab98743ee": {
+    "to_generate": [
+      {
+        "type": "handle",
+        "handle_type": "uint64_t",
+        "doc": "Opaque 64-bit representation identity for geometry/mesh data in the graph. The all-zero value is the invalid sentinel.",
+        "condition_directive": null,
+        "condition_expression": null
+      }
+    ]
+  },
+  "4d5143474e1710e18be60485d07c9cac3dec817a489d152fd18fde35c5ae7ed5": {
+    "to_generate": [
+      {
+        "type": "handle",
+        "handle_type": "uint64_t",
+        "doc": "Persistent unique identity of a graph entity that survives compaction and most node removals, unlike occtl_node_id_t which is session-local. The all-zero value (#OCCTL_UID_INVALID) is the invalid sentinel \u2014 compare with bits == 0.",
+        "condition_directive": null,
+        "condition_expression": null
+      }
+    ]
+  },
+  "db0362c0d307819c5af8df07b205112a1547aa910762006a58d80a390abbf9ad": {
+    "to_generate": [
+      {
+        "type": "function",
+        "name": "occtl_uid_invalid",
+        "return_type": "int64_t",
+        "arguments": [],
+        "body": "occtl_uid_t uid = {0};\nreturn static_cast<int64_t>(uid.bits);",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar bits = w.occtl_uid_invalid()\nif bits != 0:\n\treturn \"Expected OCCTL_UID_INVALID to be 0, got %d\" % bits\nreturn \"\"",
+        "doc": "Returns the invalid UID sentinel value (all zeros).",
+        "extra_headers": [
+          "<cstdint>"
+        ],
+        "condition_directive": "#ifdef",
+        "condition_expression": "__cplusplus"
+      }
+    ]
+  },
+  "cc022299142f10a5987f0980da986a9dd329aaf3f374ca99c1ef7373b5209091": {
+    "to_generate": [
+      {
+        "type": "function",
+        "name": "runtime_init_info_init",
+        "return_type": "Dictionary",
+        "arguments": [],
+        "body": "occtl_runtime_init_info_t info = {};\n  occtl_status_t status = ::occtl_runtime_init_info_init(&info);\n  Dictionary d;\n  d[\"status\"] = static_cast<int>(status);\n  d[\"struct_version\"] = static_cast<int64_t>(info.struct_version);\n  d[\"p_next\"] = static_cast<int64_t>(reinterpret_cast<intptr_t>(info.p_next));\n  return d;",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar result = w.runtime_init_info_init()\nif result[\"status\"] != 0:\n    return \"status is not OCCTL_OK, got \" + str(result[\"status\"])\nif result[\"struct_version\"] != 1:\n    return \"struct_version unexpected, got \" + str(result[\"struct_version\"])\nif result[\"p_next\"] != 0:\n    return \"p_next should be null\"\nreturn \"\"",
+        "doc": "Initialises an occtl_runtime_init_info_t to the default values. Equivalent to the OCCTL_RUNTIME_INIT_INFO_INIT macro but callable from binding languages that cannot use C macros. Returns a Dictionary with status (occtl_status_t as int), struct_version (uint32_t), and p_next (pointer as int64_t).",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      }
+    ]
+  },
+  "5deaa091d7e061cce1f9581822d992f24ea1e2989dca2b8b4a472613a4c64669": {
+    "to_generate": [
+      {
+        "type": "function",
+        "name": "occtl_runtime_shutdown",
+        "return_type": "void",
+        "arguments": [],
+        "body": "::occtl_runtime_shutdown();",
+        "test_body": "var w = OcctlCoreWrapper.new()\nw.occtl_runtime_shutdown()\nreturn \"\"",
+        "doc": "Releases process-wide runtime state allocated by #occtl_runtime_init. After this returns, OCCT-Light entry points may still be called \u2014 they will lazy-initialise again with defaults. Call this only at process teardown when you want a clean state. @threadsafe No (no other thread may issue OCCT-Light calls during shutdown).",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      }
+    ]
+  },
+  "97cae7b419acf39e20ce2e4e26ccf1061ac9239ffefe7d0b34a202b1fb5c1c38": {
+    "to_generate": [
+      {
+        "type": "function",
+        "name": "occtl_uid_wire_size",
+        "return_type": "int",
+        "arguments": [],
+        "body": "return 16;",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar size = w.occtl_uid_wire_size()\nif size < 0:\n\treturn \"expected non-negative size\"\nreturn \"\"",
+        "doc": "Number of bytes in the wire-format encoding of an #occtl_uid_t. The wire format is a fixed-width opaque blob (16 bytes); do not parse it. The top 8 bytes carry the current 64-bit packed identity in big-endian order; the bottom 8 bytes are reserved (always zero today) so that future widening of the kind tag or counter field can re-key existing stored UIDs without breaking persistence.",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      }
+    ]
+  },
+  "2e5eafcf881b57ad6f6981578096d3001392c08235741d0975af0d7e5cd25ff1": {
+    "to_generate": [
+      {
+        "type": "function",
+        "name": "uid_to_bytes",
+        "return_type": "Dictionary",
+        "arguments": [
+          {
+            "type": "int64_t",
+            "name": "uid"
+          }
+        ],
+        "body": "uint8_t bytes[16] = {};\nocctl_uid_t uid_val = {static_cast<uint64_t>(uid)};\nocctl_status_t status = ::occtl_uid_to_bytes(uid_val, bytes);\nDictionary d;\nd[\"status\"] = static_cast<int>(status);\nif (status != OCCTL_OK) {\n    return d;\n}\nPackedByteArray arr;\narr.resize(16);\nfor (int i = 0; i < 16; i++) arr.set(i, bytes[i]);\nd[\"bytes\"] = arr;\nreturn d;",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar result = w.uid_to_bytes(0)\nif result[\"status\"] != 0:\n    return \"Expected status 0 for uid_to_bytes\"\nvar bytes = result[\"bytes\"]\nif bytes.size() != 16:\n    return \"Expected 16 bytes in result\"\nreturn \"\"",
+        "doc": "Encodes a UID into its 16-byte wire format. Round-trips losslessly through occtl_uid_from_bytes for any valid or invalid UID. Byte order is fixed at big-endian and stable across future ABI versions.",
+        "extra_headers": [
+          "occtl_core.h"
+        ],
+        "condition_directive": null,
+        "condition_expression": null
+      }
+    ]
+  },
+  "9819ffbf1c6db224961c4b0546842fb73ba49fd25fb4f9e1ef4b73938b8a5dd3": {
+    "to_generate": [
+      {
+        "type": "function",
+        "name": "uid_equal",
+        "return_type": "int",
+        "arguments": [
+          {
+            "type": "int64_t",
+            "name": "a"
+          },
+          {
+            "type": "int64_t",
+            "name": "b"
+          }
+        ],
+        "body": "occtl_uid_t ua = {0};\nua.bits = static_cast<uint64_t>(a);\nocctl_uid_t ub = {0};\nub.bits = static_cast<uint64_t>(b);\nreturn static_cast<int>(::occtl_uid_equal(ua, ub));",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar eq_self = w.uid_equal(0, 0)\nif eq_self != 1:\n\treturn \"Expected 1 for equal zero UIDs, got \" + str(eq_self)\nvar neq = w.uid_equal(0, 1)\nif neq != 0:\n\treturn \"Expected 0 for unequal UIDs, got \" + str(neq)\nvar eq_vals = w.uid_equal(100, 100)\nif eq_vals != 1:\n\treturn \"Expected 1 for equal non-zero UIDs, got \" + str(eq_vals)\nreturn \"\"",
+        "doc": "Tests two UIDs for equality.\n\n@param[in] a  First UID (bits field).\n@param[in] b  Second UID (bits field).\n@retval 1  UIDs are equal.\n@retval 0  UIDs differ.\n\n@threadsafe Yes.\n\n@sa occtl_uid_to_bytes, occtl_uid_from_bytes",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      }
+    ]
+  },
+  "dd6da0590a2a4da525bbd3088b6d869185a08e37d9d8a85f6bbe5b4915c4626a": {
+    "to_generate": [
+      {
+        "type": "function",
+        "name": "occtl_uid_from_bytes",
+        "return_type": "Dictionary",
+        "arguments": [
+          {
+            "type": "PackedByteArray",
+            "name": "in_bytes"
+          }
+        ],
+        "body": "occtl_uid_t uid = {};\nint status = static_cast<int>(::occtl_uid_from_bytes(in_bytes.ptr(), &uid));\nDictionary d;\nd[\"status\"] = status;\nd[\"uid_bits\"] = static_cast<int64_t>(uid.bits);\nreturn d;",
+        "test_body": "var w = OcctlCoreWrapper.new()\nvar bytes = PackedByteArray()\nfor i in range(16):\n\tbytes.append(0)\nvar result = w.occtl_uid_from_bytes(bytes)\nif result[\"status\"] != 0:\n\treturn \"Expected status 0, got \" + str(result[\"status\"])\nif result[\"uid_bits\"] != 0:\n\treturn \"Expected uid_bits 0, got \" + str(result[\"uid_bits\"])\nreturn \"\"",
+        "doc": "Decodes a 16-byte wire-format UID back into an #occtl_uid_t. Rejects payloads whose reserved bytes are non-zero (returns #OCCTL_FORMAT_ERROR) \u2014 those signal a future wider encoding that this build does not understand. An all-zero input returns #OCCTL_UID_INVALID with #OCCTL_OK. @param[in] in_bytes Borrows it. Must point to a readable buffer of at least #OCCTL_UID_WIRE_SIZE bytes. @param[out] out_uid Borrows it. Must be non-NULL. @retval OCCTL_OK On success. @retval OCCTL_INVALID_ARGUMENT @p in_bytes or @p out_uid is NULL. @retval OCCTL_FORMAT_ERROR Reserved bytes are non-zero. @threadsafe Yes. @sa occtl_uid_to_bytes",
+        "extra_headers": [],
+        "condition_directive": null,
+        "condition_expression": null
+      }
+    ]
+  },
+  "4b484d63b25377d875a0a9c914e4faafcc448b64645529869eaa4596ab569157": {
+    "to_generate": []
   }
 }
