@@ -8,3 +8,6 @@
 	path = OCCT-Light
 	url = git@github.com:yeicor/OCCT-Light.git
 	branch = prototype-1
+[submodule "OCCT-Light.gd-autowrapper"]
+	path = OCCT-Light.gd-autowrapper
+	url = git@github.com:yeicor/OCCT-Light.gd-autowrapper.git

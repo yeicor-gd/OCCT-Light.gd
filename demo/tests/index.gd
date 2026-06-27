@@ -3,16 +3,5 @@
 # This file is necessary for test runner compatibility with exported binaries.
 
 const SUITES := [
-	"res://tests/test_face_profiles.gd",
-	"res://tests/test_feature_operations.gd",
-	"res://tests/test_geometry_vector.gd",
-	"res://tests/test_import_export.gd",
-	"res://tests/test_opencascade_version.gd",
-	"res://tests/test_placement_helpers.gd",
-	"res://tests/test_primitives_and_transforms.gd",
-	"res://tests/test_profile_primitives.gd",
-	"res://tests/test_shape_list_selectors.gd",
-	"res://tests/test_solid_box.gd",
-	"res://tests/test_topology_accessors.gd",
-	"res://tests/test_typed_topology.gd",
+	"res://tests/test_autowrapper.gd",
 ]

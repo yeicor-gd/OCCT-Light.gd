@@ -89,7 +89,15 @@ if(GODOTCPP_TARGET MATCHES "editor|template_debug")
 endif()
 
 # Define the shared library target
-file(GLOB_RECURSE SOURCES "src/*.cpp" "src/**/*.cpp")
+# Hand-written sources + autowrapper-generated sources
+file(GLOB_RECURSE SOURCES
+    "src/*.cpp"
+    "src/**/*.cpp"
+    "src/autowrapper/*.cpp"
+    "src/autowrapper/**/*.cpp"
+)
+# Ensure autowrapper directories exist (even if empty, for glob to work)
+file(MAKE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/autowrapper")
 if(CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
   add_library(${PROJECT_NAME} MODULE ${SOURCES} ${DOC_GEN_FILE})
   target_link_options(${PROJECT_NAME} PRIVATE "-sSIDE_MODULE=1")
@@ -104,6 +112,18 @@ endif()
 # the OCCT runtime libraries and include directories via FindOCCT.cmake).
 target_link_libraries(${PROJECT_NAME} PRIVATE godot-cpp OCCTL::core OCCTL::geom OCCTL::topo OCCTL::prim OCCTL::text OCCTL::bool OCCTL::mesh OCCTL::heal OCCTL::io_brep OCCTL::io_step OCCTL::io_iges OCCTL::io_stl OCCTL::io_obj OCCTL::io_gltf OCCTL::io_vrml OCCTL::io_ply OCCTL::de)
 target_include_directories(${PROJECT_NAME} SYSTEM PRIVATE godot-cpp/include)
+target_include_directories(${PROJECT_NAME} PRIVATE src/autowrapper)
+
+# OCCT-Light headers are installed under the occtl/ subdirectory of the
+# OCCTL include tree (e.g. <prefix>/include/occtl/occtl_core.h).
+# The autowrapper-generated code emits bare filenames like "occtl_core.h"
+# without the module prefix, so add the subdirectory explicitly.
+# This uses the same path resolution logic as FindOCCT.cmake.
+if(OpenCASCADE_DIR)
+  get_filename_component(_occtl_inc_prefix "${OpenCASCADE_DIR}/../../include/occtl" ABSOLUTE)
+  target_include_directories(${PROJECT_NAME} PRIVATE "${_occtl_inc_prefix}")
+  unset(_occtl_inc_prefix)
+endif()
 
 if(MSVC) # Maximum warnings and treat them as errors
   set(WARN_FLAGS "/W4")

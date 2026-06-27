@@ -64,7 +64,42 @@ if [ "$DO_BUILD" = "1" ] || [ "$DO_BUILD" = "true" ]; then
     if [ $BUILD_EXIT -ne 0 ]; then
         echo "Build failed!"
         if [ -n "$ERROR_FILE" ]; then
-            grep -E "^(ERROR:|error:|fatal error:|CMake Error|FAILED:|ninja: build stopped|collect2: error:|ld: |undefined reference to |clang: error:)" "$BUILD_LOG" > "$ERROR_FILE" || true
+            # Extract ALL compiler/error lines comprehensively.
+            # This captures GCC/Clang style (file:line:col: error:), common vcpkg/cmake
+            # messages, linker errors, and includes surrounding context for each.
+            {
+                # 1. Extract lines matching common error patterns (with line numbers)
+                grep -n \
+                  -e '[.:][0-9]*:[0-9]*:[[:space:]]*error:' \
+                  -e '[.:][0-9]*:[0-9]*:[[:space:]]*fatal error:' \
+                  -e '[.:][0-9]*:[0-9]*:[[:space:]]*warning:' \
+                  -e '[.:][0-9]*:[0-9]*:[[:space:]]*note:' \
+                  -e '[.:][0-9]*:[0-9]*:[[:space:]]*undefined reference' \
+                  -e 'CMake Error' \
+                  -e 'CMake Warning' \
+                  -e 'FAILED:' \
+                  -e 'ninja: build stopped' \
+                  -e 'collect2: error' \
+                  -e 'ld: ' \
+                  -e 'undefined reference to' \
+                  -e 'In file included from' \
+                  -e 'cc1plus:' \
+                  -e 'g\+\+:' \
+                  -e 'error: ' \
+                  -e 'Error: ' \
+                  -e 'BUILD_FAILED' \
+                  -e 'vcpkg_execute_build_process' \
+                  "$BUILD_LOG" 2>/dev/null | head -200 > "$ERROR_FILE"
+
+                if [ ! -s "$ERROR_FILE" ]; then
+                    # Fall back to the last 500 lines of the build log
+                    echo "=== Last 500 lines of build output ===" > "$ERROR_FILE"
+                    tail -500 "$BUILD_LOG" >> "$ERROR_FILE"
+                fi
+            } 2>/dev/null || {
+                # Ultimate fallback: capture the whole tail of build
+                tail -500 "$BUILD_LOG" > "$ERROR_FILE"
+            }
         fi
         exit 1
     fi
@@ -157,7 +192,7 @@ unset LD_PRELOAD LSAN_OPTIONS
 _extract_errors() {
     echo "$1" | \
     grep -E -v "(ObjectDB|RID).*leaked|resources still in use at exit" | \
-    grep -E "failed|^ERROR:|^SCRIPT ERROR:|^WARNING:|^handle_crash:|Shader compilation error|Script compilation error|Parse error|undefined method|undefined symbol|not found|No such|^TESTS FAILED|^handle_crash:" || return 0
+    grep -i -E "failed|error|warning|crash|assert|exception|abort|segfault|undefined|not found|no such|TESTS FAILED" || return 0
 }
 
 ERRORS=$(_extract_errors "$IMPORT_LOG"$'\n'"$RUNTIME_LOG")

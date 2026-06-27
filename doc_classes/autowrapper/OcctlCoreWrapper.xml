@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="OcctlCoreWrapper" inherits="RefCounted" version="4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/godotengine/godot/master/doc/class.xsd">
+	<brief_description>
+		Generated docs for OcctlCoreWrapper.
+	</brief_description>
+	<description>
+		Auto-generated documentation for OcctlCoreWrapper.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="version_major">
+			<return type="int" />
+			<description>
+				Major version component of the library SemVer. Defined by the build system; defaults to 0 if not set.
+			</description>
+		</method>
+		<method name="version_minor">
+			<return type="int" />
+			<description>
+				Minor version component of the library SemVer. Defined by the build system; defaults to 0 if not set.
+			</description>
+		</method>
+		<method name="version_patch">
+			<return type="int" />
+			<description>
+				Patch version component of the library SemVer. Defined by the build system; defaults to 0 if not set.
+			</description>
+		</method>
+	</methods>
+</class>

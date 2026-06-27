@@ -16,6 +16,9 @@
 /vcpkg_ports/*/.last_build
 /vcpkg_installed/
 
+# Autowrapper temporary build error files
+/.build_errors_*.txt
+
 # Godot auto generated files
 /demo/.godot/
 /demo/addons/*/*
