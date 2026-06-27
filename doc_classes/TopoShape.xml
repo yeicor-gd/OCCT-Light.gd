@@ -1,0 +1,290 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="TopoShape" inherits="RefCounted" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/godotengine/godot/master/doc/class.xsd">
+	<brief_description>
+		Generic OpenCASCADE topological shape wrapper.
+	</brief_description>
+	<description>
+		[TopoShape] wraps a [code]TopoDS_Shape[/code] and exposes measurements, bounds, copying, and core boolean operations. It is the first reusable topology abstraction for the extension.
+	</description>
+	<methods>
+		<method name="is_null" qualifiers="const">
+			<return type="bool" />
+			<description>
+				Returns [code]true[/code] if the wrapper does not currently hold a shape.
+			</description>
+		</method>
+		<method name="copy" qualifiers="const">
+			<return type="TopoShape" />
+			<description>
+				Returns a copied shape.
+			</description>
+		</method>
+		<method name="fuse" qualifiers="const">
+			<return type="TopoShape" />
+			<param index="0" name="other" type="TopoShape" />
+			<description>
+				Returns the union of this shape and [param other].
+			</description>
+		</method>
+		<method name="cut" qualifiers="const">
+			<return type="TopoShape" />
+			<param index="0" name="other" type="TopoShape" />
+			<description>
+				Returns this shape with [param other] subtracted from it.
+			</description>
+		</method>
+		<method name="common" qualifiers="const">
+			<return type="TopoShape" />
+			<param index="0" name="other" type="TopoShape" />
+			<description>
+				Returns the intersection between this shape and [param other].
+			</description>
+		</method>
+		<method name="fuse_all" qualifiers="const">
+			<return type="TopoShape" />
+			<param index="0" name="shapes" type="Array" />
+			<description>
+				Fuses this shape with every non-null [TopoShape] in [param shapes] from left to right. Returns a copy of this shape when [param shapes] is empty.
+			</description>
+		</method>
+		<method name="cut_all" qualifiers="const">
+			<return type="TopoShape" />
+			<param index="0" name="shapes" type="Array" />
+			<description>
+				Cuts every non-null [TopoShape] in [param shapes] from this shape from left to right. Returns a copy of this shape when [param shapes] is empty.
+			</description>
+		</method>
+		<method name="common_all" qualifiers="const">
+			<return type="TopoShape" />
+			<param index="0" name="shapes" type="Array" />
+			<description>
+				Computes the intersection of this shape with every non-null [TopoShape] in [param shapes] from left to right. Returns a copy of this shape when [param shapes] is empty.
+			</description>
+		</method>
+		<method name="translated" qualifiers="const">
+			<return type="TopoShape" />
+			<param index="0" name="offset" type="Vector3" />
+			<description>
+				Returns a translated copy of the shape.
+			</description>
+		</method>
+		<method name="rotated" qualifiers="const">
+			<return type="TopoShape" />
+			<param index="0" name="axis_origin" type="Vector3" />
+			<param index="1" name="axis_direction" type="Vector3" />
+			<param index="2" name="angle_radians" type="float" />
+			<description>
+				Returns a rotated copy of the shape around the specified axis.
+			</description>
+		</method>
+		<method name="scaled" qualifiers="const">
+			<return type="TopoShape" />
+			<param index="0" name="center" type="Vector3" />
+			<param index="1" name="factor" type="float" />
+			<description>
+				Returns a scaled copy of the shape around the specified center.
+			</description>
+		</method>
+		<method name="mirrored_about_point" qualifiers="const">
+			<return type="TopoShape" />
+			<param index="0" name="center" type="Vector3" />
+			<description>
+				Returns a copy of the shape mirrored through the specified point.
+			</description>
+		</method>
+		<method name="mirrored_about_axis" qualifiers="const">
+			<return type="TopoShape" />
+			<param index="0" name="axis" type="Axis" />
+			<description>
+				Returns a copy of the shape mirrored around the specified [Axis].
+			</description>
+		</method>
+		<method name="mirrored_about_plane" qualifiers="const">
+			<return type="TopoShape" />
+			<param index="0" name="plane" type="CadPlane" />
+			<description>
+				Returns a copy of the shape mirrored across the specified [CadPlane].
+			</description>
+		</method>
+		<method name="located" qualifiers="const">
+			<return type="TopoShape" />
+			<param index="0" name="location" type="Location" />
+			<description>
+				Returns a transformed copy of the shape using the provided [Location].
+			</description>
+		</method>
+		<method name="get_volume" qualifiers="const">
+			<return type="float" />
+			<description>
+				Returns the OCCT volume of the shape.
+			</description>
+		</method>
+		<method name="get_surface_area" qualifiers="const">
+			<return type="float" />
+			<description>
+				Returns the OCCT surface area of the shape.
+			</description>
+		</method>
+		<method name="get_shape_type_name" qualifiers="const">
+			<return type="String" />
+			<description>
+				Returns the OCCT topological kind as an uppercase name such as [code]FACE[/code], [code]EDGE[/code], or [code]SOLID[/code].
+			</description>
+		</method>
+		<method name="get_geom_type_name" qualifiers="const">
+			<return type="String" />
+			<description>
+				Returns the OCCT geometric subtype name for edges and faces, such as [code]LINE[/code], [code]CIRCLE[/code], or [code]PLANE[/code]. Shapes without a geometric subtype return [code]OTHER[/code].
+			</description>
+		</method>
+		<method name="get_center_of_mass" qualifiers="const">
+			<return type="Vector3" />
+			<description>
+				Returns the shape center of mass computed from volume properties.
+			</description>
+		</method>
+		<method name="get_bounding_box_min" qualifiers="const">
+			<return type="Vector3" />
+			<description>
+				Returns the minimum point of the axis-aligned bounding box.
+			</description>
+		</method>
+		<method name="get_bounding_box_max" qualifiers="const">
+			<return type="Vector3" />
+			<description>
+				Returns the maximum point of the axis-aligned bounding box.
+			</description>
+		</method>
+		<method name="get_bounding_box_size" qualifiers="const">
+			<return type="Vector3" />
+			<description>
+				Returns the size of the axis-aligned bounding box.
+			</description>
+		</method>
+		<method name="get_vertices" qualifiers="const">
+			<return type="Array" />
+			<description>
+				Returns unique topological vertices as [Vertex] wrappers.
+			</description>
+		</method>
+		<method name="get_edges" qualifiers="const">
+			<return type="Array" />
+			<description>
+				Returns unique topological edges as [Edge] wrappers.
+			</description>
+		</method>
+		<method name="get_wires" qualifiers="const">
+			<return type="Array" />
+			<description>
+				Returns unique topological wires as [Wire] wrappers.
+			</description>
+		</method>
+		<method name="get_faces" qualifiers="const">
+			<return type="Array" />
+			<description>
+				Returns unique topological faces as [Face] wrappers.
+			</description>
+		</method>
+		<method name="get_shells" qualifiers="const">
+			<return type="Array" />
+			<description>
+				Returns unique topological shells as [Shell] wrappers.
+			</description>
+		</method>
+		<method name="get_compounds" qualifiers="const">
+			<return type="Array" />
+			<description>
+				Returns unique topological compounds as [Compound] wrappers.
+			</description>
+		</method>
+		<method name="get_solids" qualifiers="const">
+			<return type="Array" />
+			<description>
+				Returns unique topological solids as [Solid] wrappers.
+			</description>
+		</method>
+		<method name="decompose_compound" qualifiers="const">
+			<return type="Array" />
+			<description>
+				Decomposes a COMPOUND shape into an array of its direct child [TopoShape]s. If the shape is not a COMPOUND, returns an empty array. Useful for extracting individual parts from a STEP assembly imported via [method import_step_file].
+			</description>
+		</method>
+		<method name="get_vertex_positions" qualifiers="const">
+			<return type="PackedVector3Array" />
+			<description>
+				Returns the positions of all topological vertices contained by the shape.
+			</description>
+		</method>
+		<method name="get_edge_polylines" qualifiers="const">
+			<return type="Array" />
+			<param index="0" name="deflection" type="float" default="0.1" />
+			<description>
+				Returns one sampled 3D polyline per topological edge. Smaller [param deflection] values produce denser samples.
+			</description>
+		</method>
+		<method name="import_step_file">
+			<return type="bool" />
+			<param index="0" name="file_path" type="String" />
+			<description>
+				Loads a STEP file into this wrapper.
+			</description>
+		</method>
+		<method name="export_step_file" qualifiers="const">
+			<return type="bool" />
+			<param index="0" name="file_path" type="String" />
+			<description>
+				Writes this shape to a STEP file.
+			</description>
+		</method>
+		<method name="import_step_bytes">
+			<return type="bool" />
+			<param index="0" name="data" type="PackedByteArray" />
+			<description>
+				Loads a STEP model from an in-memory byte buffer.
+			</description>
+		</method>
+		<method name="export_step_bytes" qualifiers="const">
+			<return type="PackedByteArray" />
+			<description>
+				Serializes this shape to STEP bytes.
+			</description>
+		</method>
+		<method name="import_stl_file">
+			<return type="bool" />
+			<param index="0" name="file_path" type="String" />
+			<description>
+				Loads an STL file into this wrapper.
+			</description>
+		</method>
+		<method name="export_stl_file" qualifiers="const">
+			<return type="bool" />
+			<param index="0" name="file_path" type="String" />
+			<param index="1" name="ascii" type="bool" default="false" />
+			<description>
+				Writes this shape to an STL file. Set [param ascii] to [code]true[/code] for ASCII STL output.
+			</description>
+		</method>
+		<method name="import_stl_bytes">
+			<return type="bool" />
+			<param index="0" name="data" type="PackedByteArray" />
+			<description>
+				Loads an STL model from an in-memory byte buffer.
+			</description>
+		</method>
+		<method name="export_stl_bytes" qualifiers="const">
+			<return type="PackedByteArray" />
+			<param index="0" name="ascii" type="bool" default="false" />
+			<description>
+				Serializes this shape to STL bytes. Binary STL is used unless [param ascii] is [code]true[/code].
+			</description>
+		</method>
+		<method name="to_array_mesh" qualifiers="const">
+			<return type="ArrayMesh" />
+			<param index="0" name="linear_deflection" type="float" default="0.1" />
+			<param index="1" name="angular_deflection" type="float" default="0.5" />
+			<description>
+				Triangulates the shape and returns it as a Godot [ArrayMesh].
+			</description>
+		</method>
+	</methods>
+</class>

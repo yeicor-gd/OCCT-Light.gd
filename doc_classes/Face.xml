@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="Face" inherits="TopoShape" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/godotengine/godot/master/doc/class.xsd">
+	<brief_description>
+		Typed topological face wrapper.
+	</brief_description>
+	<description>
+		[Face] represents an OCCT face and supports wire-based or polygonal construction. It exposes planarity checks, outer-wire access, and a representative normal sampled from the face UV domain.
+	</description>
+	<methods>
+		<method name="build_from_wire">
+			<return type="void" />
+			<param index="0" name="wire" type="Wire" />
+			<param index="1" name="only_plane" type="bool" default="false" />
+			<description>
+				Builds a face from [param wire]. When [param only_plane] is [code]true[/code], OCCT is restricted to planar face construction.
+			</description>
+		</method>
+		<method name="build_from_wires">
+			<return type="void" />
+			<param index="0" name="outer_wire" type="Wire" />
+			<param index="1" name="inner_wires" type="Array" default="[]" />
+			<param index="2" name="only_plane" type="bool" default="false" />
+			<description>
+				Builds a face from [param outer_wire] and any number of inner boundary wires in [param inner_wires]. Inner wires become holes in the resulting face.
+			</description>
+		</method>
+		<method name="build_polygon">
+			<return type="void" />
+			<param index="0" name="points" type="PackedVector3Array" />
+			<param index="1" name="only_plane" type="bool" default="true" />
+			<description>
+				Builds a closed polygonal face through [param points].
+			</description>
+		</method>
+		<method name="offset_2d" qualifiers="const">
+			<return type="Face" />
+			<param index="0" name="distance" type="float" />
+			<description>
+				Builds a planar 2D offset of this face by [param distance]. The outer boundary is offset by [param distance] and hole boundaries are offset by the opposite amount.
+			</description>
+		</method>
+		<method name="extruded" qualifiers="const">
+			<return type="Solid" />
+			<param index="0" name="direction" type="Vector3" />
+			<description>
+				Builds a prism solid by extruding the face along [param direction].
+			</description>
+		</method>
+		<method name="revolved" qualifiers="const">
+			<return type="Solid" />
+			<param index="0" name="axis" type="Axis" />
+			<param index="1" name="angle_radians" type="float" default="6.283185307179586" />
+			<description>
+				Builds a solid by revolving the face around [param axis]. The default angle performs a full revolution.
+			</description>
+		</method>
+		<method name="is_planar" qualifiers="const">
+			<return type="bool" />
+			<description>
+				Returns whether the supporting surface of the face is planar.
+			</description>
+		</method>
+		<method name="get_outer_wire" qualifiers="const">
+			<return type="Wire" />
+			<description>
+				Returns the outer boundary wire of the face.
+			</description>
+		</method>
+		<method name="get_inner_wires" qualifiers="const">
+			<return type="Array" />
+			<description>
+				Returns the inner boundary wires of the face. These wires represent holes cut out of the outer boundary.
+			</description>
+		</method>
+		<method name="get_normal" qualifiers="const">
+			<return type="Vector3" />
+			<description>
+				Returns a representative face normal sampled near the center of the face UV bounds.
+			</description>
+		</method>
+	</methods>
+</class>

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="EllipseWire" inherits="Wire" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/godotengine/godot/master/doc/class.xsd">
+	<brief_description>
+		Elliptical profile wire primitive.
+	</brief_description>
+	<description>
+		[EllipseWire] builds an analytic closed ellipse on an optional [CadPlane]. The ellipse is centered on the plane origin and uses the plane X direction as the major-axis direction.
+	</description>
+	<methods>
+		<method name="build_ellipse">
+			<return type="void" />
+			<param index="0" name="major_radius" type="float" />
+			<param index="1" name="minor_radius" type="float" />
+			<param index="2" name="plane" type="CadPlane" default="null" />
+			<description>
+				Builds an ellipse with [param major_radius] and [param minor_radius] on [param plane]. If [param plane] is omitted, the global XY plane is used.
+			</description>
+		</method>
+	</methods>
+</class>

@@ -1,0 +1,23 @@
+# Ignore generated source files
+/src/gen*
+/gen/
+/.autowrapper
+
+# Build artifacts.
+/build/
+
+# IDEs
+/.idea/
+/.vscode/
+/compile_commands.json
+/.cache/
+
+# VCPKG
+/vcpkg_ports/*/.last_build
+/vcpkg_installed/
+
+# Godot auto generated files
+/demo/.godot/
+/demo/addons/*/*
+!/demo/addons/*/gdext.gdextension*
+/demo/exports

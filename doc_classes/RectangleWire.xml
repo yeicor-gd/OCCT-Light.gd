@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="RectangleWire" inherits="Wire" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/godotengine/godot/master/doc/class.xsd">
+	<brief_description>
+		Rectangular profile wire primitive.
+	</brief_description>
+	<description>
+		[RectangleWire] builds a rectangular closed wire on an optional [CadPlane]. It is the first profile primitive on top of the placement-helper layer.
+	</description>
+	<methods>
+		<method name="build_rectangle">
+			<return type="void" />
+			<param index="0" name="size" type="Vector2" />
+			<param index="1" name="plane" type="CadPlane" default="null" />
+			<param index="2" name="centered" type="bool" default="true" />
+			<description>
+				Builds a rectangular wire of [param size] on [param plane]. If [param plane] is omitted, the global XY plane is used. When [param centered] is [code]true[/code], the rectangle is centered on the plane origin.
+			</description>
+		</method>
+	</methods>
+</class>

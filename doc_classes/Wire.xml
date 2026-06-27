@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="Wire" inherits="TopoShape" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/godotengine/godot/master/doc/class.xsd">
+	<brief_description>
+		Typed topological wire wrapper.
+	</brief_description>
+	<description>
+		[Wire] represents an OCCT wire and can build simple polygonal wires. It exposes wire closure, total length, ordered typed edges, and a stitched sampled polyline.
+	</description>
+	<methods>
+		<method name="build_polygon">
+			<return type="void" />
+			<param index="0" name="points" type="PackedVector3Array" />
+			<param index="1" name="closed" type="bool" default="true" />
+			<description>
+				Builds a polygonal wire through [param points]. When [param closed] is [code]true[/code], the last point is connected back to the first.
+			</description>
+		</method>
+		<method name="lofted_to" qualifiers="const">
+			<return type="TopoShape" />
+			<param index="0" name="other" type="Wire" />
+			<param index="1" name="make_solid" type="bool" default="true" />
+			<param index="2" name="ruled" type="bool" default="false" />
+			<description>
+				Builds a loft between this closed wire and [param other]. When [param make_solid] is [code]true[/code], OCCT closes the loft into a solid; when [param ruled] is [code]true[/code], ruled faces are used instead of smoothed approximation.
+			</description>
+		</method>
+		<method name="swept_along" qualifiers="const">
+			<return type="TopoShape" />
+			<param index="0" name="spine" type="Wire" />
+			<description>
+				Sweeps this closed wire along the wire [param spine] using OCCT pipe construction.
+			</description>
+		</method>
+		<method name="offset_2d" qualifiers="const">
+			<return type="Wire" />
+			<param index="0" name="distance" type="float" />
+			<description>
+				Builds a planar 2D offset of this wire by [param distance]. Positive values grow the profile outward and negative values shrink it inward.
+			</description>
+		</method>
+		<method name="extruded" qualifiers="const">
+			<return type="Solid" />
+			<param index="0" name="direction" type="Vector3" />
+			<param index="1" name="only_plane" type="bool" default="true" />
+			<description>
+				Convenience prism extrusion for closed wires. Internally this builds a face from the wire, then extrudes it along [param direction].
+			</description>
+		</method>
+		<method name="revolved" qualifiers="const">
+			<return type="Solid" />
+			<param index="0" name="axis" type="Axis" />
+			<param index="1" name="angle_radians" type="float" default="6.283185307179586" />
+			<param index="2" name="only_plane" type="bool" default="true" />
+			<description>
+				Convenience revolve for closed wires. Internally this builds a face from the wire, then revolves it around [param axis].
+			</description>
+		</method>
+		<method name="is_closed" qualifiers="const">
+			<return type="bool" />
+			<description>
+				Returns whether the wire is closed.
+			</description>
+		</method>
+		<method name="get_length" qualifiers="const">
+			<return type="float" />
+			<description>
+				Returns the total OCCT linear length of the wire.
+			</description>
+		</method>
+		<method name="get_edges" qualifiers="const">
+			<return type="Array" />
+			<description>
+				Returns typed [Edge] wrappers in wire traversal order.
+			</description>
+		</method>
+		<method name="get_polyline" qualifiers="const">
+			<return type="PackedVector3Array" />
+			<param index="0" name="deflection" type="float" default="0.1" />
+			<description>
+				Returns a stitched sampled 3D polyline for the wire.
+			</description>
+		</method>
+	</methods>
+</class>

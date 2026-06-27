@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="CircleWire" inherits="Wire" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/godotengine/godot/master/doc/class.xsd">
+	<brief_description>
+		Circular profile wire primitive.
+	</brief_description>
+	<description>
+		[CircleWire] builds a circular closed wire on an optional [CadPlane]. The curve remains an analytic OpenCASCADE circle until callers explicitly sample it.
+	</description>
+	<methods>
+		<method name="build_circle">
+			<return type="void" />
+			<param index="0" name="radius" type="float" />
+			<param index="1" name="plane" type="CadPlane" default="null" />
+			<description>
+				Builds a circular wire of [param radius] on [param plane]. If [param plane] is omitted, the global XY plane is used and the plane origin becomes the circle center.
+			</description>
+		</method>
+	</methods>
+</class>

@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="OpenCascadeVersion" inherits="Object" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/godotengine/godot/master/doc/class.xsd">
+	<brief_description>
+		Provides access to OpenCASCADE version information.
+	</brief_description>
+	<description>
+		This class exposes OpenCASCADE Technology (OCCT) version information to GDScript. It provides methods to retrieve the version string, major/minor/maintenance version numbers, and the complete version identifier.
+		OpenCASCADE is an open-source CAD/CAM/CAE framework, and this GDExtension provides bindings for Godot Engine.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="get_version_string" qualifiers="const">
+			<return type="String" />
+			<description>
+				Returns the OpenCASCADE version as a human-readable string (e.g., "7.9.3").
+			</description>
+		</method>
+		<method name="get_version_major" qualifiers="const">
+			<return type="int" />
+			<description>
+				Returns the major version number of OpenCASCADE (e.g., 7 for version 7.9.3).
+			</description>
+		</method>
+		<method name="get_version_minor" qualifiers="const">
+			<return type="int" />
+			<description>
+				Returns the minor version number of OpenCASCADE (e.g., 9 for version 7.9.3).
+			</description>
+		</method>
+		<method name="get_version_maintenance" qualifiers="const">
+			<return type="int" />
+			<description>
+				Returns the maintenance/patch version number of OpenCASCADE (e.g., 3 for version 7.9.3).
+			</description>
+		</method>
+	</methods>
+</class>

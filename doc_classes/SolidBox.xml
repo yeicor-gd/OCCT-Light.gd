@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="SolidBox" inherits="Solid" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/godotengine/godot/master/doc/class.xsd">
+	<brief_description>
+		Creates a box solid using OpenCASCADE.
+	</brief_description>
+	<description>
+		[SolidBox] is the first 3D primitive wrapper in the extension. It builds an OCCT solid box positioned by a minimum-corner origin and size vector.
+	</description>
+	<methods>
+		<method name="build_box">
+			<return type="void" />
+			<param index="0" name="size" type="Vector3" />
+			<param index="1" name="origin" type="Vector3" default="Vector3(0, 0, 0)" />
+			<description>
+				Builds the box with the given [param size] and optional minimum-corner [param origin].
+			</description>
+		</method>
+	</methods>
+</class>

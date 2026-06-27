@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="SolidSphere" inherits="Solid" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/godotengine/godot/master/doc/class.xsd">
+	<brief_description>
+		Creates a sphere solid using OpenCASCADE.
+	</brief_description>
+	<description>
+		[SolidSphere] builds an OCCT solid sphere from a center point and radius.
+	</description>
+	<methods>
+		<method name="build_sphere">
+			<return type="void" />
+			<param index="0" name="radius" type="float" />
+			<param index="1" name="center" type="Vector3" default="Vector3(0, 0, 0)" />
+			<description>
+				Builds the sphere with the given radius and center.
+			</description>
+		</method>
+	</methods>
+</class>

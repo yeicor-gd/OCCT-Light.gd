@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="CadPlane" inherits="RefCounted" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/godotengine/godot/master/doc/class.xsd">
+	<brief_description>
+		3D plane helper backed by OpenCASCADE.
+	</brief_description>
+	<description>
+		[CadPlane] wraps an OCCT [code]gp_Pln[/code] and represents an oriented work plane with origin, normal, and in-plane axes. It uses a distinct name to avoid conflicting with Godot's built-in [code]Plane[/code] math type.
+	</description>
+	<methods>
+		<method name="set_plane">
+			<return type="void" />
+			<param index="0" name="origin" type="Vector3" />
+			<param index="1" name="normal" type="Vector3" />
+			<param index="2" name="x_direction" type="Vector3" default="Vector3(1, 0, 0)" />
+			<description>
+				Sets the plane origin, normal, and preferred local X direction.
+			</description>
+		</method>
+		<method name="get_origin" qualifiers="const">
+			<return type="Vector3" />
+			<description>
+				Returns the plane origin.
+			</description>
+		</method>
+		<method name="get_normal" qualifiers="const">
+			<return type="Vector3" />
+			<description>
+				Returns the normalized plane normal.
+			</description>
+		</method>
+		<method name="get_x_direction" qualifiers="const">
+			<return type="Vector3" />
+			<description>
+				Returns the local in-plane X direction.
+			</description>
+		</method>
+		<method name="get_y_direction" qualifiers="const">
+			<return type="Vector3" />
+			<description>
+				Returns the local in-plane Y direction.
+			</description>
+		</method>
+		<method name="signed_distance_to_point" qualifiers="const">
+			<return type="float" />
+			<param index="0" name="point" type="Vector3" />
+			<description>
+				Returns the signed distance from the plane to [param point].
+			</description>
+		</method>
+		<method name="project_point" qualifiers="const">
+			<return type="Vector3" />
+			<param index="0" name="point" type="Vector3" />
+			<description>
+				Projects [param point] orthogonally onto the plane.
+			</description>
+		</method>
+		<method name="offsetted" qualifiers="const">
+			<return type="CadPlane" />
+			<param index="0" name="distance" type="float" />
+			<description>
+				Returns a copy of the plane offset along its normal by [param distance].
+			</description>
+		</method>
+		<method name="transformed" qualifiers="const">
+			<return type="CadPlane" />
+			<param index="0" name="location" type="Location" />
+			<description>
+				Returns the plane transformed by [param location].
+			</description>
+		</method>
+	</methods>
+</class>

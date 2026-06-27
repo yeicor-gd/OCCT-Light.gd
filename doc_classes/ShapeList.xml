@@ -1,0 +1,341 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="ShapeList" inherits="RefCounted" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/godotengine/godot/master/doc/class.xsd">
+	<brief_description>
+		List-like container for topology wrappers and selector helpers.
+	</brief_description>
+	<description>
+		[ShapeList] stores topology wrappers and provides the first build123d-style selector operations implemented in this extension. It is intended for working with the results returned by [TopoShape] extraction methods.
+	</description>
+	<methods>
+		<method name="append">
+			<return type="void" />
+			<param index="0" name="shape" type="TopoShape" />
+			<description>
+				Appends a non-null [TopoShape] to the list.
+			</description>
+		</method>
+		<method name="size" qualifiers="const">
+			<return type="int" />
+			<description>
+				Returns the number of shapes in the list.
+			</description>
+		</method>
+		<method name="is_empty" qualifiers="const">
+			<return type="bool" />
+			<description>
+				Returns [code]true[/code] when the list contains no shapes.
+			</description>
+		</method>
+		<method name="get_item" qualifiers="const">
+			<return type="TopoShape" />
+			<param index="0" name="index" type="int" />
+			<description>
+				Returns the shape at [param index].
+			</description>
+		</method>
+		<method name="to_array" qualifiers="const">
+			<return type="Array" />
+			<description>
+				Returns the list contents as a plain [Array].
+			</description>
+		</method>
+		<method name="first" qualifiers="const">
+			<return type="TopoShape" />
+			<description>
+				Returns the first shape in the list.
+			</description>
+		</method>
+		<method name="last" qualifiers="const">
+			<return type="TopoShape" />
+			<description>
+				Returns the last shape in the list.
+			</description>
+		</method>
+		<method name="center" qualifiers="const">
+			<return type="Vector3" />
+			<description>
+				Returns the average center of the shapes in the list, using each shape's bounding-box center.
+			</description>
+		</method>
+		<method name="get_bounding_box_min" qualifiers="const">
+			<return type="Vector3" />
+			<description>
+				Returns the minimum corner of the combined bounding box.
+			</description>
+		</method>
+		<method name="get_bounding_box_max" qualifiers="const">
+			<return type="Vector3" />
+			<description>
+				Returns the maximum corner of the combined bounding box.
+			</description>
+		</method>
+		<method name="get_bounding_box_size" qualifiers="const">
+			<return type="Vector3" />
+			<description>
+				Returns the size of the combined bounding box.
+			</description>
+		</method>
+		<method name="vertices" qualifiers="const">
+			<return type="ShapeList" />
+			<description>
+				Returns all vertices contained by every shape in the list.
+			</description>
+		</method>
+		<method name="edges" qualifiers="const">
+			<return type="ShapeList" />
+			<description>
+				Returns all edges contained by every shape in the list.
+			</description>
+		</method>
+		<method name="wires" qualifiers="const">
+			<return type="ShapeList" />
+			<description>
+				Returns all wires contained by every shape in the list.
+			</description>
+		</method>
+		<method name="faces" qualifiers="const">
+			<return type="ShapeList" />
+			<description>
+				Returns all faces contained by every shape in the list.
+			</description>
+		</method>
+		<method name="shells" qualifiers="const">
+			<return type="ShapeList" />
+			<description>
+				Returns all shells contained by every shape in the list.
+			</description>
+		</method>
+		<method name="compounds" qualifiers="const">
+			<return type="ShapeList" />
+			<description>
+				Returns all compounds contained by every shape in the list.
+			</description>
+		</method>
+		<method name="solids" qualifiers="const">
+			<return type="ShapeList" />
+			<description>
+				Returns all solids contained by every shape in the list.
+			</description>
+		</method>
+		<method name="filter_by_position" qualifiers="const">
+			<return type="ShapeList" />
+			<param index="0" name="axis" type="Axis" />
+			<param index="1" name="minimum" type="float" />
+			<param index="2" name="maximum" type="float" />
+			<param index="3" name="min_inclusive" type="bool" default="true" />
+			<param index="4" name="max_inclusive" type="bool" default="true" />
+			<description>
+				Filters shapes by their center position along [param axis] and returns the matching shapes sorted by that position.
+			</description>
+		</method>
+		<method name="filter_by_axis" qualifiers="const">
+			<return type="ShapeList" />
+			<param index="0" name="axis" type="Axis" />
+			<param index="1" name="minimum" type="float" />
+			<param index="2" name="maximum" type="float" />
+			<param index="3" name="min_inclusive" type="bool" default="true" />
+			<param index="4" name="max_inclusive" type="bool" default="true" />
+			<description>
+				Alias for [method filter_by_position] that uses the build123d-style axis terminology.
+			</description>
+		</method>
+		<method name="filter_by_plane" qualifiers="const">
+			<return type="ShapeList" />
+			<param index="0" name="plane" type="CadPlane" />
+			<param index="1" name="reverse" type="bool" default="false" />
+			<param index="2" name="tolerance" type="float" default="0.00001" />
+			<description>
+				Filters the list to shapes parallel to [param plane]. Faces are matched by normal, and edges and wires are matched by direction.
+			</description>
+		</method>
+		<method name="filter_by_length" qualifiers="const">
+			<return type="ShapeList" />
+			<param index="0" name="minimum" type="float" />
+			<param index="1" name="maximum" type="float" />
+			<param index="2" name="min_inclusive" type="bool" default="true" />
+			<param index="3" name="max_inclusive" type="bool" default="true" />
+			<description>
+				Filters the list to shapes that expose length and fall within the given range.
+			</description>
+		</method>
+		<method name="filter_by_area" qualifiers="const">
+			<return type="ShapeList" />
+			<param index="0" name="minimum" type="float" />
+			<param index="1" name="maximum" type="float" />
+			<param index="2" name="min_inclusive" type="bool" default="true" />
+			<param index="3" name="max_inclusive" type="bool" default="true" />
+			<description>
+				Filters the list to shapes that expose surface area and fall within the given range.
+			</description>
+		</method>
+		<method name="filter_by_volume" qualifiers="const">
+			<return type="ShapeList" />
+			<param index="0" name="minimum" type="float" />
+			<param index="1" name="maximum" type="float" />
+			<param index="2" name="min_inclusive" type="bool" default="true" />
+			<param index="3" name="max_inclusive" type="bool" default="true" />
+			<description>
+				Filters the list to shapes that expose volume and fall within the given range.
+			</description>
+		</method>
+		<method name="filter_by_distance_to_point" qualifiers="const">
+			<return type="ShapeList" />
+			<param index="0" name="point" type="Vector3" />
+			<param index="1" name="minimum" type="float" />
+			<param index="2" name="maximum" type="float" />
+			<param index="3" name="min_inclusive" type="bool" default="true" />
+			<param index="4" name="max_inclusive" type="bool" default="true" />
+			<description>
+				Filters the list to shapes whose center lies within the given distance range from [param point].
+			</description>
+		</method>
+		<method name="filter_by_shape_type" qualifiers="const">
+			<return type="ShapeList" />
+			<param index="0" name="shape_type_name" type="String" />
+			<param index="1" name="reverse" type="bool" default="false" />
+			<description>
+				Filters the list to shapes whose [method TopoShape.get_shape_type_name] matches [param shape_type_name].
+			</description>
+		</method>
+		<method name="filter_by_geom_type" qualifiers="const">
+			<return type="ShapeList" />
+			<param index="0" name="geom_type_name" type="String" />
+			<param index="1" name="reverse" type="bool" default="false" />
+			<description>
+				Filters the list to edges and faces whose [method TopoShape.get_geom_type_name] matches [param geom_type_name].
+			</description>
+		</method>
+		<method name="filter_by" qualifiers="const">
+			<return type="ShapeList" />
+			<param index="0" name="predicate" type="Callable" />
+			<param index="1" name="reverse" type="bool" default="false" />
+			<param index="2" name="tolerance" type="float" default="0.00001" />
+			<description>
+				Filters the list using a [Callable] that returns [code]true[/code] for shapes to keep.
+			</description>
+		</method>
+		<method name="group_by_axis" qualifiers="const">
+			<return type="Array" />
+			<param index="0" name="axis" type="Axis" />
+			<param index="1" name="reverse" type="bool" default="false" />
+			<param index="2" name="tol_digits" type="int" default="6" />
+			<description>
+				Groups shapes by their center position along [param axis]. Each returned element is a [ShapeList] sorted by the grouping key.
+			</description>
+		</method>
+		<method name="group_by_length" qualifiers="const">
+			<return type="Array" />
+			<param index="0" name="reverse" type="bool" default="false" />
+			<param index="1" name="tol_digits" type="int" default="6" />
+			<description>
+				Groups shapes by length. Each returned element is a [ShapeList] sorted by the grouping key.
+			</description>
+		</method>
+		<method name="group_by_area" qualifiers="const">
+			<return type="Array" />
+			<param index="0" name="reverse" type="bool" default="false" />
+			<param index="1" name="tol_digits" type="int" default="6" />
+			<description>
+				Groups shapes by surface area. Each returned element is a [ShapeList] sorted by the grouping key.
+			</description>
+		</method>
+		<method name="group_by_volume" qualifiers="const">
+			<return type="Array" />
+			<param index="0" name="reverse" type="bool" default="false" />
+			<param index="1" name="tol_digits" type="int" default="6" />
+			<description>
+				Groups shapes by volume. Each returned element is a [ShapeList] sorted by the grouping key.
+			</description>
+		</method>
+		<method name="group_by_shape_type" qualifiers="const">
+			<return type="Array" />
+			<param index="0" name="reverse" type="bool" default="false" />
+			<description>
+				Groups shapes by OCCT shape type name.
+			</description>
+		</method>
+		<method name="group_by_geom_type" qualifiers="const">
+			<return type="Array" />
+			<param index="0" name="reverse" type="bool" default="false" />
+			<description>
+				Groups edges and faces by OCCT geometric subtype name.
+			</description>
+		</method>
+		<method name="group_by" qualifiers="const">
+			<return type="Array" />
+			<param index="0" name="key_fn" type="Callable" />
+			<param index="1" name="reverse" type="bool" default="false" />
+			<param index="2" name="tol_digits" type="int" default="6" />
+			<description>
+				Groups shapes using a [Callable] that returns a numeric grouping key.
+			</description>
+		</method>
+		<method name="sort_by_axis" qualifiers="const">
+			<return type="ShapeList" />
+			<param index="0" name="axis" type="Axis" />
+			<param index="1" name="reverse" type="bool" default="false" />
+			<description>
+				Sorts the list by the center position of each shape along [param axis].
+			</description>
+		</method>
+		<method name="sort_by_length" qualifiers="const">
+			<return type="ShapeList" />
+			<param index="0" name="reverse" type="bool" default="false" />
+			<description>
+				Sorts shapes that expose [method Edge.get_length] by length.
+			</description>
+		</method>
+		<method name="sort_by_area" qualifiers="const">
+			<return type="ShapeList" />
+			<param index="0" name="reverse" type="bool" default="false" />
+			<description>
+				Sorts shapes that expose [method TopoShape.get_surface_area] by area.
+			</description>
+		</method>
+		<method name="sort_by_volume" qualifiers="const">
+			<return type="ShapeList" />
+			<param index="0" name="reverse" type="bool" default="false" />
+			<description>
+				Sorts shapes that expose [method TopoShape.get_volume] by volume.
+			</description>
+		</method>
+		<method name="sort_by_shape_type" qualifiers="const">
+			<return type="ShapeList" />
+			<param index="0" name="reverse" type="bool" default="false" />
+			<description>
+				Sorts shapes by OCCT shape type name.
+			</description>
+		</method>
+		<method name="sort_by_geom_type" qualifiers="const">
+			<return type="ShapeList" />
+			<param index="0" name="reverse" type="bool" default="false" />
+			<description>
+				Sorts edges and faces by OCCT geometric subtype name.
+			</description>
+		</method>
+		<method name="sort_by" qualifiers="const">
+			<return type="ShapeList" />
+			<param index="0" name="key_fn" type="Callable" />
+			<param index="1" name="reverse" type="bool" default="false" />
+			<description>
+				Sorts the list using a [Callable] that returns a numeric key.
+			</description>
+		</method>
+		<method name="sort_by_distance" qualifiers="const">
+			<return type="ShapeList" />
+			<param index="0" name="other" type="TopoShape" />
+			<param index="1" name="reverse" type="bool" default="false" />
+			<description>
+				Sorts the list by distance to [param other].
+			</description>
+		</method>
+		<method name="sort_by_distance_to_point" qualifiers="const">
+			<return type="ShapeList" />
+			<param index="0" name="point" type="Vector3" />
+			<param index="1" name="reverse" type="bool" default="false" />
+			<description>
+				Sorts the list by distance to [param point].
+			</description>
+		</method>
+	</methods>
+</class>

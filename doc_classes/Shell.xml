@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="Shell" inherits="TopoShape" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/godotengine/godot/master/doc/class.xsd">
+	<brief_description>
+		Typed topological shell wrapper.
+	</brief_description>
+	<description>
+		[Shell] represents an OCCT shell and exposes shell-specific closure and face-count inspection on top of [TopoShape].
+	</description>
+	<methods>
+		<method name="is_closed" qualifiers="const">
+			<return type="bool" />
+			<description>
+				Returns whether the shell is closed.
+			</description>
+		</method>
+		<method name="get_face_count" qualifiers="const">
+			<return type="int" />
+			<description>
+				Returns the number of faces contained by the shell.
+			</description>
+		</method>
+	</methods>
+</class>

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="PolygonWire" inherits="Wire" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/godotengine/godot/master/doc/class.xsd">
+	<brief_description>
+		Plane-based polygon profile wire primitive.
+	</brief_description>
+	<description>
+		[PolygonWire] builds a wire from 2D points on an optional [CadPlane]. It is a sketch convenience wrapper over [method Wire.build_polygon], lifting plane-space points into 3D automatically.
+	</description>
+	<methods>
+		<method name="build_polygon_2d">
+			<return type="void" />
+			<param index="0" name="points" type="PackedVector2Array" />
+			<param index="1" name="plane" type="CadPlane" default="null" />
+			<param index="2" name="closed" type="bool" default="true" />
+			<description>
+				Builds a polygon from [param points] on [param plane]. If [param plane] is omitted, the global XY plane is used. When [param closed] is [code]true[/code], the final point is connected back to the first.
+			</description>
+		</method>
+	</methods>
+</class>

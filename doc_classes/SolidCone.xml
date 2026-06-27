@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="SolidCone" inherits="Solid" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/godotengine/godot/master/doc/class.xsd">
+	<brief_description>
+		Creates a cone or frustum solid using OpenCASCADE.
+	</brief_description>
+	<description>
+		[SolidCone] builds an OCCT solid cone or frustum oriented along the positive local Z axis, starting at the given origin.
+	</description>
+	<methods>
+		<method name="build_cone">
+			<return type="void" />
+			<param index="0" name="radius_bottom" type="float" />
+			<param index="1" name="radius_top" type="float" />
+			<param index="2" name="height" type="float" />
+			<param index="3" name="origin" type="Vector3" default="Vector3(0, 0, 0)" />
+			<description>
+				Builds the cone or frustum with the given radii, height, and base origin.
+			</description>
+		</method>
+	</methods>
+</class>
