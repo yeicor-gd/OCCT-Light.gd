@@ -1,5 +1,5 @@
-#ifndef OCCTLCONVERT_H
-#define OCCTLCONVERT_H
+#ifndef OCCTLGODOT_H
+#define OCCTLGODOT_H
 
 #include <godot_cpp/classes/ref.hpp>
 #include <godot_cpp/core/class_db.hpp>
@@ -31,13 +31,15 @@
 #include "../autowrapper/OcctlPolygon3dView.h"
 #include "../autowrapper/OcctlPolygonOnTriView.h"
 #include "../autowrapper/OcctlTransform.h"
+#include "../autowrapper/OcctlEdgeView.h"
 #include "../autowrapper/OcctlTriangulationView.h"
 #include "../autowrapper/OcctlVector3.h"
+#include "../autowrapper/OcctlVertexView.h"
 
 using namespace godot;
 
-class OcctlConvert : public godot::RefCounted {
-    GDCLASS(OcctlConvert, godot::RefCounted)
+class OcctlGodot : public godot::RefCounted {
+    GDCLASS(OcctlGodot, godot::RefCounted)
 protected:
     static void _bind_methods();
 public:
@@ -82,6 +84,16 @@ public:
         const Ref<OcctlTriangulationView>& tri_view,
         const Ref<OcctlPolygonOnTriView>& poly_view);
 
+    // -- Edge → mesh (tube if radius > 0) --
+    static Ref<ArrayMesh> edge_to_mesh(const Ref<OcctlEdgeView>& edge, double radius = 0.0);
+    static Ref<ArrayMesh> vertex_to_mesh(const Ref<OcctlVertexView>& vertex);
+    static Ref<ArrayMesh> edge_to_mesh_with_colors(const Ref<OcctlEdgeView>& edge, const Dictionary& face_id_colors);
+
+    // -- Triangulation with extra attributes --
+    static Ref<ArrayMesh> triangulation_to_mesh_with_uvs(const Ref<OcctlTriangulationView>& tri);
+    static Ref<ArrayMesh> triangulation_to_mesh_with_normals(const Ref<OcctlTriangulationView>& tri);
+    static Ref<ArrayMesh> triangulation_to_mesh_with_tangents(const Ref<OcctlTriangulationView>& tri);
+
     // -- Helper: build ArrayMesh surface arrays from raw pointers (internal) --
 private:
     static Ref<ArrayMesh> _build_array_mesh(
@@ -91,4 +103,4 @@ private:
         const uint32_t* triangles, int triangle_count);
 };
 
-#endif // OCCTLCONVERT_H
+#endif // OCCTLGODOT_H

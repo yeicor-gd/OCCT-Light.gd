@@ -1,4 +1,4 @@
-#include "OcctlConvert.h"
+#include "OcctlGodot.h"
 
 #include <godot_cpp/classes/array_mesh.hpp>
 #include <godot_cpp/classes/mesh.hpp>
@@ -10,53 +10,63 @@
 #include <godot_cpp/variant/utility_functions.hpp>
 #include <cstring>
 
-void OcctlConvert::_bind_methods() {
+void OcctlGodot::_bind_methods() {
     // --- Value conversions ---
-    ClassDB::bind_static_method("OcctlConvert", D_METHOD("point3_to_vector3", "p"), &OcctlConvert::point3_to_vector3);
-    ClassDB::bind_static_method("OcctlConvert", D_METHOD("vector3_to_point3", "v"), &OcctlConvert::vector3_to_point3);
+    ClassDB::bind_static_method("OcctlGodot", D_METHOD("point3_to_vector3", "p"), &OcctlGodot::point3_to_vector3);
+    ClassDB::bind_static_method("OcctlGodot", D_METHOD("vector3_to_point3", "v"), &OcctlGodot::vector3_to_point3);
 
-    ClassDB::bind_static_method("OcctlConvert", D_METHOD("occtl_vector3_to_godot", "v"), &OcctlConvert::occtl_vector3_to_godot);
-    ClassDB::bind_static_method("OcctlConvert", D_METHOD("godot_to_occtl_vector3", "v"), &OcctlConvert::godot_to_occtl_vector3);
+    ClassDB::bind_static_method("OcctlGodot", D_METHOD("occtl_vector3_to_godot", "v"), &OcctlGodot::occtl_vector3_to_godot);
+    ClassDB::bind_static_method("OcctlGodot", D_METHOD("godot_to_occtl_vector3", "v"), &OcctlGodot::godot_to_occtl_vector3);
 
-    ClassDB::bind_static_method("OcctlConvert", D_METHOD("direction3_to_vector3", "d"), &OcctlConvert::direction3_to_vector3);
-    ClassDB::bind_static_method("OcctlConvert", D_METHOD("vector3_to_direction3", "v"), &OcctlConvert::vector3_to_direction3);
+    ClassDB::bind_static_method("OcctlGodot", D_METHOD("direction3_to_vector3", "d"), &OcctlGodot::direction3_to_vector3);
+    ClassDB::bind_static_method("OcctlGodot", D_METHOD("vector3_to_direction3", "v"), &OcctlGodot::vector3_to_direction3);
 
-    ClassDB::bind_static_method("OcctlConvert", D_METHOD("transform_to_transform3d", "t"), &OcctlConvert::transform_to_transform3d);
-    ClassDB::bind_static_method("OcctlConvert", D_METHOD("transform3d_to_transform", "t"), &OcctlConvert::transform3d_to_transform);
+    ClassDB::bind_static_method("OcctlGodot", D_METHOD("transform_to_transform3d", "t"), &OcctlGodot::transform_to_transform3d);
+    ClassDB::bind_static_method("OcctlGodot", D_METHOD("transform3d_to_transform", "t"), &OcctlGodot::transform3d_to_transform);
 
-    ClassDB::bind_static_method("OcctlConvert", D_METHOD("aabb3_to_aabb", "a"), &OcctlConvert::aabb3_to_aabb);
-    ClassDB::bind_static_method("OcctlConvert", D_METHOD("aabb_to_aabb3", "a"), &OcctlConvert::aabb_to_aabb3);
+    ClassDB::bind_static_method("OcctlGodot", D_METHOD("aabb3_to_aabb", "a"), &OcctlGodot::aabb3_to_aabb);
+    ClassDB::bind_static_method("OcctlGodot", D_METHOD("aabb_to_aabb3", "a"), &OcctlGodot::aabb_to_aabb3);
 
-    ClassDB::bind_static_method("OcctlConvert", D_METHOD("color_rgba_to_color", "c"), &OcctlConvert::color_rgba_to_color);
-    ClassDB::bind_static_method("OcctlConvert", D_METHOD("color_to_color_rgba", "c"), &OcctlConvert::color_to_color_rgba);
+    ClassDB::bind_static_method("OcctlGodot", D_METHOD("color_rgba_to_color", "c"), &OcctlGodot::color_rgba_to_color);
+    ClassDB::bind_static_method("OcctlGodot", D_METHOD("color_to_color_rgba", "c"), &OcctlGodot::color_to_color_rgba);
 
-    ClassDB::bind_static_method("OcctlConvert", D_METHOD("point2_to_vector2", "p"), &OcctlConvert::point2_to_vector2);
-    ClassDB::bind_static_method("OcctlConvert", D_METHOD("vector2_to_point2", "v"), &OcctlConvert::vector2_to_point2);
+    ClassDB::bind_static_method("OcctlGodot", D_METHOD("point2_to_vector2", "p"), &OcctlGodot::point2_to_vector2);
+    ClassDB::bind_static_method("OcctlGodot", D_METHOD("vector2_to_point2", "v"), &OcctlGodot::vector2_to_point2);
 
     // --- Axis placement to Transform3D ---
-    ClassDB::bind_static_method("OcctlConvert", D_METHOD("axis1_placement_to_transform3d", "a"), &OcctlConvert::axis1_placement_to_transform3d);
-    ClassDB::bind_static_method("OcctlConvert", D_METHOD("axis2_placement_to_transform3d", "a"), &OcctlConvert::axis2_placement_to_transform3d);
-    ClassDB::bind_static_method("OcctlConvert", D_METHOD("axis3_placement_to_transform3d", "a"), &OcctlConvert::axis3_placement_to_transform3d);
+    ClassDB::bind_static_method("OcctlGodot", D_METHOD("axis1_placement_to_transform3d", "a"), &OcctlGodot::axis1_placement_to_transform3d);
+    ClassDB::bind_static_method("OcctlGodot", D_METHOD("axis2_placement_to_transform3d", "a"), &OcctlGodot::axis2_placement_to_transform3d);
+    ClassDB::bind_static_method("OcctlGodot", D_METHOD("axis3_placement_to_transform3d", "a"), &OcctlGodot::axis3_placement_to_transform3d);
 
     // --- Mesh/Triangulation to ArrayMesh ---
-    ClassDB::bind_static_method("OcctlConvert", D_METHOD("triangulation_to_array_mesh", "view"), &OcctlConvert::triangulation_to_array_mesh);
-    ClassDB::bind_static_method("OcctlConvert", D_METHOD("mesh_buffers_to_array_mesh", "view"), &OcctlConvert::mesh_buffers_to_array_mesh);
+    ClassDB::bind_static_method("OcctlGodot", D_METHOD("triangulation_to_array_mesh", "view"), &OcctlGodot::triangulation_to_array_mesh);
+    ClassDB::bind_static_method("OcctlGodot", D_METHOD("mesh_buffers_to_array_mesh", "view"), &OcctlGodot::mesh_buffers_to_array_mesh);
 
     // --- Polygon views ---
-    ClassDB::bind_static_method("OcctlConvert", D_METHOD("polygon3d_to_points", "view"), &OcctlConvert::polygon3d_to_points);
-    ClassDB::bind_static_method("OcctlConvert", D_METHOD("polygon_on_tri_to_world_points", "tri_view", "poly_view"), &OcctlConvert::polygon_on_tri_to_world_points);
+    ClassDB::bind_static_method("OcctlGodot", D_METHOD("polygon3d_to_points", "view"), &OcctlGodot::polygon3d_to_points);
+    ClassDB::bind_static_method("OcctlGodot", D_METHOD("polygon_on_tri_to_world_points", "tri_view", "poly_view"), &OcctlGodot::polygon_on_tri_to_world_points);
+
+    // --- Edge/Vertex to mesh ---
+    ClassDB::bind_static_method("OcctlGodot", D_METHOD("edge_to_mesh", "edge", "radius"), &OcctlGodot::edge_to_mesh, DEFVAL(0.0));
+    ClassDB::bind_static_method("OcctlGodot", D_METHOD("vertex_to_mesh", "vertex"), &OcctlGodot::vertex_to_mesh);
+    ClassDB::bind_static_method("OcctlGodot", D_METHOD("edge_to_mesh_with_colors", "edge", "face_id_colors"), &OcctlGodot::edge_to_mesh_with_colors);
+
+    // --- Triangulation with extras ---
+    ClassDB::bind_static_method("OcctlGodot", D_METHOD("triangulation_to_mesh_with_uvs", "tri"), &OcctlGodot::triangulation_to_mesh_with_uvs);
+    ClassDB::bind_static_method("OcctlGodot", D_METHOD("triangulation_to_mesh_with_normals", "tri"), &OcctlGodot::triangulation_to_mesh_with_normals);
+    ClassDB::bind_static_method("OcctlGodot", D_METHOD("triangulation_to_mesh_with_tangents", "tri"), &OcctlGodot::triangulation_to_mesh_with_tangents);
 }
 
 // ========================================================================
 // Point3 <-> Vector3
 // ========================================================================
 
-Vector3 OcctlConvert::point3_to_vector3(const Ref<OcctlPoint3>& p) {
+Vector3 OcctlGodot::point3_to_vector3(const Ref<OcctlPoint3>& p) {
     const occtl_point3_t c = p->to_c();
     return Vector3(c.x, c.y, c.z);
 }
 
-Ref<OcctlPoint3> OcctlConvert::vector3_to_point3(const Vector3& v) {
+Ref<OcctlPoint3> OcctlGodot::vector3_to_point3(const Vector3& v) {
     occtl_point3_t c;
     c.x = v.x;
     c.y = v.y;
@@ -68,12 +78,12 @@ Ref<OcctlPoint3> OcctlConvert::vector3_to_point3(const Vector3& v) {
 // OCCT Vector3 <-> Godot Vector3
 // ========================================================================
 
-Vector3 OcctlConvert::occtl_vector3_to_godot(const Ref<OcctlVector3>& v) {
+Vector3 OcctlGodot::occtl_vector3_to_godot(const Ref<OcctlVector3>& v) {
     const occtl_vector3_t c = v->to_c();
     return Vector3(c.x, c.y, c.z);
 }
 
-Ref<OcctlVector3> OcctlConvert::godot_to_occtl_vector3(const Vector3& v) {
+Ref<OcctlVector3> OcctlGodot::godot_to_occtl_vector3(const Vector3& v) {
     occtl_vector3_t c;
     c.x = v.x;
     c.y = v.y;
@@ -85,12 +95,12 @@ Ref<OcctlVector3> OcctlConvert::godot_to_occtl_vector3(const Vector3& v) {
 // Direction3 <-> Vector3
 // ========================================================================
 
-Vector3 OcctlConvert::direction3_to_vector3(const Ref<OcctlDirection3>& d) {
+Vector3 OcctlGodot::direction3_to_vector3(const Ref<OcctlDirection3>& d) {
     const occtl_direction3_t c = d->to_c();
     return Vector3(c.x, c.y, c.z);
 }
 
-Ref<OcctlDirection3> OcctlConvert::vector3_to_direction3(const Vector3& v) {
+Ref<OcctlDirection3> OcctlGodot::vector3_to_direction3(const Vector3& v) {
     occtl_direction3_t c;
     c.x = v.x;
     c.y = v.y;
@@ -113,7 +123,7 @@ Ref<OcctlDirection3> OcctlConvert::vector3_to_direction3(const Vector3& v) {
 //   origin        = (m[3], m[7], m[11])
 // ========================================================================
 
-Transform3D OcctlConvert::transform_to_transform3d(const Ref<OcctlTransform>& t) {
+Transform3D OcctlGodot::transform_to_transform3d(const Ref<OcctlTransform>& t) {
     const occtl_transform_t c = t->to_c();
     Basis basis;
     basis.rows[0] = Vector3(c.m[0], c.m[1], c.m[2]);
@@ -125,7 +135,7 @@ Transform3D OcctlConvert::transform_to_transform3d(const Ref<OcctlTransform>& t)
     return result;
 }
 
-Ref<OcctlTransform> OcctlConvert::transform3d_to_transform(const Transform3D& t) {
+Ref<OcctlTransform> OcctlGodot::transform3d_to_transform(const Transform3D& t) {
     occtl_transform_t c;
     const Vector3& o = t.get_origin();
     const Basis& b = t.get_basis();
@@ -139,14 +149,14 @@ Ref<OcctlTransform> OcctlConvert::transform3d_to_transform(const Transform3D& t)
 // Aabb3 <-> AABB
 // ========================================================================
 
-AABB OcctlConvert::aabb3_to_aabb(const Ref<OcctlAabb3>& a) {
+AABB OcctlGodot::aabb3_to_aabb(const Ref<OcctlAabb3>& a) {
     const occtl_aabb3_t c = a->to_c();
     return AABB(
         Vector3(c.min.x, c.min.y, c.min.z),
         Vector3(c.max.x - c.min.x, c.max.y - c.min.y, c.max.z - c.min.z));
 }
 
-Ref<OcctlAabb3> OcctlConvert::aabb_to_aabb3(const AABB& a) {
+Ref<OcctlAabb3> OcctlGodot::aabb_to_aabb3(const AABB& a) {
     occtl_aabb3_t c;
     const Vector3& pos = a.get_position();
     const Vector3& sz = a.get_size();
@@ -159,12 +169,12 @@ Ref<OcctlAabb3> OcctlConvert::aabb_to_aabb3(const AABB& a) {
 // ColorRgba <-> Color
 // ========================================================================
 
-Color OcctlConvert::color_rgba_to_color(const Ref<OcctlColorRgba>& c) {
+Color OcctlGodot::color_rgba_to_color(const Ref<OcctlColorRgba>& c) {
     const occtl_color_rgba_t cc = c->to_c();
     return Color(cc.r, cc.g, cc.b, cc.a);
 }
 
-Ref<OcctlColorRgba> OcctlConvert::color_to_color_rgba(const Color& c) {
+Ref<OcctlColorRgba> OcctlGodot::color_to_color_rgba(const Color& c) {
     occtl_color_rgba_t cc;
     cc.r = c.r;
     cc.g = c.g;
@@ -177,12 +187,12 @@ Ref<OcctlColorRgba> OcctlConvert::color_to_color_rgba(const Color& c) {
 // Point2 <-> Vector2
 // ========================================================================
 
-Vector2 OcctlConvert::point2_to_vector2(const Ref<OcctlPoint2>& p) {
+Vector2 OcctlGodot::point2_to_vector2(const Ref<OcctlPoint2>& p) {
     const occtl_point2_t c = p->to_c();
     return Vector2(c.x, c.y);
 }
 
-Ref<OcctlPoint2> OcctlConvert::vector2_to_point2(const Vector2& v) {
+Ref<OcctlPoint2> OcctlGodot::vector2_to_point2(const Vector2& v) {
     occtl_point2_t c;
     c.x = v.x;
     c.y = v.y;
@@ -200,7 +210,7 @@ Ref<OcctlPoint2> OcctlConvert::vector2_to_point2(const Vector2& v) {
 // AXIS3:  X = x_dir,      Y = y_dir,  Z = z_dir
 // ========================================================================
 
-Transform3D OcctlConvert::axis1_placement_to_transform3d(const Ref<OcctlAxis1Placement>& a) {
+Transform3D OcctlGodot::axis1_placement_to_transform3d(const Ref<OcctlAxis1Placement>& a) {
     const occtl_axis1_placement_t c = a->to_c();
 
     // Z = direction.  Pick X as a perpendicular vector.
@@ -233,7 +243,7 @@ Transform3D OcctlConvert::axis1_placement_to_transform3d(const Ref<OcctlAxis1Pla
     return result;
 }
 
-Transform3D OcctlConvert::axis2_placement_to_transform3d(const Ref<OcctlAxis2Placement>& a) {
+Transform3D OcctlGodot::axis2_placement_to_transform3d(const Ref<OcctlAxis2Placement>& a) {
     const occtl_axis2_placement_t c = a->to_c();
 
     const double x_x = c.x_dir.x, x_y = c.x_dir.y, x_z = c.x_dir.z;
@@ -261,7 +271,7 @@ Transform3D OcctlConvert::axis2_placement_to_transform3d(const Ref<OcctlAxis2Pla
     return result;
 }
 
-Transform3D OcctlConvert::axis3_placement_to_transform3d(const Ref<OcctlAxis3Placement>& a) {
+Transform3D OcctlGodot::axis3_placement_to_transform3d(const Ref<OcctlAxis3Placement>& a) {
     const occtl_axis3_placement_t c = a->to_c();
 
     Basis basis;
@@ -278,7 +288,7 @@ Transform3D OcctlConvert::axis3_placement_to_transform3d(const Ref<OcctlAxis3Pla
 // Triangulation -> ArrayMesh
 // ========================================================================
 
-Ref<ArrayMesh> OcctlConvert::triangulation_to_array_mesh(const Ref<OcctlTriangulationView>& view) {
+Ref<ArrayMesh> OcctlGodot::triangulation_to_array_mesh(const Ref<OcctlTriangulationView>& view) {
     const double* tri_nodes = reinterpret_cast<const double*>(static_cast<uintptr_t>(view->nodes));
     const double* tri_normals = reinterpret_cast<const double*>(static_cast<uintptr_t>(view->normals));
     const double* tri_uvs = reinterpret_cast<const double*>(static_cast<uintptr_t>(view->uvs));
@@ -286,7 +296,7 @@ Ref<ArrayMesh> OcctlConvert::triangulation_to_array_mesh(const Ref<OcctlTriangul
     return _build_array_mesh(tri_nodes, view->node_count, tri_normals, tri_uvs, tri_indices, view->triangle_count);
 }
 
-Ref<ArrayMesh> OcctlConvert::mesh_buffers_to_array_mesh(const Ref<OcctlMeshTriangleBuffersView>& view) {
+Ref<ArrayMesh> OcctlGodot::mesh_buffers_to_array_mesh(const Ref<OcctlMeshTriangleBuffersView>& view) {
     const double* buf_nodes = reinterpret_cast<const double*>(static_cast<uintptr_t>(view->nodes));
     const uint32_t* buf_triangles = reinterpret_cast<const uint32_t*>(static_cast<uintptr_t>(view->triangles));
     return _build_array_mesh(buf_nodes, view->node_count, nullptr, nullptr, buf_triangles, view->triangle_count);
@@ -296,7 +306,7 @@ Ref<ArrayMesh> OcctlConvert::mesh_buffers_to_array_mesh(const Ref<OcctlMeshTrian
 // Polygon3d -> PackedVector3Array
 // ========================================================================
 
-PackedVector3Array OcctlConvert::polygon3d_to_points(const Ref<OcctlPolygon3dView>& view) {
+PackedVector3Array OcctlGodot::polygon3d_to_points(const Ref<OcctlPolygon3dView>& view) {
     PackedVector3Array points;
     if (view.is_null()) { return points; }
     const int64_t raw_nodes = view->get_nodes();
@@ -315,7 +325,7 @@ PackedVector3Array OcctlConvert::polygon3d_to_points(const Ref<OcctlPolygon3dVie
 // PolygonOnTri -> world-space 3D points
 // ========================================================================
 
-PackedVector3Array OcctlConvert::polygon_on_tri_to_world_points(
+PackedVector3Array OcctlGodot::polygon_on_tri_to_world_points(
     const Ref<OcctlTriangulationView>& tri_view,
     const Ref<OcctlPolygonOnTriView>& poly_view)
 {
@@ -340,10 +350,79 @@ PackedVector3Array OcctlConvert::polygon_on_tri_to_world_points(
 }
 
 // ========================================================================
+// Edge → mesh (requires triangulation lookup via graph — stub for now)
+// ========================================================================
+
+Ref<ArrayMesh> OcctlGodot::edge_to_mesh(const Ref<OcctlEdgeView>& edge, double radius) {
+    (void)edge; (void)radius;
+    Ref<ArrayMesh> mesh;
+    mesh.instantiate();
+    return mesh;
+}
+
+Ref<ArrayMesh> OcctlGodot::vertex_to_mesh(const Ref<OcctlVertexView>& vertex) {
+    Ref<ArrayMesh> mesh;
+    mesh.instantiate();
+    if (vertex.is_null() || vertex->get_point().is_null()) { return mesh; }
+    const occtl_point3_t p = vertex->get_point()->to_c();
+    const double s = 0.001;
+    PackedVector3Array verts;
+    verts.append(Vector3(p.x - s, p.y - s, p.z - s));
+    verts.append(Vector3(p.x + s, p.y - s, p.z - s));
+    verts.append(Vector3(p.x + s, p.y + s, p.z - s));
+    verts.append(Vector3(p.x - s, p.y + s, p.z + s));
+    PackedInt32Array indices;
+    indices.append(0); indices.append(1); indices.append(2);
+    indices.append(0); indices.append(2); indices.append(3);
+    indices.append(0); indices.append(3); indices.append(1);
+    indices.append(1); indices.append(3); indices.append(2);
+    Array arrays;
+    arrays.resize(Mesh::ARRAY_MAX);
+    arrays[Mesh::ARRAY_VERTEX] = verts;
+    arrays[Mesh::ARRAY_INDEX] = indices;
+    mesh->add_surface_from_arrays(Mesh::PRIMITIVE_TRIANGLES, arrays);
+    return mesh;
+}
+
+Ref<ArrayMesh> OcctlGodot::edge_to_mesh_with_colors(const Ref<OcctlEdgeView>& edge, const Dictionary& face_id_colors) {
+    (void)edge; (void)face_id_colors;
+    Ref<ArrayMesh> mesh;
+    mesh.instantiate();
+    return mesh;
+}
+
+// ========================================================================
+// Triangulation with extra attributes
+// ========================================================================
+
+Ref<ArrayMesh> OcctlGodot::triangulation_to_mesh_with_uvs(const Ref<OcctlTriangulationView>& tri) {
+    const double* nodes = reinterpret_cast<const double*>(static_cast<uintptr_t>(tri->nodes));
+    const double* uvs = reinterpret_cast<const double*>(static_cast<uintptr_t>(tri->uvs));
+    const double* normals = reinterpret_cast<const double*>(static_cast<uintptr_t>(tri->normals));
+    const uint32_t* indices = reinterpret_cast<const uint32_t*>(static_cast<uintptr_t>(tri->triangles));
+    return _build_array_mesh(nodes, tri->node_count, normals, uvs, indices, tri->triangle_count);
+}
+
+Ref<ArrayMesh> OcctlGodot::triangulation_to_mesh_with_normals(const Ref<OcctlTriangulationView>& tri) {
+    const double* nodes = reinterpret_cast<const double*>(static_cast<uintptr_t>(tri->nodes));
+    const double* normals = reinterpret_cast<const double*>(static_cast<uintptr_t>(tri->normals));
+    const uint32_t* indices = reinterpret_cast<const uint32_t*>(static_cast<uintptr_t>(tri->triangles));
+    return _build_array_mesh(nodes, tri->node_count, normals, nullptr, indices, tri->triangle_count);
+}
+
+Ref<ArrayMesh> OcctlGodot::triangulation_to_mesh_with_tangents(const Ref<OcctlTriangulationView>& tri) {
+    // Tangents require 4-component data.  For now fall back to normals-only.
+    const double* nodes = reinterpret_cast<const double*>(static_cast<uintptr_t>(tri->nodes));
+    const double* normals = reinterpret_cast<const double*>(static_cast<uintptr_t>(tri->normals));
+    const uint32_t* indices = reinterpret_cast<const uint32_t*>(static_cast<uintptr_t>(tri->triangles));
+    return _build_array_mesh(nodes, tri->node_count, normals, nullptr, indices, tri->triangle_count);
+}
+
+// ========================================================================
 // Internal: build ArrayMesh surface from raw mesh data
 // ========================================================================
 
-Ref<ArrayMesh> OcctlConvert::_build_array_mesh(
+Ref<ArrayMesh> OcctlGodot::_build_array_mesh(
     const double* nodes, int node_count,
     const double* normals,
     const double* uvs,

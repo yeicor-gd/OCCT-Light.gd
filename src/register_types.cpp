@@ -8,7 +8,7 @@
 #include "autowrapper/module.h"
 
 // Hand-written conversion utilities
-#include "convert/OcctlConvert.h"
+#include "convert/OcctlGodot.h"
 
 static void occtl_light_gd_initialize(ModuleInitializationLevel p_level) {
     if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE) {
@@ -19,7 +19,7 @@ static void occtl_light_gd_initialize(ModuleInitializationLevel p_level) {
     gdext_initialize_module_auto(p_level);
 
     // Register hand-written conversion module
-    GDREGISTER_CLASS(OcctlConvert);
+    GDREGISTER_CLASS(OcctlGodot);
 }
 
 static void occtl_light_gd_uninitialize(ModuleInitializationLevel p_level) {
