@@ -8,7 +8,422 @@
 #include <godot_cpp/variant/packed_vector2_array.hpp>
 #include <godot_cpp/variant/packed_vector3_array.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
+#include <occtl/occtl_core.h>
+#include <occtl/occtl_mesh.h>
+#include <occtl/occtl_topo.h>
+
 #include <cstring>
+#include <cmath>
+#include <algorithm>
+
+// ========================================================================
+// Internal helpers
+// ========================================================================
+
+/// Encode a 64-bit node/feature ID into a 32-bit RGBA Color.
+/// Each channel stores 8 bits of the ID: R=bits 0-7, G=bits 8-15,
+/// B=bits 16-23, A=bits 24-31.  Only the lower 32 bits are preserved.
+static Color _feature_id_color(int64_t id) {
+    return Color(
+        ((id >> 0) & 0xFF) / 255.0f,
+        ((id >> 8) & 0xFF) / 255.0f,
+        ((id >> 16) & 0xFF) / 255.0f,
+        ((id >> 24) & 0xFF) / 255.0f);
+}
+
+/// Extract a raw occtl_graph_t* from a Ref<OcctlGraphHandle>.
+/// Returns nullptr when the handle is null or invalid.
+static const occtl_graph_t* _graph_ptr(const Ref<OcctlGraphHandle>& g) {
+    if (g.is_null()) return nullptr;
+    uint64_t handle = static_cast<uint64_t>(g->get_handle());
+    if (handle == 0) return nullptr;
+    return reinterpret_cast<const occtl_graph_t*>(static_cast<uintptr_t>(handle));
+}
+
+/// Convert a `Variant` ids argument to a vector of node IDs.
+/// When `ids` is null (Variant::NIL), iterate the graph and collect all
+/// nodes matching `kind`, effectively exporting every feature of that kind.
+/// When `ids` is a PackedInt64Array, use those IDs directly (empty → nothing).
+/// Returns true if any valid IDs were found.
+static bool _resolve_ids(
+    const Variant& ids,
+    const occtl_graph_t* graph,
+    int32_t kind,
+    std::vector<int64_t>& out_ids)
+{
+    out_ids.clear();
+
+    if (ids.get_type() == Variant::NIL) {
+        if (!graph) return false;
+        // Export all nodes of the given kind
+        size_t node_count = 0;
+        occtl_status_t st = ::occtl_graph_node_count(graph, &node_count);
+        if (st != OCCTL_OK) return false;
+
+        for (size_t i = 0; i < node_count; ++i) {
+            occtl_node_kind_t node_kind = static_cast<occtl_node_kind_t>(-1);
+            occtl_node_id_t nid{static_cast<uint64_t>(i)};
+            st = ::occtl_graph_node_kind(graph, nid, &node_kind);
+            if (st == OCCTL_OK && static_cast<int32_t>(node_kind) == kind) {
+                out_ids.push_back(static_cast<int64_t>(i));
+            }
+        }
+        return !out_ids.empty();
+    }
+
+    if (ids.get_type() == Variant::PACKED_INT64_ARRAY) {
+        PackedInt64Array arr = ids.operator PackedInt64Array();
+        out_ids.reserve(static_cast<size_t>(arr.size()));
+        for (int64_t i = 0; i < arr.size(); ++i) {
+            out_ids.push_back(arr[i]);
+        }
+        return !out_ids.empty();
+    }
+
+    // Unknown type — treat as empty
+    return false;
+}
+
+/// Accumulator for mesh building — collects per-vertex data and triangle
+/// indices, then flattens into Godot surface arrays at the end.
+struct MeshAccum {
+    std::vector<Vector3> verts;
+    std::vector<Vector3> normals;
+    std::vector<Vector2> uvs;
+    std::vector<Color> colors;
+    std::vector<int32_t> indices;
+};
+
+/// Compute the flat-shading normal of a triangle (a, b, c).
+static void _compute_face_normal(const Vector3& a, const Vector3& b, const Vector3& c, Vector3* out) {
+    Vector3 e1 = b - a;
+    Vector3 e2 = c - a;
+    Vector3 n = e1.cross(e2);
+    double len = n.length();
+    if (len > 1e-30) n /= len;
+    *out = n;
+}
+
+/// Build a tube surface around a 3D polyline.
+///
+/// At each polyline point a local frame (tangent, right, up) is computed
+/// and a circle of `segments` vertices is placed in the plane perpendicular
+/// to the tangent.  Adjacent circles are connected by triangle quads.
+///
+/// @param acc          Output accumulator.
+/// @param poly_nodes   Interleaved xyz doubles, length 3 * poly_count.
+/// @param poly_count   Number of polyline points.
+/// @param radius       Tube radius (>0).
+/// @param segments     Circle subdivision (8 is typical).
+/// @param include_normals  When true, per-vertex normals are emitted.
+/// @param feature_id   ID encoded into vertex colors when include_feature_ids.
+/// @param include_feature_ids  When true, vertex colors encode the feature ID.
+static void _build_tube(MeshAccum& acc,
+    const double* poly_nodes, size_t poly_count,
+    double radius, int segments,
+    bool include_normals,
+    int64_t feature_id, bool include_feature_ids)
+{
+    if (poly_count < 2 || radius <= 0.0) return;
+
+    Color fcolor = include_feature_ids ? _feature_id_color(feature_id) : Color(1, 1, 1, 1);
+
+    // Build rings around each polyline point (segments+1 to close the circle)
+    size_t ring_stride = static_cast<size_t>(segments + 1);
+    std::vector<Vector3> ring_verts(poly_count * ring_stride);
+    std::vector<Vector3> ring_normals(poly_count * ring_stride);
+
+    for (size_t i = 0; i < poly_count; ++i) {
+        Vector3 pt(poly_nodes[i * 3], poly_nodes[i * 3 + 1], poly_nodes[i * 3 + 2]);
+
+        // Tangent direction at this point (central difference where possible)
+        Vector3 tangent;
+        if (i == 0) {
+            tangent = Vector3(
+                poly_nodes[3] - poly_nodes[0],
+                poly_nodes[4] - poly_nodes[1],
+                poly_nodes[5] - poly_nodes[2]);
+        } else if (i == poly_count - 1) {
+            tangent = Vector3(
+                poly_nodes[i * 3] - poly_nodes[(i - 1) * 3],
+                poly_nodes[i * 3 + 1] - poly_nodes[(i - 1) * 3 + 1],
+                poly_nodes[i * 3 + 2] - poly_nodes[(i - 1) * 3 + 2]);
+        } else {
+            tangent = Vector3(
+                poly_nodes[(i + 1) * 3] - poly_nodes[(i - 1) * 3],
+                poly_nodes[(i + 1) * 3 + 1] - poly_nodes[(i - 1) * 3 + 1],
+                poly_nodes[(i + 1) * 3 + 2] - poly_nodes[(i - 1) * 3 + 2]);
+        }
+        double tlen = tangent.length();
+        if (tlen < 1e-30) {
+            tangent = Vector3(0, 0, 1);
+        } else {
+            tangent /= tlen;
+        }
+
+        // Perpendicular frame using an arbitrary up vector
+        Vector3 up;
+        if (std::abs(tangent.y) < 0.9) {
+            up = tangent.cross(Vector3(0, 1, 0));
+        } else {
+            up = tangent.cross(Vector3(1, 0, 0));
+        }
+        double ulen = up.length();
+        if (ulen < 1e-30) {
+            up = Vector3(1, 0, 0);
+        } else {
+            up /= ulen;
+        }
+        Vector3 right = tangent.cross(up);
+
+        for (int j = 0; j <= segments; ++j) {
+            double angle = 2.0 * Math_PI * j / segments;
+            double c = std::cos(angle);
+            double s = std::sin(angle);
+            Vector3 offset = right * (c * radius) + up * (s * radius);
+            size_t idx = i * ring_stride + static_cast<size_t>(j);
+            ring_verts[idx] = pt + offset;
+            ring_normals[idx] = offset / radius;
+        }
+    }
+
+    // Connect adjacent rings with triangle pairs
+    for (size_t i = 0; i < poly_count - 1; ++i) {
+        for (int j = 0; j < segments; ++j) {
+            size_t off = i * ring_stride;
+            size_t a0 = off + static_cast<size_t>(j);
+            size_t a1 = off + static_cast<size_t>(j + 1);
+            size_t b0 = off + ring_stride + static_cast<size_t>(j);
+            size_t b1 = off + ring_stride + static_cast<size_t>(j + 1);
+
+            // Two triangles per quad: (a0,b0,b1) and (a0,b1,a1)
+            acc.verts.push_back(ring_verts[a0]);
+            acc.verts.push_back(ring_verts[b0]);
+            acc.verts.push_back(ring_verts[b1]);
+            acc.verts.push_back(ring_verts[a0]);
+            acc.verts.push_back(ring_verts[b1]);
+            acc.verts.push_back(ring_verts[a1]);
+
+            if (include_normals) {
+                acc.normals.push_back(ring_normals[a0]);
+                acc.normals.push_back(ring_normals[b0]);
+                acc.normals.push_back(ring_normals[b1]);
+                acc.normals.push_back(ring_normals[a0]);
+                acc.normals.push_back(ring_normals[b1]);
+                acc.normals.push_back(ring_normals[a1]);
+            }
+
+            if (include_feature_ids) {
+                acc.colors.push_back(fcolor);
+                acc.colors.push_back(fcolor);
+                acc.colors.push_back(fcolor);
+                acc.colors.push_back(fcolor);
+                acc.colors.push_back(fcolor);
+                acc.colors.push_back(fcolor);
+            }
+
+            int32_t base = static_cast<int32_t>(acc.verts.size()) - 6;
+            acc.indices.push_back(base);
+            acc.indices.push_back(base + 1);
+            acc.indices.push_back(base + 2);
+            acc.indices.push_back(base + 3);
+            acc.indices.push_back(base + 4);
+            acc.indices.push_back(base + 5);
+        }
+    }
+}
+
+/// Build a tetrahedron marker at a vertex position.
+/// The marker is a small 4-triangle shape centred on `pos`.
+static void _build_vertex_marker(MeshAccum& acc,
+    const Vector3& pos,
+    bool include_normals,
+    int64_t feature_id, bool include_feature_ids)
+{
+    Color fcolor = include_feature_ids ? _feature_id_color(feature_id) : Color(1, 1, 1, 1);
+    double s = 0.001;
+
+    Vector3 verts[4] = {
+        pos + Vector3(-s, -s, -s),
+        pos + Vector3( s, -s, -s),
+        pos + Vector3( s,  s, -s),
+        pos + Vector3(-s,  s,  s)
+    };
+
+    int tri_indices[4][3] = {
+        {0, 1, 2},
+        {0, 2, 3},
+        {0, 3, 1},
+        {1, 3, 2}
+    };
+
+    for (int t = 0; t < 4; ++t) {
+        const Vector3& a = verts[tri_indices[t][0]];
+        const Vector3& b = verts[tri_indices[t][1]];
+        const Vector3& c = verts[tri_indices[t][2]];
+
+        acc.verts.push_back(a);
+        acc.verts.push_back(b);
+        acc.verts.push_back(c);
+
+        if (include_normals) {
+            Vector3 n;
+            _compute_face_normal(a, b, c, &n);
+            acc.normals.push_back(n);
+            acc.normals.push_back(n);
+            acc.normals.push_back(n);
+        }
+
+        if (include_feature_ids) {
+            acc.colors.push_back(fcolor);
+            acc.colors.push_back(fcolor);
+            acc.colors.push_back(fcolor);
+        }
+
+        int32_t base = static_cast<int32_t>(acc.verts.size()) - 3;
+        acc.indices.push_back(base);
+        acc.indices.push_back(base + 1);
+        acc.indices.push_back(base + 2);
+    }
+}
+
+/// Compute per-vertex tangents from positions, normals, UVs, and indices.
+///
+/// Uses the standard triangle-based accumulation with Gram-Schmidt
+/// orthogonalization against the vertex normal.  Returns a PackedFloat64Array
+/// with 4 components per vertex (xyz + sign).
+static PackedFloat64Array _compute_tangents(
+    const std::vector<Vector3>& verts,
+    const std::vector<Vector3>& normals,
+    const std::vector<Vector2>& uvs,
+    const std::vector<int32_t>& indices)
+{
+    size_t n_verts = verts.size();
+    if (n_verts == 0) return PackedFloat64Array();
+
+    size_t n_tris = indices.size() / 3;
+    std::vector<Vector3> tangents(n_verts, Vector3());
+    std::vector<float> tangent_ws(n_verts, 0.0f);
+
+    for (size_t t = 0; t < n_tris; ++t) {
+        int i0 = indices[t * 3];
+        int i1 = indices[t * 3 + 1];
+        int i2 = indices[t * 3 + 2];
+
+        const Vector3& v0 = verts[i0];
+        const Vector3& v1 = verts[i1];
+        const Vector3& v2 = verts[i2];
+
+        const Vector2& uv0 = uvs[i0];
+        const Vector2& uv1 = uvs[i1];
+        const Vector2& uv2 = uvs[i2];
+
+        Vector3 delta_pos1 = v1 - v0;
+        Vector3 delta_pos2 = v2 - v0;
+        Vector2 delta_uv1 = uv1 - uv0;
+        Vector2 delta_uv2 = uv2 - uv0;
+
+        double det = delta_uv1.x * delta_uv2.y - delta_uv1.y * delta_uv2.x;
+        if (std::abs(det) < 1e-30) continue;
+        double r = 1.0 / det;
+        Vector3 tangent = (delta_pos1 * delta_uv2.y - delta_pos2 * delta_uv1.y) * r;
+        Vector3 bitangent = (delta_pos2 * delta_uv1.x - delta_pos1 * delta_uv2.x) * r;
+
+        for (int k = 0; k < 3; ++k) {
+            int idx = (k == 0) ? i0 : (k == 1) ? i1 : i2;
+            tangents[idx] = tangents[idx] + tangent;
+            Vector3 cross_n_t = normals[idx].cross(tangent);
+            tangent_ws[idx] += (cross_n_t.dot(bitangent) >= 0) ? 1.0f : -1.0f;
+        }
+    }
+
+    PackedFloat64Array result;
+    result.resize(static_cast<int64_t>(n_verts) * 4);
+    for (size_t i = 0; i < n_verts; ++i) {
+        Vector3 t = tangents[i];
+        // Gram-Schmidt: t = normalize(t - dot(t, n) * n)
+        t = t - normals[i] * normals[i].dot(t);
+        double tlen = t.length();
+        if (tlen > 1e-30) t /= tlen;
+
+        float w = tangent_ws[i];
+        // Clamp sign to [-1, 1]
+        if (w > 1.0f) w = 1.0f;
+        if (w < -1.0f) w = -1.0f;
+
+        result.set(i * 4, t.x);
+        result.set(i * 4 + 1, t.y);
+        result.set(i * 4 + 2, t.z);
+        result.set(i * 4 + 3, static_cast<double>(w));
+    }
+
+    return result;
+}
+
+/// Flatten accumulated mesh data into a Godot ArrayMesh surface.
+static Ref<ArrayMesh> _finalize_mesh(
+    const std::vector<Vector3>& verts,
+    const std::vector<Vector3>& normals,
+    const std::vector<Vector2>& uvs,
+    const std::vector<Color>& colors,
+    const PackedFloat64Array& tangents,
+    const std::vector<int32_t>& indices,
+    Mesh::PrimitiveType prim_type)
+{
+    Ref<ArrayMesh> mesh;
+    mesh.instantiate();
+    if (verts.empty() || indices.empty()) return mesh;
+
+    Array arrays;
+    arrays.resize(Mesh::ARRAY_MAX);
+
+    PackedVector3Array vert_arr;
+    vert_arr.resize(static_cast<int64_t>(verts.size()));
+    for (size_t i = 0; i < verts.size(); ++i)
+        vert_arr.set(static_cast<int64_t>(i), verts[i]);
+    arrays[Mesh::ARRAY_VERTEX] = vert_arr;
+
+    PackedInt32Array idx_arr;
+    idx_arr.resize(static_cast<int64_t>(indices.size()));
+    for (size_t i = 0; i < indices.size(); ++i)
+        idx_arr.set(static_cast<int64_t>(i), indices[i]);
+    arrays[Mesh::ARRAY_INDEX] = idx_arr;
+
+    if (!normals.empty()) {
+        PackedVector3Array n_arr;
+        n_arr.resize(static_cast<int64_t>(normals.size()));
+        for (size_t i = 0; i < normals.size(); ++i)
+            n_arr.set(static_cast<int64_t>(i), normals[i]);
+        arrays[Mesh::ARRAY_NORMAL] = n_arr;
+    }
+
+    if (!uvs.empty()) {
+        PackedVector2Array uv_arr;
+        uv_arr.resize(static_cast<int64_t>(uvs.size()));
+        for (size_t i = 0; i < uvs.size(); ++i)
+            uv_arr.set(static_cast<int64_t>(i), uvs[i]);
+        arrays[Mesh::ARRAY_TEX_UV] = uv_arr;
+    }
+
+    if (!colors.empty()) {
+        Array col_arr;
+        col_arr.resize(static_cast<int64_t>(colors.size()));
+        for (size_t i = 0; i < colors.size(); ++i)
+            col_arr.set(static_cast<int64_t>(i), colors[i]);
+        arrays[Mesh::ARRAY_COLOR] = col_arr;
+    }
+
+    if (tangents.size() > 0) {
+        arrays[Mesh::ARRAY_TANGENT] = tangents;
+    }
+
+    mesh->add_surface_from_arrays(prim_type, arrays);
+    return mesh;
+}
+
+// ========================================================================
+// OcctlGodot implementation
+// ========================================================================
 
 void OcctlGodot::_bind_methods() {
     // --- Value conversions ---
@@ -38,23 +453,17 @@ void OcctlGodot::_bind_methods() {
     ClassDB::bind_static_method("OcctlGodot", D_METHOD("axis2_placement_to_transform3d", "a"), &OcctlGodot::axis2_placement_to_transform3d);
     ClassDB::bind_static_method("OcctlGodot", D_METHOD("axis3_placement_to_transform3d", "a"), &OcctlGodot::axis3_placement_to_transform3d);
 
-    // --- Mesh/Triangulation to ArrayMesh ---
-    ClassDB::bind_static_method("OcctlGodot", D_METHOD("triangulation_to_array_mesh", "view"), &OcctlGodot::triangulation_to_array_mesh);
-    ClassDB::bind_static_method("OcctlGodot", D_METHOD("mesh_buffers_to_array_mesh", "view"), &OcctlGodot::mesh_buffers_to_array_mesh);
+    // --- Edge batch to mesh ---
+    ClassDB::bind_static_method("OcctlGodot", D_METHOD("edges_to_mesh", "graph", "edge_ids", "radius", "include_normals", "include_feature_ids"),
+        &OcctlGodot::edges_to_mesh, DEFVAL(Variant()), DEFVAL(0.0), DEFVAL(true), DEFVAL(false));
 
-    // --- Polygon views ---
-    ClassDB::bind_static_method("OcctlGodot", D_METHOD("polygon3d_to_points", "view"), &OcctlGodot::polygon3d_to_points);
-    ClassDB::bind_static_method("OcctlGodot", D_METHOD("polygon_on_tri_to_world_points", "tri_view", "poly_view"), &OcctlGodot::polygon_on_tri_to_world_points);
+    // --- Vertex batch to mesh ---
+    ClassDB::bind_static_method("OcctlGodot", D_METHOD("vertices_to_mesh", "graph", "vertex_ids", "include_normals", "include_feature_ids"),
+        &OcctlGodot::vertices_to_mesh, DEFVAL(Variant()), DEFVAL(true), DEFVAL(false));
 
-    // --- Edge/Vertex to mesh ---
-    ClassDB::bind_static_method("OcctlGodot", D_METHOD("edge_to_mesh", "edge", "radius"), &OcctlGodot::edge_to_mesh, DEFVAL(0.0));
-    ClassDB::bind_static_method("OcctlGodot", D_METHOD("vertex_to_mesh", "vertex"), &OcctlGodot::vertex_to_mesh);
-    ClassDB::bind_static_method("OcctlGodot", D_METHOD("edge_to_mesh_with_colors", "edge", "face_id_colors"), &OcctlGodot::edge_to_mesh_with_colors);
-
-    // --- Triangulation with extras ---
-    ClassDB::bind_static_method("OcctlGodot", D_METHOD("triangulation_to_mesh_with_uvs", "tri"), &OcctlGodot::triangulation_to_mesh_with_uvs);
-    ClassDB::bind_static_method("OcctlGodot", D_METHOD("triangulation_to_mesh_with_normals", "tri"), &OcctlGodot::triangulation_to_mesh_with_normals);
-    ClassDB::bind_static_method("OcctlGodot", D_METHOD("triangulation_to_mesh_with_tangents", "tri"), &OcctlGodot::triangulation_to_mesh_with_tangents);
+    // --- Face triangulation batch to mesh ---
+    ClassDB::bind_static_method("OcctlGodot", D_METHOD("faces_to_mesh", "graph", "face_ids", "include_normals", "include_uvs", "include_tangents", "include_feature_ids"),
+        &OcctlGodot::faces_to_mesh, DEFVAL(Variant()), DEFVAL(true), DEFVAL(true), DEFVAL(false), DEFVAL(false));
 }
 
 // ========================================================================
@@ -110,17 +519,6 @@ Ref<OcctlDirection3> OcctlGodot::vector3_to_direction3(const Vector3& v) {
 
 // ========================================================================
 // Transform <-> Transform3D
-//
-// occtl_transform_t is row-major 3x4:
-//   m[0..3]  row 0: [a00 a01 a02 tx]
-//   m[4..7]  row 1: [a10 a11 a12 ty]
-//   m[8..11] row 2: [a20 a21 a22 tz]
-//
-// Godot Transform3D stores basis as 3 row vectors + origin.
-//   basis.rows[0] = (m[0], m[1], m[2])   = x basis vector
-//   basis.rows[1] = (m[4], m[5], m[6])   = y basis vector
-//   basis.rows[2] = (m[8], m[9], m[10])  = z basis vector
-//   origin        = (m[3], m[7], m[11])
 // ========================================================================
 
 Transform3D OcctlGodot::transform_to_transform3d(const Ref<OcctlTransform>& t) {
@@ -201,19 +599,10 @@ Ref<OcctlPoint2> OcctlGodot::vector2_to_point2(const Vector2& v) {
 
 // ========================================================================
 // Axis placement -> Transform3D
-//
-// These construct a frame->world Transform3D directly, without going
-// through occtl_transform_from_axis* (which returns world->frame).
-//
-// AXIS1:  Z = direction,  X = any perpendicular to Z,  Y = Z x X
-// AXIS2:  X = x_dir,      Y = component of x_dir_ref orthogonal to X,  Z = X x Y
-// AXIS3:  X = x_dir,      Y = y_dir,  Z = z_dir
 // ========================================================================
 
 Transform3D OcctlGodot::axis1_placement_to_transform3d(const Ref<OcctlAxis1Placement>& a) {
     const occtl_axis1_placement_t c = a->to_c();
-
-    // Z = direction.  Pick X as a perpendicular vector.
     const double zx = c.direction.x, zy = c.direction.y, zz = c.direction.z;
     double xd_x, xd_y, xd_z;
     const double azx = fabs(zx), azy = fabs(zy), azz = fabs(zz);
@@ -228,11 +617,9 @@ Transform3D OcctlGodot::axis1_placement_to_transform3d(const Ref<OcctlAxis1Place
     if (x_len < 1e-15) return Transform3D();
     const double inv_x = 1.0 / x_len;
     xd_x *= inv_x; xd_y *= inv_x; xd_z *= inv_x;
-
     const double yd_x = zy * xd_z - zz * xd_y;
     const double yd_y = zz * xd_x - zx * xd_z;
     const double yd_z = zx * xd_y - zy * xd_x;
-
     Basis basis;
     basis.rows[0] = Vector3(xd_x, xd_y, xd_z);
     basis.rows[1] = Vector3(yd_x, yd_y, yd_z);
@@ -245,9 +632,7 @@ Transform3D OcctlGodot::axis1_placement_to_transform3d(const Ref<OcctlAxis1Place
 
 Transform3D OcctlGodot::axis2_placement_to_transform3d(const Ref<OcctlAxis2Placement>& a) {
     const occtl_axis2_placement_t c = a->to_c();
-
     const double x_x = c.x_dir.x, x_y = c.x_dir.y, x_z = c.x_dir.z;
-    // Y = component of x_dir_ref orthogonal to x_dir
     const double dot = x_x * c.x_dir_ref.x + x_y * c.x_dir_ref.y + x_z * c.x_dir_ref.z;
     double y_x = c.x_dir_ref.x - dot * x_x;
     double y_y = c.x_dir_ref.y - dot * x_y;
@@ -256,11 +641,9 @@ Transform3D OcctlGodot::axis2_placement_to_transform3d(const Ref<OcctlAxis2Place
     if (y_len < 1e-15) return Transform3D();
     const double inv_y = 1.0 / y_len;
     y_x *= inv_y; y_y *= inv_y; y_z *= inv_y;
-
     const double z_x = x_y * y_z - x_z * y_y;
     const double z_y = x_z * y_x - x_x * y_z;
     const double z_z = x_x * y_y - x_y * y_x;
-
     Basis basis;
     basis.rows[0] = Vector3(x_x, x_y, x_z);
     basis.rows[1] = Vector3(y_x, y_y, y_z);
@@ -273,7 +656,6 @@ Transform3D OcctlGodot::axis2_placement_to_transform3d(const Ref<OcctlAxis2Place
 
 Transform3D OcctlGodot::axis3_placement_to_transform3d(const Ref<OcctlAxis3Placement>& a) {
     const occtl_axis3_placement_t c = a->to_c();
-
     Basis basis;
     basis.rows[0] = Vector3(c.x_dir.x, c.x_dir.y, c.x_dir.z);
     basis.rows[1] = Vector3(c.y_dir.x, c.y_dir.y, c.y_dir.z);
@@ -285,195 +667,193 @@ Transform3D OcctlGodot::axis3_placement_to_transform3d(const Ref<OcctlAxis3Place
 }
 
 // ========================================================================
-// Triangulation -> ArrayMesh
+// Edge batch → mesh
 // ========================================================================
 
-Ref<ArrayMesh> OcctlGodot::triangulation_to_array_mesh(const Ref<OcctlTriangulationView>& view) {
-    const double* tri_nodes = reinterpret_cast<const double*>(static_cast<uintptr_t>(view->nodes));
-    const double* tri_normals = reinterpret_cast<const double*>(static_cast<uintptr_t>(view->normals));
-    const double* tri_uvs = reinterpret_cast<const double*>(static_cast<uintptr_t>(view->uvs));
-    const uint32_t* tri_indices = reinterpret_cast<const uint32_t*>(static_cast<uintptr_t>(view->triangles));
-    return _build_array_mesh(tri_nodes, view->node_count, tri_normals, tri_uvs, tri_indices, view->triangle_count);
-}
-
-Ref<ArrayMesh> OcctlGodot::mesh_buffers_to_array_mesh(const Ref<OcctlMeshTriangleBuffersView>& view) {
-    const double* buf_nodes = reinterpret_cast<const double*>(static_cast<uintptr_t>(view->nodes));
-    const uint32_t* buf_triangles = reinterpret_cast<const uint32_t*>(static_cast<uintptr_t>(view->triangles));
-    return _build_array_mesh(buf_nodes, view->node_count, nullptr, nullptr, buf_triangles, view->triangle_count);
-}
-
-// ========================================================================
-// Polygon3d -> PackedVector3Array
-// ========================================================================
-
-PackedVector3Array OcctlGodot::polygon3d_to_points(const Ref<OcctlPolygon3dView>& view) {
-    PackedVector3Array points;
-    if (view.is_null()) { return points; }
-    const int64_t raw_nodes = view->get_nodes();
-    if (raw_nodes == 0 || view->get_node_count() <= 0) {
-        return points;
-    }
-    const double* nodes_ptr = reinterpret_cast<const double*>(static_cast<uintptr_t>(raw_nodes));
-    points.resize(view->get_node_count());
-    for (int i = 0; i < view->get_node_count(); ++i) {
-        points.set(i, Vector3(nodes_ptr[i * 3], nodes_ptr[i * 3 + 1], nodes_ptr[i * 3 + 2]));
-    }
-    return points;
-}
-
-// ========================================================================
-// PolygonOnTri -> world-space 3D points
-// ========================================================================
-
-PackedVector3Array OcctlGodot::polygon_on_tri_to_world_points(
-    const Ref<OcctlTriangulationView>& tri_view,
-    const Ref<OcctlPolygonOnTriView>& poly_view)
+Ref<ArrayMesh> OcctlGodot::edges_to_mesh(
+    const Ref<OcctlGraphHandle>& graph,
+    const Variant& edge_ids,
+    double radius,
+    bool include_normals,
+    bool include_feature_ids)
 {
-    PackedVector3Array points;
-    const int64_t raw_tri_nodes = tri_view->nodes;
-    const int64_t raw_node_indices = poly_view->node_indices;
-    if (raw_tri_nodes == 0 || raw_node_indices == 0 || poly_view->node_count <= 0) {
-        return points;
+    const occtl_graph_t* g = _graph_ptr(graph);
+    if (!g) {
+        Ref<ArrayMesh> empty;
+        empty.instantiate();
+        return empty;
     }
-    const double* tri_nodes = reinterpret_cast<const double*>(static_cast<uintptr_t>(raw_tri_nodes));
-    const uint32_t* node_indices = reinterpret_cast<const uint32_t*>(static_cast<uintptr_t>(raw_node_indices));
-    points.resize(poly_view->node_count);
-    for (int i = 0; i < poly_view->node_count; ++i) {
-        const uint32_t ni = node_indices[i];
-        if (static_cast<int>(ni) < tri_view->node_count) {
-            points.set(i, Vector3(tri_nodes[ni * 3], tri_nodes[ni * 3 + 1], tri_nodes[ni * 3 + 2]));
+
+    std::vector<int64_t> ids;
+    if (!_resolve_ids(edge_ids, g, OCCTL_KIND_EDGE, ids)) {
+        Ref<ArrayMesh> empty;
+        empty.instantiate();
+        return empty;
+    }
+
+    static const int TUBE_SEGMENTS = 8;
+    MeshAccum acc;
+
+    for (int64_t ei : ids) {
+        occtl_polygon3d_view_t poly_view;
+        occtl_status_t status = ::occtl_mesh_edge_polygon3d(
+            g, occtl_node_id_t{static_cast<uint64_t>(ei)}, &poly_view);
+        if (status != OCCTL_OK) continue;
+        if (poly_view.node_count < 2) continue;
+
+        if (radius > 0.0) {
+            _build_tube(acc, poly_view.nodes, poly_view.node_count,
+                radius, TUBE_SEGMENTS,
+                include_normals, ei, include_feature_ids);
         } else {
-            points.set(i, Vector3());
+            int base = static_cast<int>(acc.verts.size());
+            for (size_t j = 0; j < poly_view.node_count; ++j) {
+                acc.verts.push_back(Vector3(
+                    poly_view.nodes[j * 3],
+                    poly_view.nodes[j * 3 + 1],
+                    poly_view.nodes[j * 3 + 2]));
+            }
+            for (size_t j = 0; j + 1 < poly_view.node_count; ++j) {
+                acc.indices.push_back(base + static_cast<int>(j));
+                acc.indices.push_back(base + static_cast<int>(j + 1));
+            }
         }
     }
-    return points;
+
+    return _finalize_mesh(acc.verts, acc.normals, acc.uvs, acc.colors,
+        PackedFloat64Array(), acc.indices,
+        radius > 0.0 ? Mesh::PRIMITIVE_TRIANGLES : Mesh::PRIMITIVE_LINES);
 }
 
 // ========================================================================
-// Edge → mesh (requires triangulation lookup via graph — stub for now)
+// Vertices batch → mesh
 // ========================================================================
 
-Ref<ArrayMesh> OcctlGodot::edge_to_mesh(const Ref<OcctlEdgeView>& edge, double radius) {
-    (void)edge; (void)radius;
-    Ref<ArrayMesh> mesh;
-    mesh.instantiate();
-    return mesh;
-}
-
-Ref<ArrayMesh> OcctlGodot::vertex_to_mesh(const Ref<OcctlVertexView>& vertex) {
-    Ref<ArrayMesh> mesh;
-    mesh.instantiate();
-    if (vertex.is_null() || vertex->get_point().is_null()) { return mesh; }
-    const occtl_point3_t p = vertex->get_point()->to_c();
-    const double s = 0.001;
-    PackedVector3Array verts;
-    verts.append(Vector3(p.x - s, p.y - s, p.z - s));
-    verts.append(Vector3(p.x + s, p.y - s, p.z - s));
-    verts.append(Vector3(p.x + s, p.y + s, p.z - s));
-    verts.append(Vector3(p.x - s, p.y + s, p.z + s));
-    PackedInt32Array indices;
-    indices.append(0); indices.append(1); indices.append(2);
-    indices.append(0); indices.append(2); indices.append(3);
-    indices.append(0); indices.append(3); indices.append(1);
-    indices.append(1); indices.append(3); indices.append(2);
-    Array arrays;
-    arrays.resize(Mesh::ARRAY_MAX);
-    arrays[Mesh::ARRAY_VERTEX] = verts;
-    arrays[Mesh::ARRAY_INDEX] = indices;
-    mesh->add_surface_from_arrays(Mesh::PRIMITIVE_TRIANGLES, arrays);
-    return mesh;
-}
-
-Ref<ArrayMesh> OcctlGodot::edge_to_mesh_with_colors(const Ref<OcctlEdgeView>& edge, const Dictionary& face_id_colors) {
-    (void)edge; (void)face_id_colors;
-    Ref<ArrayMesh> mesh;
-    mesh.instantiate();
-    return mesh;
-}
-
-// ========================================================================
-// Triangulation with extra attributes
-// ========================================================================
-
-Ref<ArrayMesh> OcctlGodot::triangulation_to_mesh_with_uvs(const Ref<OcctlTriangulationView>& tri) {
-    const double* nodes = reinterpret_cast<const double*>(static_cast<uintptr_t>(tri->nodes));
-    const double* uvs = reinterpret_cast<const double*>(static_cast<uintptr_t>(tri->uvs));
-    const double* normals = reinterpret_cast<const double*>(static_cast<uintptr_t>(tri->normals));
-    const uint32_t* indices = reinterpret_cast<const uint32_t*>(static_cast<uintptr_t>(tri->triangles));
-    return _build_array_mesh(nodes, tri->node_count, normals, uvs, indices, tri->triangle_count);
-}
-
-Ref<ArrayMesh> OcctlGodot::triangulation_to_mesh_with_normals(const Ref<OcctlTriangulationView>& tri) {
-    const double* nodes = reinterpret_cast<const double*>(static_cast<uintptr_t>(tri->nodes));
-    const double* normals = reinterpret_cast<const double*>(static_cast<uintptr_t>(tri->normals));
-    const uint32_t* indices = reinterpret_cast<const uint32_t*>(static_cast<uintptr_t>(tri->triangles));
-    return _build_array_mesh(nodes, tri->node_count, normals, nullptr, indices, tri->triangle_count);
-}
-
-Ref<ArrayMesh> OcctlGodot::triangulation_to_mesh_with_tangents(const Ref<OcctlTriangulationView>& tri) {
-    // Tangents require 4-component data.  For now fall back to normals-only.
-    const double* nodes = reinterpret_cast<const double*>(static_cast<uintptr_t>(tri->nodes));
-    const double* normals = reinterpret_cast<const double*>(static_cast<uintptr_t>(tri->normals));
-    const uint32_t* indices = reinterpret_cast<const uint32_t*>(static_cast<uintptr_t>(tri->triangles));
-    return _build_array_mesh(nodes, tri->node_count, normals, nullptr, indices, tri->triangle_count);
-}
-
-// ========================================================================
-// Internal: build ArrayMesh surface from raw mesh data
-// ========================================================================
-
-Ref<ArrayMesh> OcctlGodot::_build_array_mesh(
-    const double* nodes, int node_count,
-    const double* normals,
-    const double* uvs,
-    const uint32_t* triangles, int triangle_count)
+Ref<ArrayMesh> OcctlGodot::vertices_to_mesh(
+    const Ref<OcctlGraphHandle>& graph,
+    const Variant& vertex_ids,
+    bool include_normals,
+    bool include_feature_ids)
 {
-    Ref<ArrayMesh> mesh;
-    mesh.instantiate();
-    if (nodes == nullptr || triangles == nullptr || node_count <= 0 || triangle_count <= 0) {
-        return mesh;
+    const occtl_graph_t* g = _graph_ptr(graph);
+    if (!g) {
+        Ref<ArrayMesh> empty;
+        empty.instantiate();
+        return empty;
     }
 
-    PackedVector3Array verts;
-    verts.resize(node_count);
-    for (int i = 0; i < node_count; ++i) {
-        verts.set(i, Vector3(nodes[i * 3], nodes[i * 3 + 1], nodes[i * 3 + 2]));
+    std::vector<int64_t> ids;
+    if (!_resolve_ids(vertex_ids, g, OCCTL_KIND_VERTEX, ids)) {
+        Ref<ArrayMesh> empty;
+        empty.instantiate();
+        return empty;
     }
 
-    PackedVector3Array norms;
-    if (normals != nullptr) {
-        norms.resize(node_count);
-        for (int i = 0; i < node_count; ++i) {
-            norms.set(i, Vector3(normals[i * 3], normals[i * 3 + 1], normals[i * 3 + 2]));
+    MeshAccum acc;
+
+    for (int64_t vi : ids) {
+        occtl_point3_t pt;
+        occtl_status_t status = ::occtl_topo_vertex_point(
+            g, occtl_node_id_t{static_cast<uint64_t>(vi)}, &pt);
+        if (status != OCCTL_OK) continue;
+
+        _build_vertex_marker(acc, Vector3(pt.x, pt.y, pt.z),
+            include_normals, vi, include_feature_ids);
+    }
+
+    return _finalize_mesh(acc.verts, acc.normals, acc.uvs, acc.colors,
+        PackedFloat64Array(), acc.indices,
+        Mesh::PRIMITIVE_TRIANGLES);
+}
+
+// ========================================================================
+// Face triangulation batch → mesh
+// ========================================================================
+
+Ref<ArrayMesh> OcctlGodot::faces_to_mesh(
+    const Ref<OcctlGraphHandle>& graph,
+    const Variant& face_ids,
+    bool include_normals,
+    bool include_uvs,
+    bool include_tangents,
+    bool include_feature_ids)
+{
+    const occtl_graph_t* g = _graph_ptr(graph);
+    if (!g) {
+        Ref<ArrayMesh> empty;
+        empty.instantiate();
+        return empty;
+    }
+
+    std::vector<int64_t> ids;
+    if (!_resolve_ids(face_ids, g, OCCTL_KIND_FACE, ids)) {
+        Ref<ArrayMesh> empty;
+        empty.instantiate();
+        return empty;
+    }
+
+    MeshAccum acc;
+    bool have_normals = false;
+    bool have_uvs = false;
+
+    for (int64_t fi : ids) {
+        occtl_triangulation_view_t tri_view;
+        occtl_status_t status = ::occtl_mesh_face_triangulation(
+            g, occtl_node_id_t{static_cast<uint64_t>(fi)}, &tri_view);
+        if (status != OCCTL_OK) continue;
+
+        int nv = static_cast<int>(tri_view.node_count);
+        int nt = static_cast<int>(tri_view.triangle_count);
+        if (nv <= 0 || nt <= 0) continue;
+
+        Color fcolor;
+        if (include_feature_ids) {
+            fcolor = _feature_id_color(fi);
+        }
+
+        int base = static_cast<int>(acc.verts.size());
+        bool face_has_normals = include_normals && tri_view.normals != nullptr;
+        bool face_has_uvs = include_uvs && tri_view.uvs != nullptr;
+
+        for (int j = 0; j < nv; ++j) {
+            acc.verts.push_back(Vector3(
+                tri_view.nodes[j * 3],
+                tri_view.nodes[j * 3 + 1],
+                tri_view.nodes[j * 3 + 2]));
+
+            if (face_has_normals) {
+                have_normals = true;
+                acc.normals.push_back(Vector3(
+                    tri_view.normals[j * 3],
+                    tri_view.normals[j * 3 + 1],
+                    tri_view.normals[j * 3 + 2]));
+            }
+
+            if (face_has_uvs) {
+                have_uvs = true;
+                acc.uvs.push_back(Vector2(
+                    tri_view.uvs[j * 2],
+                    tri_view.uvs[j * 2 + 1]));
+            }
+
+            if (include_feature_ids) {
+                acc.colors.push_back(fcolor);
+            }
+        }
+
+        for (int j = 0; j < nt; ++j) {
+            acc.indices.push_back(base + static_cast<int>(tri_view.triangles[j * 3]));
+            acc.indices.push_back(base + static_cast<int>(tri_view.triangles[j * 3 + 1]));
+            acc.indices.push_back(base + static_cast<int>(tri_view.triangles[j * 3 + 2]));
         }
     }
 
-    PackedVector2Array uv_arr;
-    if (uvs != nullptr) {
-        uv_arr.resize(node_count);
-        for (int i = 0; i < node_count; ++i) {
-            uv_arr.set(i, Vector2(uvs[i * 2], uvs[i * 2 + 1]));
-        }
+    PackedFloat64Array tangents;
+    if (include_tangents && have_normals && have_uvs && !acc.verts.empty()) {
+        tangents = _compute_tangents(acc.verts, acc.normals, acc.uvs, acc.indices);
     }
 
-    const int idx_count = triangle_count * 3;
-    PackedInt32Array indices;
-    indices.resize(idx_count);
-    for (int i = 0; i < idx_count; ++i) {
-        indices.set(i, static_cast<int32_t>(triangles[i]));
-    }
-
-    Array arrays;
-    arrays.resize(Mesh::ARRAY_MAX);
-    arrays[Mesh::ARRAY_VERTEX] = verts;
-    arrays[Mesh::ARRAY_INDEX] = indices;
-    if (normals != nullptr) {
-        arrays[Mesh::ARRAY_NORMAL] = norms;
-    }
-    if (uvs != nullptr) {
-        arrays[Mesh::ARRAY_TEX_UV] = uv_arr;
-    }
-
-    mesh->add_surface_from_arrays(Mesh::PRIMITIVE_TRIANGLES, arrays);
-    return mesh;
+    return _finalize_mesh(acc.verts, acc.normals, acc.uvs, acc.colors,
+        tangents, acc.indices,
+        Mesh::PRIMITIVE_TRIANGLES);
 }
