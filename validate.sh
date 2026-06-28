@@ -54,6 +54,12 @@ if [ "$DO_BUILD" = "1" ] || [ "$DO_BUILD" = "true" ]; then
     "$VCPKG_ROOT/vcpkg" remove gdext 2>/dev/null || true
     rm -rf "$HOME/.cache/vcpkg/archives/" 2>/dev/null || true
 
+    # Regenerate autowrapper bindings from OCCT-Light headers
+    echo "Generating autowrapper bindings..."
+    cd OCCT-Light.gd-autowrapper
+    ./generate.sh
+    cd "$SCRIPT_DIR"
+
     BUILD_LOG=$(mktemp)
     trap "rm -f '$BUILD_LOG'" EXIT
 

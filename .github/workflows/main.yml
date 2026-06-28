@@ -382,6 +382,13 @@ jobs:
           echo VCPKG_OVERLAY_PORTS=vcpkg_ports >> $GITHUB_ENV
           echo "GDEXT_CMAKE_ARGS=-DGODOTCPP_TARGET=${{ matrix.target-type }} -DGODOTCPP_PRECISION=${{ matrix.float-precision }} ${{ env.gdext_cmake_args }}" >> $GITHUB_ENV
 
+      - name: Generate autowrapper bindings
+        shell: bash
+        run: |
+          set -e
+          cd OCCT-Light.gd-autowrapper
+          ./generate.sh
+
       - name: Build with vcpkg
         shell: bash
         timeout-minutes: 330 # 5h30 to account for very long builds on emscripten with cold cache (which slightly exceeds the github max runtime)
