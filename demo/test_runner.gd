@@ -188,6 +188,18 @@ func _run_suite(file: String) -> void:
 			methods.append(m["name"])
 
 	methods.sort()
+
+	# Detect parse errors by comparing source-declared vs. loaded test methods.
+	# Godot 4's load() may return a non-null GDScript even when some function
+	# bodies have parse errors — those methods simply don't appear in
+	# get_script_method_list(). We catch that here so broken functions don't
+	# silently vanish from test results.
+	var expected_count := _count_test_methods_in_source(path)
+	if expected_count >= 0 and methods.size() < expected_count:
+		log_error("Parse errors in %s: expected %d test methods but loaded %d" % [path, expected_count, methods.size()])
+		total_failed += 1
+		return
+
 	if methods.is_empty():
 		return
 
@@ -226,6 +238,18 @@ func _run_suite(file: String) -> void:
 
 	total_passed += suite_passed
 	total_failed += suite_failed
+
+
+func _count_test_methods_in_source(path: String) -> int:
+	var file := FileAccess.open(path, FileAccess.READ)
+	if file == null:
+		return -1  # Cannot determine (e.g. exported binary)
+	var source := file.get_as_text()
+	var count := 0
+	for line in source.split("\n"):
+		if line.strip_edges().begins_with("static func test_"):
+			count += 1
+	return count
 
 
 func _run_test(script: Object, method: String) -> String:
