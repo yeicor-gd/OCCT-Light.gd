@@ -46,14 +46,8 @@ run_checked() {
 
 # Regenerate autowrapper bindings from OCCT-Light headers (always needed for tests)
 echo "Generating autowrapper bindings..."
-# Ensure uv is available
-if ! command -v uv &>/dev/null; then
-    echo "Installing uv package manager..."
-    curl -LsSf https://astral.sh/uv/install.sh | sh
-    export PATH="$HOME/.cargo/bin:$PATH"
-fi
 cd OCCT-Light.gd-autowrapper
-uv run src/main.py ../OCCT-Light/include/occtl -o ..
+./generate.sh
 cd "$SCRIPT_DIR"
 
 if [ "$DO_BUILD" = "1" ] || [ "$DO_BUILD" = "true" ]; then
