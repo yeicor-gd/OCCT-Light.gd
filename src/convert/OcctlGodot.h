@@ -75,34 +75,47 @@ public:
     static Transform3D axis2_placement_to_transform3d(const Ref<OcctlAxis2Placement>& a);
     static Transform3D axis3_placement_to_transform3d(const Ref<OcctlAxis3Placement>& a);
 
-    // -- Value type → Godot conversion helpers (documented in OcctlGodot.xml) --
-
     // -- Edge batch → single mesh (tube if radius>0, line strip if radius==0) --
     // When edge_ids is null (default), all edges in the graph are exported.
+    // deflection controls curve sampling density when cached polygon is unavailable.
+    // -- Edge batch → single mesh (tube if radius>0, line strip if radius==0) --
+    // When edge_ids is null (default), all edges in the graph are exported.
+    // deflection controls curve sampling density when cached polygon is unavailable.
+    // angle controls angular deflection when generating mesh data (radians, default 0.5).
     static Ref<ArrayMesh> edges_to_mesh(
         const Ref<OcctlGraphHandle>& graph,
         const Variant& edge_ids = Variant(),
         double radius = 0.0,
         bool include_normals = true,
-        bool include_feature_ids = false);
+        bool include_feature_ids = false,
+        double deflection = 0.001,
+        double angle = 0.5);
 
     // -- Vertex batch → single mesh (tetrahedron markers) --
     // When vertex_ids is null (default), all vertices in the graph are exported.
+    // deflection controls marker size (default 0.001).
+    // angle is accepted for API consistency but not used for vertex markers.
     static Ref<ArrayMesh> vertices_to_mesh(
         const Ref<OcctlGraphHandle>& graph,
         const Variant& vertex_ids = Variant(),
         bool include_normals = true,
-        bool include_feature_ids = false);
+        bool include_feature_ids = false,
+        double deflection = 0.001,
+        double angle = 0.5);
 
     // -- Face triangulation batch → single mesh --
     // When face_ids is null (default), all faces in the graph are exported.
+    // deflection controls on-the-fly meshing when no cached triangulation exists.
+    // angle controls angular deflection (radians, default 0.5).
     static Ref<ArrayMesh> faces_to_mesh(
         const Ref<OcctlGraphHandle>& graph,
         const Variant& face_ids = Variant(),
         bool include_normals = true,
         bool include_uvs = true,
         bool include_tangents = false,
-        bool include_feature_ids = false);
+        bool include_feature_ids = false,
+        double deflection = 0.001,
+        double angle = 0.5);
 };
 
 #endif // OCCTLGODOT_H

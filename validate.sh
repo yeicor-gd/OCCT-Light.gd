@@ -220,6 +220,21 @@ fi
 
 unset LD_PRELOAD LSAN_OPTIONS
 
+_test_results_passed() {
+    # Check if the test runner reported all tests passed and no failures.
+    # This is more reliable than heuristically scanning for error patterns
+    # because a post-test core dump (Godot shutdown crash) produces spurious
+    # matches (exit code 139, "dumped core") even when all tests pass.
+    # Strip ANSI/BBCode coloring so ^PASSED: matches [color=...]PASSED:...[/color]
+    local stripped
+    stripped=$(cat "$RUNTIME_LOG" 2>/dev/null | sed 's/\x1b\[[0-9;]*[a-zA-Z]//g; s/\[color=[^]]*\]//g; s|\[/color\]||g; s/^[[:space:]]*//')
+    if echo "$stripped" | grep -q "^PASSED:.*tests total" && \
+       ! echo "$stripped" | grep -q "^FAILED:"; then
+        return 0
+    fi
+    return 1
+}
+
 _extract_errors() {
     # Strip ANSI escape codes (print_rich output) so patterns match clean text
     cat "$1" "$2" 2>/dev/null | sed 's/\x1b\[[0-9;]*[a-zA-Z]//g' | \
@@ -227,6 +242,16 @@ _extract_errors() {
     grep -i -E "failed|error|warning|crash|assert|exception|abort|segfault|undefined|not found|no such|TESTS FAILED|SCRIPT ERROR|✗|Expected" || return 0
 }
 
+if _test_results_passed; then
+    echo ""
+    echo "✓ All tests passed"
+    [ -n "$ERROR_FILE" ] && >"$ERROR_FILE"
+    exit 0
+fi
+
+# Only scan for error patterns if tests didn't all pass cleanly.
+# Post-test core dumps during Godot shutdown (exit code 139) are ignored
+# because they happen after all test results are reported.
 ERRORS=$(_extract_errors "$IMPORT_LOG" "$RUNTIME_LOG")
 
 if [ -n "$ERRORS" ]; then

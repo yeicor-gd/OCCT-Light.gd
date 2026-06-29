@@ -169,7 +169,8 @@ func _get_test_files() -> Array[String]:
 func _on_timeout() -> void:
 	if not tests_complete:
 		log_error("Test runner timeout after GODOT_TEST_RUNNER_TIMEOUT seconds")
-		get_tree().quit(1)
+		if is_instance_valid(get_tree()):
+			get_tree().quit(1)
 
 
 func _run_suite(file: String) -> void:

@@ -7,6 +7,7 @@
 #include <godot_cpp/variant/packed_int32_array.hpp>
 #include <godot_cpp/variant/packed_vector2_array.hpp>
 #include <godot_cpp/variant/packed_vector3_array.hpp>
+#include <godot_cpp/variant/packed_color_array.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
 #include <occtl/occtl_core.h>
 #include <occtl/occtl_mesh.h>
@@ -15,6 +16,7 @@
 #include <cstring>
 #include <cmath>
 #include <algorithm>
+#include <cfloat>
 
 // ========================================================================
 // Internal helpers
@@ -40,6 +42,15 @@ static const occtl_graph_t* _graph_ptr(const Ref<OcctlGraphHandle>& g) {
     return reinterpret_cast<const occtl_graph_t*>(static_cast<uintptr_t>(handle));
 }
 
+/// Extract a mutable occtl_graph_t* from a Ref<OcctlGraphHandle>.
+/// Returns nullptr when the handle is null or invalid.
+static occtl_graph_t* _graph_ptr_mut(const Ref<OcctlGraphHandle>& g) {
+    if (g.is_null()) return nullptr;
+    uint64_t handle = static_cast<uint64_t>(g->get_handle());
+    if (handle == 0) return nullptr;
+    return reinterpret_cast<occtl_graph_t*>(static_cast<uintptr_t>(handle));
+}
+
 /// Convert a `Variant` ids argument to a vector of node IDs.
 /// When `ids` is null (Variant::NIL), iterate the graph and collect all
 /// nodes matching `kind`, effectively exporting every feature of that kind.
@@ -55,7 +66,6 @@ static bool _resolve_ids(
 
     if (ids.get_type() == Variant::NIL) {
         if (!graph) return false;
-        // Export all nodes of the given kind
         size_t node_count = 0;
         occtl_status_t st = ::occtl_graph_node_count(graph, &node_count);
         if (st != OCCTL_OK) return false;
@@ -80,8 +90,170 @@ static bool _resolve_ids(
         return !out_ids.empty();
     }
 
-    // Unknown type — treat as empty
     return false;
+}
+
+/// Ensure the graph has mesh data for the given face IDs.
+/// Generates a mesh with the given deflection if no cached triangulation exists.
+/// Returns OCCTL_OK if mesh data is available for at least one face.
+static occtl_status_t _ensure_mesh_generated(
+    occtl_graph_t* graph,
+    const std::vector<int64_t>& face_ids,
+    double deflection,
+    double angle = 0.5)
+{
+    if (!graph || face_ids.empty()) return OCCTL_INVALID_ARGUMENT;
+
+    // Check if any face already has a cached triangulation
+    for (int64_t fid : face_ids) {
+        occtl_triangulation_view_t tv;
+        occtl_status_t st = ::occtl_mesh_face_triangulation(
+            graph, occtl_node_id_t{static_cast<uint64_t>(fid)}, &tv);
+        if (st == OCCTL_OK && tv.node_count > 0) {
+            return OCCTL_OK; // Data already cached
+        }
+    }
+
+    // No cached data — generate mesh on-the-fly
+    occtl_mesh_options_t opts = OCCTL_MESH_OPTIONS_INIT;
+    opts.deflection = deflection;
+    opts.angle = angle;
+
+    // Build node ID array from face IDs
+    std::vector<occtl_node_id_t> node_ids;
+    node_ids.reserve(face_ids.size());
+    for (int64_t fid : face_ids) {
+        node_ids.push_back(occtl_node_id_t{static_cast<uint64_t>(fid)});
+    }
+
+    return ::occtl_mesh_generate(graph, node_ids.data(), node_ids.size(), &opts);
+}
+
+/// Sample the 3D curve of an edge into a vector of 3D points.
+///
+/// Uses `occtl_topo_edge_eval_d1` to evaluate the curve at regular
+/// parameter intervals chosen so that the chordal deviation is below
+/// `deflection`.  For linear/straight edges only the endpoints are sampled.
+///
+/// Returns true on success and populates `out_points`.
+static bool _sample_edge_curve(
+    const occtl_graph_t* graph,
+    occtl_node_id_t edge_id,
+    double deflection,
+    std::vector<Vector3>& out_points)
+{
+    out_points.clear();
+
+    // Check if edge has a 3D curve
+    int32_t has_curve = 0;
+    occtl_status_t st = ::occtl_topo_edge_has_curve(graph, edge_id, &has_curve);
+    if (st != OCCTL_OK || !has_curve) {
+        return false;
+    }
+
+    // Get parameter range
+    double u_first = 0.0, u_last = 0.0;
+    st = ::occtl_topo_edge_range(graph, edge_id, &u_first, &u_last);
+    if (st != OCCTL_OK) return false;
+    if (u_last <= u_first) return false;
+
+    // Always include start and end points
+    occtl_point3_t pt;
+    st = ::occtl_topo_edge_eval(graph, edge_id, u_first, &pt);
+    if (st != OCCTL_OK) return false;
+    out_points.push_back(Vector3(pt.x, pt.y, pt.z));
+
+    occtl_vector3_t d1;
+    st = ::occtl_topo_edge_eval_d1(graph, edge_id, u_first, &pt, &d1);
+    if (st != OCCTL_OK) return false;
+    double start_tan_len = std::sqrt(d1.x * d1.x + d1.y * d1.y + d1.z * d1.z);
+
+    st = ::occtl_topo_edge_eval(graph, edge_id, u_last, &pt);
+    if (st != OCCTL_OK) return false;
+    out_points.push_back(Vector3(pt.x, pt.y, pt.z));
+
+    st = ::occtl_topo_edge_eval_d1(graph, edge_id, u_last, &pt, &d1);
+    if (st != OCCTL_OK) return false;
+    double end_tan_len = std::sqrt(d1.x * d1.x + d1.y * d1.y + d1.z * d1.z);
+
+    // Estimate arc length from tangent magnitudes
+    double avg_tan_len = (start_tan_len + end_tan_len) * 0.5;
+    double arc_len = avg_tan_len * (u_last - u_first);
+
+    // For very short or straight edges, endpoints are enough
+    if (arc_len <= deflection * 2.0) {
+        return true;
+    }
+
+    // Sample intermediate points (cap at 64 segments max for performance)
+    size_t n_segments = static_cast<size_t>(std::ceil(arc_len / deflection));
+    n_segments = std::max<size_t>(n_segments, static_cast<size_t>(1));
+    n_segments = std::min<size_t>(n_segments, static_cast<size_t>(64));
+
+    // Remove the endpoint we already added (we'll re-add at the end)
+    out_points.pop_back();
+
+    for (size_t i = 1; i < n_segments; ++i) {
+        double u = u_first + (u_last - u_first) * static_cast<double>(i) / static_cast<double>(n_segments);
+        st = ::occtl_topo_edge_eval(graph, edge_id, u, &pt);
+        if (st != OCCTL_OK) continue;
+        out_points.push_back(Vector3(pt.x, pt.y, pt.z));
+    }
+
+    // Re-add endpoint
+    st = ::occtl_topo_edge_eval(graph, edge_id, u_last, &pt);
+    if (st != OCCTL_OK) return false;
+    out_points.push_back(Vector3(pt.x, pt.y, pt.z));
+
+    return out_points.size() >= 2;
+}
+
+/// Compute per-vertex normals from a triangulation, averaging face normals.
+///
+/// Called when the cached triangulation has `normals == nullptr`.
+/// `nodes` are xyz-interleaved doubles, `triangles` are uint32_t triplets.
+static std::vector<Vector3> _compute_triangulation_normals(
+    const double* nodes, size_t node_count,
+    const uint32_t* triangles, size_t triangle_count)
+{
+    std::vector<Vector3> normals(node_count, Vector3(0, 0, 0));
+    std::vector<int> counts(node_count, 0);
+
+    // Accumulate face normals
+    for (size_t t = 0; t < triangle_count; ++t) {
+        uint32_t i0 = triangles[t * 3];
+        uint32_t i1 = triangles[t * 3 + 1];
+        uint32_t i2 = triangles[t * 3 + 2];
+
+        Vector3 p0(nodes[i0 * 3], nodes[i0 * 3 + 1], nodes[i0 * 3 + 2]);
+        Vector3 p1(nodes[i1 * 3], nodes[i1 * 3 + 1], nodes[i1 * 3 + 2]);
+        Vector3 p2(nodes[i2 * 3], nodes[i2 * 3 + 1], nodes[i2 * 3 + 2]);
+
+        Vector3 e1 = p1 - p0;
+        Vector3 e2 = p2 - p0;
+        Vector3 n = e1.cross(e2);
+        double len = n.length();
+        if (len > 1e-30) n /= len;
+
+        normals[i0] = normals[i0] + n;
+        normals[i1] = normals[i1] + n;
+        normals[i2] = normals[i2] + n;
+        counts[i0]++;
+        counts[i1]++;
+        counts[i2]++;
+    }
+
+    // Normalize
+    for (size_t i = 0; i < node_count; ++i) {
+        if (counts[i] > 0) {
+            double len = normals[i].length();
+            if (len > 1e-30) normals[i] /= len;
+        } else {
+            normals[i] = Vector3(0, 0, 1);
+        }
+    }
+
+    return normals;
 }
 
 /// Accumulator for mesh building — collects per-vertex data and triangle
@@ -238,12 +410,13 @@ static void _build_tube(MeshAccum& acc,
 static void _build_vertex_marker(MeshAccum& acc,
     const Vector3& pos,
     bool include_normals,
-    int64_t feature_id, bool include_feature_ids)
+    int64_t feature_id, bool include_feature_ids,
+    double size = 0.001)
 {
     Color fcolor = include_feature_ids ? _feature_id_color(feature_id) : Color(1, 1, 1, 1);
-    double s = 0.001;
+    double s = size;
 
-    Vector3 verts[4] = {
+    Vector3 verts_arr[4] = {
         pos + Vector3(-s, -s, -s),
         pos + Vector3( s, -s, -s),
         pos + Vector3( s,  s, -s),
@@ -258,9 +431,9 @@ static void _build_vertex_marker(MeshAccum& acc,
     };
 
     for (int t = 0; t < 4; ++t) {
-        const Vector3& a = verts[tri_indices[t][0]];
-        const Vector3& b = verts[tri_indices[t][1]];
-        const Vector3& c = verts[tri_indices[t][2]];
+        const Vector3& a = verts_arr[tri_indices[t][0]];
+        const Vector3& b = verts_arr[tri_indices[t][1]];
+        const Vector3& c = verts_arr[tri_indices[t][2]];
 
         acc.verts.push_back(a);
         acc.verts.push_back(b);
@@ -310,51 +483,47 @@ static PackedFloat64Array _compute_tangents(
         int i1 = indices[t * 3 + 1];
         int i2 = indices[t * 3 + 2];
 
-        const Vector3& v0 = verts[i0];
-        const Vector3& v1 = verts[i1];
-        const Vector3& v2 = verts[i2];
+        const Vector3& v0 = verts[static_cast<size_t>(i0)];
+        const Vector3& v1 = verts[static_cast<size_t>(i1)];
+        const Vector3& v2 = verts[static_cast<size_t>(i2)];
 
-        const Vector2& uv0 = uvs[i0];
-        const Vector2& uv1 = uvs[i1];
-        const Vector2& uv2 = uvs[i2];
+        const Vector2& uv0 = uvs[static_cast<size_t>(i0)];
+        const Vector2& uv1 = uvs[static_cast<size_t>(i1)];
+        const Vector2& uv2 = uvs[static_cast<size_t>(i2)];
 
-        Vector3 delta_pos1 = v1 - v0;
-        Vector3 delta_pos2 = v2 - v0;
-        Vector2 delta_uv1 = uv1 - uv0;
-        Vector2 delta_uv2 = uv2 - uv0;
+        Vector3 e1 = v1 - v0;
+        Vector3 e2 = v2 - v0;
+        Vector2 duv1 = uv1 - uv0;
+        Vector2 duv2 = uv2 - uv0;
+        double r = 1.0 / (duv1.x * duv2.y - duv1.y * duv2.x + 1e-12);
+        Vector3 tdir = (e1 * duv2.y - e2 * duv1.y) * r;
 
-        double det = delta_uv1.x * delta_uv2.y - delta_uv1.y * delta_uv2.x;
-        if (std::abs(det) < 1e-30) continue;
-        double r = 1.0 / det;
-        Vector3 tangent = (delta_pos1 * delta_uv2.y - delta_pos2 * delta_uv1.y) * r;
-        Vector3 bitangent = (delta_pos2 * delta_uv1.x - delta_pos1 * delta_uv2.x) * r;
-
-        for (int k = 0; k < 3; ++k) {
-            int idx = (k == 0) ? i0 : (k == 1) ? i1 : i2;
-            tangents[idx] = tangents[idx] + tangent;
-            Vector3 cross_n_t = normals[idx].cross(tangent);
-            tangent_ws[idx] += (cross_n_t.dot(bitangent) >= 0) ? 1.0f : -1.0f;
-        }
+        tangents[static_cast<size_t>(i0)] = tangents[static_cast<size_t>(i0)] + tdir;
+        tangents[static_cast<size_t>(i1)] = tangents[static_cast<size_t>(i1)] + tdir;
+        tangents[static_cast<size_t>(i2)] = tangents[static_cast<size_t>(i2)] + tdir;
     }
 
     PackedFloat64Array result;
     result.resize(static_cast<int64_t>(n_verts) * 4);
     for (size_t i = 0; i < n_verts; ++i) {
-        Vector3 t = tangents[i];
-        // Gram-Schmidt: t = normalize(t - dot(t, n) * n)
-        t = t - normals[i] * normals[i].dot(t);
-        double tlen = t.length();
-        if (tlen > 1e-30) t /= tlen;
+        const Vector3& n = normals[i];
+        const Vector3& t = tangents[i];
+        // Gram-Schmidt orthogonalization
+        Vector3 tg = t - n * n.dot(t);
+        double tlen = tg.length();
+        if (tlen > 1e-15) tg /= tlen;
 
-        float w = tangent_ws[i];
+        // Compute handedness (w)
+        Vector3 cross_n_t = n.cross(t);
+        double w = (cross_n_t.dot(tg) < 0.0) ? -1.0 : 1.0;
         // Clamp sign to [-1, 1]
         if (w > 1.0f) w = 1.0f;
         if (w < -1.0f) w = -1.0f;
 
-        result.set(i * 4, t.x);
-        result.set(i * 4 + 1, t.y);
-        result.set(i * 4 + 2, t.z);
-        result.set(i * 4 + 3, static_cast<double>(w));
+        result.set(static_cast<int64_t>(i) * 4, tg.x);
+        result.set(static_cast<int64_t>(i) * 4 + 1, tg.y);
+        result.set(static_cast<int64_t>(i) * 4 + 2, tg.z);
+        result.set(static_cast<int64_t>(i) * 4 + 3, static_cast<double>(w));
     }
 
     return result;
@@ -380,20 +549,20 @@ static Ref<ArrayMesh> _finalize_mesh(
     PackedVector3Array vert_arr;
     vert_arr.resize(static_cast<int64_t>(verts.size()));
     for (size_t i = 0; i < verts.size(); ++i)
-        vert_arr.set(static_cast<int64_t>(i), verts[i]);
+        vert_arr[static_cast<int64_t>(i)] = verts[i];
     arrays[Mesh::ARRAY_VERTEX] = vert_arr;
 
     PackedInt32Array idx_arr;
     idx_arr.resize(static_cast<int64_t>(indices.size()));
     for (size_t i = 0; i < indices.size(); ++i)
-        idx_arr.set(static_cast<int64_t>(i), indices[i]);
+        idx_arr[static_cast<int64_t>(i)] = indices[i];
     arrays[Mesh::ARRAY_INDEX] = idx_arr;
 
     if (!normals.empty()) {
         PackedVector3Array n_arr;
         n_arr.resize(static_cast<int64_t>(normals.size()));
         for (size_t i = 0; i < normals.size(); ++i)
-            n_arr.set(static_cast<int64_t>(i), normals[i]);
+            n_arr[static_cast<int64_t>(i)] = normals[i];
         arrays[Mesh::ARRAY_NORMAL] = n_arr;
     }
 
@@ -401,15 +570,15 @@ static Ref<ArrayMesh> _finalize_mesh(
         PackedVector2Array uv_arr;
         uv_arr.resize(static_cast<int64_t>(uvs.size()));
         for (size_t i = 0; i < uvs.size(); ++i)
-            uv_arr.set(static_cast<int64_t>(i), uvs[i]);
+            uv_arr[static_cast<int64_t>(i)] = uvs[i];
         arrays[Mesh::ARRAY_TEX_UV] = uv_arr;
     }
 
     if (!colors.empty()) {
-        Array col_arr;
+        PackedColorArray col_arr;
         col_arr.resize(static_cast<int64_t>(colors.size()));
         for (size_t i = 0; i < colors.size(); ++i)
-            col_arr.set(static_cast<int64_t>(i), colors[i]);
+            col_arr[static_cast<int64_t>(i)] = colors[i];
         arrays[Mesh::ARRAY_COLOR] = col_arr;
     }
 
@@ -454,16 +623,16 @@ void OcctlGodot::_bind_methods() {
     ClassDB::bind_static_method("OcctlGodot", D_METHOD("axis3_placement_to_transform3d", "a"), &OcctlGodot::axis3_placement_to_transform3d);
 
     // --- Edge batch to mesh ---
-    ClassDB::bind_static_method("OcctlGodot", D_METHOD("edges_to_mesh", "graph", "edge_ids", "radius", "include_normals", "include_feature_ids"),
-        &OcctlGodot::edges_to_mesh, DEFVAL(Variant()), DEFVAL(0.0), DEFVAL(true), DEFVAL(false));
+    ClassDB::bind_static_method("OcctlGodot", D_METHOD("edges_to_mesh", "graph", "edge_ids", "radius", "include_normals", "include_feature_ids", "deflection", "angle"),
+        &OcctlGodot::edges_to_mesh, DEFVAL(Variant()), DEFVAL(0.0), DEFVAL(true), DEFVAL(false), DEFVAL(0.001), DEFVAL(0.5));
 
     // --- Vertex batch to mesh ---
-    ClassDB::bind_static_method("OcctlGodot", D_METHOD("vertices_to_mesh", "graph", "vertex_ids", "include_normals", "include_feature_ids"),
-        &OcctlGodot::vertices_to_mesh, DEFVAL(Variant()), DEFVAL(true), DEFVAL(false));
+    ClassDB::bind_static_method("OcctlGodot", D_METHOD("vertices_to_mesh", "graph", "vertex_ids", "include_normals", "include_feature_ids", "deflection", "angle"),
+        &OcctlGodot::vertices_to_mesh, DEFVAL(Variant()), DEFVAL(true), DEFVAL(false), DEFVAL(0.001), DEFVAL(0.5));
 
     // --- Face triangulation batch to mesh ---
-    ClassDB::bind_static_method("OcctlGodot", D_METHOD("faces_to_mesh", "graph", "face_ids", "include_normals", "include_uvs", "include_tangents", "include_feature_ids"),
-        &OcctlGodot::faces_to_mesh, DEFVAL(Variant()), DEFVAL(true), DEFVAL(true), DEFVAL(false), DEFVAL(false));
+    ClassDB::bind_static_method("OcctlGodot", D_METHOD("faces_to_mesh", "graph", "face_ids", "include_normals", "include_uvs", "include_tangents", "include_feature_ids", "deflection", "angle"),
+        &OcctlGodot::faces_to_mesh, DEFVAL(Variant()), DEFVAL(true), DEFVAL(true), DEFVAL(false), DEFVAL(false), DEFVAL(0.001), DEFVAL(0.5));
 }
 
 // ========================================================================
@@ -675,9 +844,11 @@ Ref<ArrayMesh> OcctlGodot::edges_to_mesh(
     const Variant& edge_ids,
     double radius,
     bool include_normals,
-    bool include_feature_ids)
+    bool include_feature_ids,
+    double deflection,
+    double angle)
 {
-    const occtl_graph_t* g = _graph_ptr(graph);
+    occtl_graph_t* g = _graph_ptr_mut(graph);
     if (!g) {
         Ref<ArrayMesh> empty;
         empty.instantiate();
@@ -698,8 +869,55 @@ Ref<ArrayMesh> OcctlGodot::edges_to_mesh(
         occtl_polygon3d_view_t poly_view;
         occtl_status_t status = ::occtl_mesh_edge_polygon3d(
             g, occtl_node_id_t{static_cast<uint64_t>(ei)}, &poly_view);
-        if (status != OCCTL_OK) continue;
-        if (poly_view.node_count < 2) continue;
+
+        if (status != OCCTL_OK || poly_view.node_count < 2) {
+            // No cached polygon — try generating mesh data with the given deflection
+            occtl_node_id_t nid{static_cast<uint64_t>(ei)};
+            occtl_mesh_options_t opts = OCCTL_MESH_OPTIONS_INIT;
+            opts.deflection = deflection;
+            opts.angle = angle;
+            occtl_status_t gen_st = ::occtl_mesh_generate(g, &nid, 1, &opts);
+
+            // Try reading the cached polygonization again
+            if (gen_st == OCCTL_OK) {
+                status = ::occtl_mesh_edge_polygon3d(
+                    g, occtl_node_id_t{static_cast<uint64_t>(ei)}, &poly_view);
+            }
+        }
+
+        if (status != OCCTL_OK || poly_view.node_count < 2) {
+            // Still no data — fall back to sampling the edge's 3D curve directly
+            std::vector<Vector3> sampled;
+            if (!_sample_edge_curve(g, occtl_node_id_t{static_cast<uint64_t>(ei)},
+                    deflection, sampled) || sampled.size() < 2) {
+                continue;
+            }
+
+            // Build a flat double array for _build_tube
+            std::vector<double> flat_nodes;
+            flat_nodes.reserve(sampled.size() * 3);
+            for (const auto& v : sampled) {
+                flat_nodes.push_back(v.x);
+                flat_nodes.push_back(v.y);
+                flat_nodes.push_back(v.z);
+            }
+
+            if (radius > 0.0) {
+                _build_tube(acc, flat_nodes.data(), sampled.size(),
+                    radius, TUBE_SEGMENTS,
+                    include_normals, ei, include_feature_ids);
+            } else {
+                int base = static_cast<int>(acc.verts.size());
+                for (const auto& v : sampled) {
+                    acc.verts.push_back(v);
+                }
+                for (size_t j = 0; j + 1 < sampled.size(); ++j) {
+                    acc.indices.push_back(base + static_cast<int>(j));
+                    acc.indices.push_back(base + static_cast<int>(j + 1));
+                }
+            }
+            continue;
+        }
 
         if (radius > 0.0) {
             _build_tube(acc, poly_view.nodes, poly_view.node_count,
@@ -733,7 +951,9 @@ Ref<ArrayMesh> OcctlGodot::vertices_to_mesh(
     const Ref<OcctlGraphHandle>& graph,
     const Variant& vertex_ids,
     bool include_normals,
-    bool include_feature_ids)
+    bool include_feature_ids,
+    double deflection,
+    double angle)
 {
     const occtl_graph_t* g = _graph_ptr(graph);
     if (!g) {
@@ -758,8 +978,9 @@ Ref<ArrayMesh> OcctlGodot::vertices_to_mesh(
         if (status != OCCTL_OK) continue;
 
         _build_vertex_marker(acc, Vector3(pt.x, pt.y, pt.z),
-            include_normals, vi, include_feature_ids);
+            include_normals, vi, include_feature_ids, deflection);
     }
+    (void)angle;
 
     return _finalize_mesh(acc.verts, acc.normals, acc.uvs, acc.colors,
         PackedFloat64Array(), acc.indices,
@@ -776,9 +997,11 @@ Ref<ArrayMesh> OcctlGodot::faces_to_mesh(
     bool include_normals,
     bool include_uvs,
     bool include_tangents,
-    bool include_feature_ids)
+    bool include_feature_ids,
+    double deflection,
+    double angle)
 {
-    const occtl_graph_t* g = _graph_ptr(graph);
+    occtl_graph_t* g = _graph_ptr_mut(graph);
     if (!g) {
         Ref<ArrayMesh> empty;
         empty.instantiate();
@@ -791,6 +1014,9 @@ Ref<ArrayMesh> OcctlGodot::faces_to_mesh(
         empty.instantiate();
         return empty;
     }
+
+    // Ensure mesh data is available (generate on-the-fly if needed)
+    _ensure_mesh_generated(g, ids, deflection, angle);
 
     MeshAccum acc;
     bool have_normals = false;
@@ -815,6 +1041,16 @@ Ref<ArrayMesh> OcctlGodot::faces_to_mesh(
         bool face_has_normals = include_normals && tri_view.normals != nullptr;
         bool face_has_uvs = include_uvs && tri_view.uvs != nullptr;
 
+        // If normals are requested but the triangulation doesn't have them,
+        // compute them from the geometry
+        std::vector<Vector3> computed_normals;
+        if (include_normals && tri_view.normals == nullptr) {
+            computed_normals = _compute_triangulation_normals(
+                tri_view.nodes, tri_view.node_count,
+                tri_view.triangles, tri_view.triangle_count);
+            face_has_normals = true;
+        }
+
         for (int j = 0; j < nv; ++j) {
             acc.verts.push_back(Vector3(
                 tri_view.nodes[j * 3],
@@ -823,10 +1059,14 @@ Ref<ArrayMesh> OcctlGodot::faces_to_mesh(
 
             if (face_has_normals) {
                 have_normals = true;
-                acc.normals.push_back(Vector3(
-                    tri_view.normals[j * 3],
-                    tri_view.normals[j * 3 + 1],
-                    tri_view.normals[j * 3 + 2]));
+                if (!computed_normals.empty()) {
+                    acc.normals.push_back(computed_normals[static_cast<size_t>(j)]);
+                } else {
+                    acc.normals.push_back(Vector3(
+                        tri_view.normals[j * 3],
+                        tri_view.normals[j * 3 + 1],
+                        tri_view.normals[j * 3 + 2]));
+                }
             }
 
             if (face_has_uvs) {

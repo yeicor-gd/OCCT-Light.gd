@@ -236,7 +236,7 @@ static func _collect_node_kind_ids(graph, kind: int) -> Array:
 	var topo = OcctlTopo.new()
 	var ids = []
 	# Use per-kind iterator instead of graph_for_each
-	var iter: Ref<OcctlNodeIterHandle>
+	var iter: OcctlNodeIterHandle
 	match kind:
 		OcctlCore.OCCTL_KIND_SOLID:
 			iter = topo.graph_solid_iter_create(graph)
@@ -340,7 +340,6 @@ static func test_faces_to_mesh_with_box() -> String:
 	if not has_colors:
 		return "expected feature ID colors (include_feature_ids=true)"
 
-	result.core.runtime_shutdown()
 	return ""
 
 static func test_edges_to_mesh_with_box() -> String:
@@ -376,7 +375,6 @@ static func test_edges_to_mesh_with_box() -> String:
 	if line_mesh.get_surface_count() == 0:
 		return "expected at least 1 surface for line edges, got 0"
 
-	result.core.runtime_shutdown()
 	return ""
 
 static func test_vertices_to_mesh_with_box() -> String:
@@ -404,5 +402,4 @@ static func test_vertices_to_mesh_with_box() -> String:
 	if mesh.get_surface_count() == 0:
 		return "expected at least 1 surface for vertices, got 0"
 
-	result.core.runtime_shutdown()
 	return ""
