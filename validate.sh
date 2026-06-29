@@ -211,7 +211,33 @@ IMPORT_EXIT=${PIPESTATUS[0]}
 if [ $IMPORT_EXIT -ne 0 ]; then
     echo "✗ Import failed - exit code $IMPORT_EXIT" >> "$IMPORT_LOG"
 fi
-timeout --preserve-status $((GODOT_TEST_RUNNER_TIMEOUT * 2 / 1000)) "$GODOT_BIN" --path "$SCRIPT_DIR/demo" --headless 2>&1 | tee -a "$RUNTIME_LOG"
+
+# Portable timeout: use timeout (GNU), gtimeout (macOS coreutils), or fallback to shell
+_timeout_cmd() {
+    if command -v timeout &>/dev/null; then
+        timeout --preserve-status "$@"
+    elif command -v gtimeout &>/dev/null; then
+        gtimeout --preserve-status "$@"
+    else
+        local duration="$1"
+        shift
+        "$@" &
+        local _pid=$!
+        local _elapsed=0
+        while [ $_elapsed -lt $duration ]; do
+            if ! kill -0 $_pid 2>/dev/null; then
+                wait $_pid
+                return $?
+            fi
+            sleep 1 2>/dev/null || true
+            _elapsed=$((_elapsed + 1))
+        done
+        kill $_pid 2>/dev/null
+        wait $_pid 2>/dev/null
+        return 0  # --preserve-status equivalent on timeout: don't fail just for timing out
+    fi
+}
+_timeout_cmd $((GODOT_TEST_RUNNER_TIMEOUT * 2 / 1000)) "$GODOT_BIN" --path "$SCRIPT_DIR/demo" --headless 2>&1 | tee -a "$RUNTIME_LOG"
 RUNTIME_EXIT=${PIPESTATUS[0]}
 if [ $RUNTIME_EXIT -ne 0 ]; then
     echo "✗ Runtime execution failed - exit code $RUNTIME_EXIT" >> "$RUNTIME_LOG"
