@@ -303,7 +303,7 @@ static func test_faces_to_mesh_with_box() -> String:
 	var mesh_opts = OcctlMeshOptions.new()
 	mw.options_init(mesh_opts)
 	mesh_opts.set_deflection(1.0)
-	var mesh_status = mw.generate(result.graph, result.root.get_bits(), 1, mesh_opts)
+	var mesh_status = mw.generate(result.graph, PackedInt64Array([result.root.get_bits()]), mesh_opts)
 	if mesh_status != 0:
 		return "mesh generate failed: %d" % mesh_status
 
@@ -351,7 +351,7 @@ static func test_edges_to_mesh_with_box() -> String:
 	var mesh_opts = OcctlMeshOptions.new()
 	mw.options_init(mesh_opts)
 	mesh_opts.set_deflection(1.0)
-	var mesh_status = mw.generate(result.graph, result.root.get_bits(), 1, mesh_opts)
+	var mesh_status = mw.generate(result.graph, PackedInt64Array([result.root.get_bits()]), mesh_opts)
 	if mesh_status != 0:
 		return "mesh generate failed: %d" % mesh_status
 
@@ -386,7 +386,7 @@ static func test_vertices_to_mesh_with_box() -> String:
 	var mesh_opts = OcctlMeshOptions.new()
 	mw.options_init(mesh_opts)
 	mesh_opts.set_deflection(1.0)
-	var mesh_status = mw.generate(result.graph, result.root.get_bits(), 1, mesh_opts)
+	var mesh_status = mw.generate(result.graph, PackedInt64Array([result.root.get_bits()]), mesh_opts)
 	if mesh_status != 0:
 		return "mesh generate failed: %d" % mesh_status
 
