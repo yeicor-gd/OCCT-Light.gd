@@ -1,241 +1,12 @@
 class_name TestOcctlGodot
 
-static func test_point3_to_vector3() -> String:
-	var c = OcctlGodot.new()
-	var p = OcctlPoint3.new()
-	p.set_x(1.5)
-	p.set_y(2.5)
-	p.set_z(3.5)
-	var v = c.point3_to_vector3(p)
-	if abs(v.x - 1.5) > 1e-12: return "x mismatch: %s" % v
-	if abs(v.y - 2.5) > 1e-12: return "y mismatch: %s" % v
-	if abs(v.z - 3.5) > 1e-12: return "z mismatch: %s" % v
-	return ""
-
-static func test_vector3_to_point3() -> String:
-	var c = OcctlGodot.new()
-	var v = Vector3(4.0, 5.0, 6.0)
-	var p = c.vector3_to_point3(v)
-	if abs(p.get_x() - 4.0) > 1e-12: return "x mismatch: %s" % p.get_x()
-	if abs(p.get_y() - 5.0) > 1e-12: return "y mismatch: %s" % p.get_y()
-	if abs(p.get_z() - 6.0) > 1e-12: return "z mismatch: %s" % p.get_z()
-	return ""
-
-static func test_point3_roundtrip() -> String:
-	var c = OcctlGodot.new()
-	var orig = Vector3(7.0, 8.0, 9.0)
-	var p = c.vector3_to_point3(orig)
-	var back = c.point3_to_vector3(p)
-	if (back - orig).length() > 1e-12:
-		return "roundtrip failed: %s -> %s" % [orig, back]
-	return ""
-
-static func test_vector3_conversion() -> String:
-	var c = OcctlGodot.new()
-	var orig = Vector3(10.0, 20.0, 30.0)
-	var ov = c.godot_to_occtl_vector3(orig)
-	var back = c.occtl_vector3_to_godot(ov)
-	if (back - orig).length() > 1e-12:
-		return "Vector3 roundtrip failed: %s -> %s" % [orig, back]
-	return ""
-
-static func test_direction3_conversion() -> String:
-	var c = OcctlGodot.new()
-	var orig = Vector3(0.0, 0.0, 1.0)
-	var d = c.vector3_to_direction3(orig)
-	var back = c.direction3_to_vector3(d)
-	if (back - orig).length() > 1e-12:
-		return "direction3 roundtrip failed: %s -> %s" % [orig, back]
-	return ""
-
-static func test_transform_conversion() -> String:
-	var c = OcctlGodot.new()
-	var orig = Transform3D()
-	orig = orig.rotated(Vector3(0, 1, 0), 0.5)
-	orig = orig.translated(Vector3(10, 20, 30))
-	var t = c.transform3d_to_transform(orig)
-	var back = c.transform_to_transform3d(t)
-	if (back.origin - orig.origin).length() > 1e-10:
-		return "origin mismatch: %s vs %s" % [back.origin, orig.origin]
-	var cols_orig = [orig.basis.x, orig.basis.y, orig.basis.z]
-	var cols_back = [back.basis.x, back.basis.y, back.basis.z]
-	for i in 3:
-		var diff = (cols_back[i] - cols_orig[i]).length()
-		if diff > 1e-10:
-			return "basis column %d mismatch: diff=%s" % [i, diff]
-	return ""
-
-static func test_transform_identity_roundtrip() -> String:
-	var c = OcctlGodot.new()
-	var orig = Transform3D()
-	var t = c.transform3d_to_transform(orig)
-	var back = c.transform_to_transform3d(t)
-	if (back.origin - orig.origin).length() > 1e-12:
-		return "origin mismatch"
-	var cols_orig = [orig.basis.x, orig.basis.y, orig.basis.z]
-	var cols_back = [back.basis.x, back.basis.y, back.basis.z]
-	for i in 3:
-		if (cols_back[i] - cols_orig[i]).length() > 1e-12:
-			return "basis column %d mismatch" % i
-	return ""
-
-static func test_aabb3_conversion() -> String:
-	var c = OcctlGodot.new()
-	var orig = AABB(Vector3(1, 2, 3), Vector3(4, 5, 6))
-	var a = c.aabb_to_aabb3(orig)
-	var back = c.aabb3_to_aabb(a)
-	if abs(back.position.x - 1.0) > 1e-12: return "min x mismatch"
-	if abs(back.position.y - 2.0) > 1e-12: return "min y mismatch"
-	if abs(back.position.z - 3.0) > 1e-12: return "min z mismatch"
-	if abs(back.size.x - 4.0) > 1e-12: return "size x mismatch"
-	if abs(back.size.y - 5.0) > 1e-12: return "size y mismatch"
-	if abs(back.size.z - 6.0) > 1e-12: return "size z mismatch"
-	return ""
-
-static func test_color_conversion() -> String:
-	var c = OcctlGodot.new()
-	var orig = Color(0.1, 0.2, 0.3, 0.8)
-	var cc = c.color_to_color_rgba(orig)
-	var back = c.color_rgba_to_color(cc)
-	if abs(back.r - 0.1) > 1e-6: return "r mismatch: %s" % back.r
-	if abs(back.g - 0.2) > 1e-6: return "g mismatch: %s" % back.g
-	if abs(back.b - 0.3) > 1e-6: return "b mismatch: %s" % back.b
-	if abs(back.a - 0.8) > 1e-6: return "a mismatch: %s" % back.a
-	return ""
-
-static func test_point2_conversion() -> String:
-	var c = OcctlGodot.new()
-	var orig = Vector2(100.0, 200.0)
-	var p = c.vector2_to_point2(orig)
-	var back = c.point2_to_vector2(p)
-	if (back - orig).length() > 1e-12:
-		return "Point2 roundtrip failed: %s -> %s" % [orig, back]
-	return ""
-
-static func test_axis3_placement_to_transform3d() -> String:
-	var c = OcctlGodot.new()
-	var loc = OcctlPoint3.new()
-	loc.set_x(5.0); loc.set_y(0.0); loc.set_z(0.0)
-	var xd = OcctlDirection3.new()
-	xd.set_x(0.0); xd.set_y(1.0); xd.set_z(0.0)
-	var yd = OcctlDirection3.new()
-	yd.set_x(0.0); yd.set_y(0.0); yd.set_z(1.0)
-	var zd = OcctlDirection3.new()
-	zd.set_x(1.0); zd.set_y(0.0); zd.set_z(0.0)
-	var a = OcctlAxis3Placement.new()
-	a.set_location(loc)
-	a.set_x_dir(xd)
-	a.set_y_dir(yd)
-	a.set_z_dir(zd)
-	var t = c.axis3_placement_to_transform3d(a)
-	if (t.origin - Vector3(5, 0, 0)).length() > 1e-10:
-		return "origin mismatch: %s" % t.origin
-	if (t.basis.x - Vector3(0, 0, 1)).length() > 1e-10:
-		return "basis.x mismatch: got %s, expected (0,0,1)" % t.basis.x
-	if (t.basis.y - Vector3(1, 0, 0)).length() > 1e-10:
-		return "basis.y mismatch: got %s, expected (1,0,0)" % t.basis.y
-	if (t.basis.z - Vector3(0, 1, 0)).length() > 1e-10:
-		return "basis.z mismatch: got %s, expected (0,1,0)" % t.basis.z
-	return ""
-
-static func test_axis2_placement_to_transform3d() -> String:
-	var c = OcctlGodot.new()
-	var loc = OcctlPoint3.new()
-	loc.set_x(0.0); loc.set_y(0.0); loc.set_z(0.0)
-	var xd = OcctlDirection3.new()
-	xd.set_x(1.0); xd.set_y(0.0); xd.set_z(0.0)
-	var xdr = OcctlDirection3.new()
-	xdr.set_x(0.0); xdr.set_y(1.0); xdr.set_z(0.0)
-	var a = OcctlAxis2Placement.new()
-	a.set_location(loc)
-	a.set_x_dir(xd)
-	a.set_x_dir_ref(xdr)
-	var t = c.axis2_placement_to_transform3d(a)
-	if (t.basis.x - Vector3(1, 0, 0)).length() > 1e-10:
-		return "basis.x mismatch: %s" % t.basis.x
-	if (t.basis.y - Vector3(0, 1, 0)).length() > 1e-10:
-		return "basis.y mismatch: %s" % t.basis.y
-	if (t.basis.z - Vector3(0, 0, 1)).length() > 1e-10:
-		return "basis.z mismatch: %s" % t.basis.z
-	return ""
-
-static func test_axis1_placement_to_transform3d_z() -> String:
-	var c = OcctlGodot.new()
-	var loc = OcctlPoint3.new()
-	loc.set_x(1.0); loc.set_y(2.0); loc.set_z(3.0)
-	var dir = OcctlDirection3.new()
-	dir.set_x(0.0); dir.set_y(0.0); dir.set_z(1.0)
-	var a = OcctlAxis1Placement.new()
-	a.set_location(loc)
-	a.set_direction(dir)
-	var t = c.axis1_placement_to_transform3d(a)
-	if (t.origin - Vector3(1, 2, 3)).length() > 1e-10:
-		return "origin mismatch: %s" % t.origin
-	if (t.basis.z - Vector3(0, 0, 1)).length() > 1e-10:
-		return "z_dir mismatch: %s" % t.basis.z
-	return ""
-
 # ---------------------------------------------------------------------------
-# Mesh batch methods — edge cases (no graph required)
-# ---------------------------------------------------------------------------
-
-static func test_edges_to_mesh_empty_array() -> String:
-	var c = OcctlGodot.new()
-	var mesh = c.edges_to_mesh(null, [])
-	if mesh == null:
-		return "expected non-null ArrayMesh"
-	return ""
-
-static func test_edges_to_mesh_null_graph() -> String:
-	var c = OcctlGodot.new()
-	var mesh = c.edges_to_mesh(null, [1, 2, 3])
-	if mesh == null:
-		return "expected non-null ArrayMesh"
-	if mesh.get_surface_count() != 0:
-		return "expected 0 surfaces for null graph, got %d" % mesh.get_surface_count()
-	return ""
-
-static func test_vertices_to_mesh_empty_array() -> String:
-	var c = OcctlGodot.new()
-	var mesh = c.vertices_to_mesh(null, [])
-	if mesh == null:
-		return "expected non-null ArrayMesh"
-	return ""
-
-static func test_vertices_to_mesh_null_graph() -> String:
-	var c = OcctlGodot.new()
-	var mesh = c.vertices_to_mesh(null, [1, 2, 3])
-	if mesh == null:
-		return "expected non-null ArrayMesh"
-	if mesh.get_surface_count() != 0:
-		return "expected 0 surfaces for null graph, got %d" % mesh.get_surface_count()
-	return ""
-
-static func test_faces_to_mesh_empty_array() -> String:
-	var c = OcctlGodot.new()
-	var mesh = c.faces_to_mesh(null, [])
-	if mesh == null:
-		return "expected non-null ArrayMesh"
-	return ""
-
-static func test_faces_to_mesh_null_graph() -> String:
-	var c = OcctlGodot.new()
-	var mesh = c.faces_to_mesh(null, [1, 2, 3])
-	if mesh == null:
-		return "expected non-null ArrayMesh"
-	if mesh.get_surface_count() != 0:
-		return "expected 0 surfaces for null graph, got %d" % mesh.get_surface_count()
-	return ""
-
-# ---------------------------------------------------------------------------
-# Mesh batch methods — integration tests
-# Creates a box solid, meshes it, then converts faces/edges/vertices
+# Helper functions
 # ---------------------------------------------------------------------------
 
 static func _collect_node_kind_ids(graph, kind: int) -> Array:
 	var topo = OcctlTopo.new()
 	var ids = []
-	# Use per-kind iterator instead of graph_for_each
 	var iter: OcctlNodeIterHandle
 	match kind:
 		OcctlCore.OCCTL_KIND_SOLID:
@@ -294,28 +65,112 @@ static func _make_box_graph() -> Dictionary:
 
 	return {"graph": graph, "root": box_root, "core": core}
 
-static func test_faces_to_mesh_with_box() -> String:
+# ---------------------------------------------------------------------------
+# Mesh batch methods — edge cases (null/invalid graph)
+# ---------------------------------------------------------------------------
+
+static func test_mesh_faces_null_graph() -> String:
+	var graph = OcctlGraphHandle.new()
+	# Graph handle is null — should return empty ArrayMesh
+	var mesh = graph.mesh_faces()
+	if mesh == null:
+		return "expected non-null ArrayMesh, got null"
+	if mesh.get_surface_count() != 0:
+		return "expected 0 surfaces for null graph, got %d" % mesh.get_surface_count()
+	return ""
+
+static func test_mesh_faces_reuse_existing() -> String:
+	var graph = OcctlGraphHandle.new()
+	var existing = ArrayMesh.new()
+	# Add a dummy surface to verify it gets cleared
+	var dummy_arr = []
+	dummy_arr.resize(Mesh.ARRAY_MAX)
+	var verts = PackedVector3Array([Vector3(0,0,0), Vector3(1,0,0), Vector3(0,1,0)])
+	dummy_arr[Mesh.ARRAY_VERTEX] = verts
+	var idxs = PackedInt32Array([0, 1, 2])
+	dummy_arr[Mesh.ARRAY_INDEX] = idxs
+	existing.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, dummy_arr)
+	if existing.get_surface_count() != 1:
+		return "expected 1 dummy surface before reuse"
+
+	var result = graph.mesh_faces([], false, false, false, false, null, existing)
+	if result != existing:
+		return "expected same ArrayMesh object back"
+	# Should be cleared (no surfaces due to empty face_ids)
+	if result.get_surface_count() != 0:
+		return "expected 0 surfaces after clear with no ids, got %d" % result.get_surface_count()
+	return ""
+
+static func test_mesh_edges_null_graph() -> String:
+	var graph = OcctlGraphHandle.new()
+	var mm = graph.mesh_edges()
+	if mm == null:
+		return "expected non-null MultiMesh, got null"
+	if mm.get_instance_count() != 0:
+		return "expected 0 instances for null graph, got %d" % mm.get_instance_count()
+	return ""
+
+static func test_mesh_edges_reuse_existing() -> String:
+	var graph = OcctlGraphHandle.new()
+	var mm = MultiMesh.new()
+	mm.set_instance_count(5)
+	var result = graph.mesh_edges([], 0.01, null, mm)
+	if result != mm:
+		return "expected same MultiMesh object back"
+	if result.get_instance_count() != 0:
+		return "expected 0 instances after clear"
+	return ""
+
+static func test_mesh_vertices_null_graph() -> String:
+	var graph = OcctlGraphHandle.new()
+	var mm = graph.mesh_vertices()
+	if mm == null:
+		return "expected non-null MultiMesh, got null"
+	if mm.get_instance_count() != 0:
+		return "expected 0 instances for null graph, got %d" % mm.get_instance_count()
+	return ""
+
+static func test_mesh_vertices_reuse_existing() -> String:
+	var graph = OcctlGraphHandle.new()
+	var mm = MultiMesh.new()
+	mm.set_instance_count(5)
+	var result = graph.mesh_vertices([], 0.02, null, mm)
+	if result != mm:
+		return "expected same MultiMesh object back"
+	if result.get_instance_count() != 0:
+		return "expected 0 instances after clear"
+	return ""
+
+# ---------------------------------------------------------------------------
+# Mesh batch methods — integration tests
+# Creates a box solid, then tests faces/edges/vertices meshing
+# ---------------------------------------------------------------------------
+
+static func test_mesh_faces_with_box() -> String:
 	var result = _make_box_graph()
 	if result.has("error"):
 		return result.error
 
+	var graph: OcctlGraphHandle = result.graph
+
+	# Test with all attributes enabled and explicit mesh options
 	var mw = OcctlMesh.new()
 	var mesh_opts = OcctlMeshOptions.new()
 	mw.options_init(mesh_opts)
 	mesh_opts.set_deflection(1.0)
-	var mesh_status = mw.generate(result.graph, PackedInt64Array([result.root.get_bits()]), mesh_opts)
+	var root_id = PackedInt64Array([result.root.get_bits()])
+	var mesh_status = mw.generate(graph, root_id, mesh_opts)
 	if mesh_status != 0:
 		return "mesh generate failed: %d" % mesh_status
 
-	var face_ids = _collect_node_kind_ids(result.graph, OcctlCore.OCCTL_KIND_FACE)
+	var face_ids = _collect_node_kind_ids(graph, OcctlCore.OCCTL_KIND_FACE)
 	if face_ids.size() == 0:
 		return "no faces found in box graph"
 
-	var c = OcctlGodot.new()
-	var mesh = c.faces_to_mesh(result.graph, PackedInt64Array(face_ids),
-		true, true, true, true)
+	var mesh = graph.mesh_faces(PackedInt64Array(face_ids),
+		true, true, true, true, mesh_opts)
 	if mesh == null:
-		return "faces_to_mesh returned null"
+		return "mesh_faces returned null"
 	if mesh.get_surface_count() == 0:
 		return "expected at least 1 surface, got 0"
 
@@ -342,64 +197,108 @@ static func test_faces_to_mesh_with_box() -> String:
 
 	return ""
 
-static func test_edges_to_mesh_with_box() -> String:
+static func test_mesh_faces_defaults_no_attributes() -> String:
 	var result = _make_box_graph()
 	if result.has("error"):
 		return result.error
+
+	var graph: OcctlGraphHandle = result.graph
 
 	var mw = OcctlMesh.new()
 	var mesh_opts = OcctlMeshOptions.new()
 	mw.options_init(mesh_opts)
 	mesh_opts.set_deflection(1.0)
-	var mesh_status = mw.generate(result.graph, PackedInt64Array([result.root.get_bits()]), mesh_opts)
+	var root_id = PackedInt64Array([result.root.get_bits()])
+	var mesh_status = mw.generate(graph, root_id, mesh_opts)
 	if mesh_status != 0:
 		return "mesh generate failed: %d" % mesh_status
 
-	var edge_ids = _collect_node_kind_ids(result.graph, OcctlCore.OCCTL_KIND_EDGE)
-	if edge_ids.size() == 0:
-		return "no edges found in box graph"
+	var face_ids = _collect_node_kind_ids(graph, OcctlCore.OCCTL_KIND_FACE)
+	if face_ids.size() == 0:
+		return "no faces found in box graph"
 
-	var c = OcctlGodot.new()
+	# All attributes disabled by default for performance
+	var mesh = graph.mesh_faces(PackedInt64Array(face_ids))
+	if mesh == null:
+		return "mesh_faces returned null"
+	if mesh.get_surface_count() == 0:
+		return "expected at least 1 surface, got 0"
 
-	var tube_mesh = c.edges_to_mesh(result.graph, PackedInt64Array(edge_ids),
-		0.5, true, true)
-	if tube_mesh == null:
-		return "edges_to_mesh(tube) returned null"
-	if tube_mesh.get_surface_count() == 0:
-		return "expected at least 1 surface for tube edges, got 0"
+	var surface_arrays = mesh.surface_get_arrays(0)
+	var has_normals = surface_arrays[Mesh.ARRAY_NORMAL] != null
+	var has_uvs = surface_arrays[Mesh.ARRAY_TEX_UV] != null
+	var has_tangents = surface_arrays[Mesh.ARRAY_TANGENT] != null
 
-	var line_mesh = c.edges_to_mesh(result.graph, PackedInt64Array(edge_ids),
-		0.0, false, true)
-	if line_mesh == null:
-		return "edges_to_mesh(lines) returned null"
-	if line_mesh.get_surface_count() == 0:
-		return "expected at least 1 surface for line edges, got 0"
+	if has_normals:
+		return "expected NO normals by default"
+	if has_uvs:
+		return "expected NO UVs by default"
+	if has_tangents:
+		return "expected NO tangents by default"
 
 	return ""
 
-static func test_vertices_to_mesh_with_box() -> String:
+static func test_mesh_edges_with_box() -> String:
 	var result = _make_box_graph()
 	if result.has("error"):
 		return result.error
+
+	var graph: OcctlGraphHandle = result.graph
 
 	var mw = OcctlMesh.new()
 	var mesh_opts = OcctlMeshOptions.new()
 	mw.options_init(mesh_opts)
 	mesh_opts.set_deflection(1.0)
-	var mesh_status = mw.generate(result.graph, PackedInt64Array([result.root.get_bits()]), mesh_opts)
+	var root_id = PackedInt64Array([result.root.get_bits()])
+	var mesh_status = mw.generate(graph, root_id, mesh_opts)
 	if mesh_status != 0:
 		return "mesh generate failed: %d" % mesh_status
 
-	var vert_ids = _collect_node_kind_ids(result.graph, OcctlCore.OCCTL_KIND_VERTEX)
+	var edge_ids = _collect_node_kind_ids(graph, OcctlCore.OCCTL_KIND_EDGE)
+	if edge_ids.size() == 0:
+		return "no edges found in box graph"
+
+	var mm = graph.mesh_edges(PackedInt64Array(edge_ids), 0.5, mesh_opts)
+	if mm == null:
+		return "mesh_edges returned null"
+	if mm.get_instance_count() == 0:
+		return "expected at least 1 instance, got 0"
+	if mm.get_mesh() == null:
+		return "expected a base cylinder mesh"
+
+	# Verify transforms exist (check first instance)
+	var xf = mm.get_instance_transform(0)
+	if xf == Transform3D():
+		return "expected non-identity transform for edge instance"
+
+	return ""
+
+static func test_mesh_vertices_with_box() -> String:
+	var result = _make_box_graph()
+	if result.has("error"):
+		return result.error
+
+	var graph: OcctlGraphHandle = result.graph
+
+	var mw = OcctlMesh.new()
+	var mesh_opts = OcctlMeshOptions.new()
+	mw.options_init(mesh_opts)
+	mesh_opts.set_deflection(1.0)
+	var root_id = PackedInt64Array([result.root.get_bits()])
+	var mesh_status = mw.generate(graph, root_id, mesh_opts)
+	if mesh_status != 0:
+		return "mesh generate failed: %d" % mesh_status
+
+	var vert_ids = _collect_node_kind_ids(graph, OcctlCore.OCCTL_KIND_VERTEX)
 	if vert_ids.size() == 0:
 		return "no vertices found in box graph"
 
-	var c = OcctlGodot.new()
-	var mesh = c.vertices_to_mesh(result.graph, PackedInt64Array(vert_ids),
-		true, true)
-	if mesh == null:
-		return "vertices_to_mesh returned null"
-	if mesh.get_surface_count() == 0:
-		return "expected at least 1 surface for vertices, got 0"
+	var mm = graph.mesh_vertices(PackedInt64Array(vert_ids), 0.02, mesh_opts)
+	if mm == null:
+		return "mesh_vertices returned null"
+	if mm.get_instance_count() == 0:
+		return "expected at least 1 instance, got 0"
+	if mm.get_mesh() == null:
+		return "expected a base sphere mesh"
 
 	return ""

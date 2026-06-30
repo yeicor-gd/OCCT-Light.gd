@@ -7,9 +7,6 @@
 // Autowrapper-generated module registration
 #include "autowrapper/module.h"
 
-// Hand-written conversion utilities
-#include "convert/OcctlGodot.h"
-
 // OCCT-Light core runtime
 #include <occtl/occtl_core.h>
 
@@ -67,9 +64,6 @@ static void occtl_light_gd_initialize(ModuleInitializationLevel p_level) {
 
     // Register autowrapper-generated classes
     gdext_initialize_module_auto(p_level);
-
-    // Register hand-written conversion module
-    GDREGISTER_CLASS(OcctlGodot);
 
     // Register an atexit handler as a safety net: if Godot calls exit()
     // directly (bypassing GDExtension uninitialize), this ensures OCCT's
