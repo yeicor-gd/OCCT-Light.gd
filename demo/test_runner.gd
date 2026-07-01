@@ -84,18 +84,24 @@ func _ready() -> void:
 
 func _try_regenerate_test_index() -> void:
 	# Try to regenerate the test index in development builds
-	# Look in both the main tests dir and the autowrapper subdirectory
-	var dir := DirAccess.open(TESTS_AUTOWRAPPER_DIR)
-	if dir == null:
-		# Cannot access filesystem - likely running an exported binary
-		# Try parent dir as fallback
-		dir = DirAccess.open(TESTS_DIR)
-		if dir == null:
-			return
+	# This is only needed for exported binaries where gen_tests.py
+	# cannot run. In editor/dev builds, gen_tests.py writes the index
+	# and we just use it.
+	#
+	# However, we still regenerate if the index doesn't exist yet
+	# (e.g. first run after export).
+	if FileAccess.file_exists(INDEX_FILE):
+		# In editor/dev builds, the index was already written by gen_tests.py
+		# which includes both autowrapper and manual tests. Skip regeneration
+		# to avoid losing the manual test entries.
+		return
 
+	# Cannot access filesystem - regeneration needed for exported builds
 	var test_files: Array[String] = []
+
+	# Look for generated tests in autowrapper subdirectory
 	if DirAccess.dir_exists_absolute(TESTS_AUTOWRAPPER_DIR):
-		dir = DirAccess.open(TESTS_AUTOWRAPPER_DIR)
+		var dir := DirAccess.open(TESTS_AUTOWRAPPER_DIR)
 		if dir != null:
 			dir.list_dir_begin()
 			var fname := dir.get_next()
@@ -106,15 +112,18 @@ func _try_regenerate_test_index() -> void:
 			dir.list_dir_end()
 
 	# Also look for hand-written tests in the parent tests directory
-	dir = DirAccess.open(TESTS_DIR)
-	if dir != null:
-		dir.list_dir_begin()
-		var fname := dir.get_next()
-		while fname != "":
-			if not dir.current_is_dir() and fname.begins_with("test_") and fname.ends_with(".gd") and dir.dir_exists("autowrapper") == false:
-				test_files.append("res://tests/" + fname)
-			fname = dir.get_next()
-		dir.list_dir_end()
+	if DirAccess.dir_exists_absolute(TESTS_DIR):
+		var dir := DirAccess.open(TESTS_DIR)
+		if dir != null:
+			dir.list_dir_begin()
+			var fname := dir.get_next()
+			while fname != "":
+				if not dir.current_is_dir() and fname.begins_with("test_") and fname.ends_with(".gd"):
+					var full_path := "res://tests/" + fname
+					if full_path not in test_files:
+						test_files.append(full_path)
+				fname = dir.get_next()
+			dir.list_dir_end()
 
 	if test_files.is_empty():
 		# No tests found, create empty index
@@ -195,12 +204,6 @@ func _get_test_files() -> Array[String]:
 					test_files.append(full_path)
 			fname = parent_dir.get_next()
 		parent_dir.list_dir_end()
-
-	# Add manual test files
-	for mt in ["test_select_iter"]:
-		var mt_path = "res://tests/" + mt + ".gd"
-		if FileAccess.file_exists(mt_path) and mt_path not in test_files:
-			test_files.append(mt_path)
 
 	test_files.sort()
 	return test_files
