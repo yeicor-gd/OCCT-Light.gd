@@ -14,14 +14,14 @@ const OCCTL_NOT_FOUND := 4
 # ---------------------------------------------------------------------------
 
 # Helper: create a simple box using make_box
-static func _make_box(graph: OcctlGraphHandle) -> int:
-	var prim_solid = OcctlPrimSolid.new()
-	var box_info := OcctlPrimBoxInfo.new()
+static func _make_box(graph: OclGraphHandle) -> int:
+	var prim_solid = OclPrimSolid.new()
+	var box_info := OclPrimBoxInfo.new()
 	prim_solid.box_info_init(box_info)
 	box_info.dx = 10.0
 	box_info.dy = 10.0
 	box_info.dz = 10.0
-	var out_solid := OcctlNodeId.new()
+	var out_solid := OclNodeId.new()
 	var status := prim_solid.make_box(graph, box_info, out_solid)
 	if status != OCCTL_OK:
 		printerr("Failed to create box: status=", status)
@@ -29,29 +29,29 @@ static func _make_box(graph: OcctlGraphHandle) -> int:
 	return out_solid.bits
 
 # Helper: init runtime (tolerates double-init)
-static func _init_runtime(core: OcctlCore) -> int:
+static func _init_runtime(core: OclCore) -> int:
 	var rt_status = core.runtime_init(null)
 	if rt_status != OCCTL_OK and rt_status != 2:
 		return rt_status
 	return OCCTL_OK
 
 # Helper: create select options with default init
-static func _make_select_options(topo_build: OcctlTopoBuild) -> OcctlSelectOptions:
-	var opt := OcctlSelectOptions.new()
+static func _make_select_options(topo_build: OclTopoBuild) -> OclSelectOptions:
+	var opt := OclSelectOptions.new()
 	topo_build.select_options_init(opt)
 	return opt
 
 # Helper: create group options with default init
-static func _make_group_options(topo_build: OcctlTopoBuild) -> OcctlSelectGroupOptions:
-	var opt := OcctlSelectGroupOptions.new()
+static func _make_group_options(topo_build: OclTopoBuild) -> OclSelectGroupOptions:
+	var opt := OclSelectGroupOptions.new()
 	topo_build.select_group_options_init(opt)
 	return opt
 
 # Helper: iterate and collect results
-static func _collect_select_iter(topo_build: OcctlTopoBuild, iter: OcctlSelectIterHandle) -> Array:
+static func _collect_select_iter(topo_build: OclTopoBuild, iter: OclSelectIterHandle) -> Array:
 	var results := []
 	while true:
-		var out_node := OcctlNodeId.new()
+		var out_node := OclNodeId.new()
 		var status := topo_build.select_iter_next(iter, out_node)
 		if status == OCCTL_NOT_FOUND:
 			break
@@ -61,13 +61,13 @@ static func _collect_select_iter(topo_build: OcctlTopoBuild, iter: OcctlSelectIt
 	return results
 
 static func test_select_iter_basic() -> String:
-	var core = OcctlCore.new()
+	var core = OclCore.new()
 	var init_err = _init_runtime(core)
 	if init_err != OCCTL_OK:
 		return "runtime_init failed: %d" % init_err
 
-	var topo = OcctlTopo.new()
-	var graph: OcctlGraphHandle = topo.graph_create()
+	var topo = OclTopo.new()
+	var graph: OclGraphHandle = topo.graph_create()
 	if graph == null:
 		core.runtime_shutdown()
 		return "graph_create returned null"
@@ -78,11 +78,11 @@ static func test_select_iter_basic() -> String:
 		core.runtime_shutdown()
 		return "Failed to create box"
 
-	var topo_build = OcctlTopoBuild.new()
+	var topo_build = OclTopoBuild.new()
 	var options := _make_select_options(topo_build)
 	options.kind_mask = 1 << 1  # OCCTL_KIND_SOLID
 
-	var iter: OcctlSelectIterHandle = topo_build.select_iter_create(graph, options)
+	var iter: OclSelectIterHandle = topo_build.select_iter_create(graph, options)
 	if iter == null:
 		topo.graph_free(graph)
 		core.runtime_shutdown()
@@ -107,19 +107,19 @@ static func test_select_iter_basic() -> String:
 	return ""
 
 static func test_select_iter_with_null_options() -> String:
-	var core = OcctlCore.new()
+	var core = OclCore.new()
 	var init_err = _init_runtime(core)
 	if init_err != OCCTL_OK:
 		return "runtime_init failed: %d" % init_err
 
-	var topo = OcctlTopo.new()
-	var graph: OcctlGraphHandle = topo.graph_create()
+	var topo = OclTopo.new()
+	var graph: OclGraphHandle = topo.graph_create()
 	if graph == null:
 		core.runtime_shutdown()
 		return "graph_create returned null"
 
-	var topo_build = OcctlTopoBuild.new()
-	var iter: OcctlSelectIterHandle = topo_build.select_iter_create(graph, null)
+	var topo_build = OclTopoBuild.new()
+	var iter: OclSelectIterHandle = topo_build.select_iter_create(graph, null)
 
 	if iter != null:
 		topo_build.select_iter_free(iter)
@@ -129,13 +129,13 @@ static func test_select_iter_with_null_options() -> String:
 	return ""
 
 static func test_select_tagged_iter() -> String:
-	var core = OcctlCore.new()
+	var core = OclCore.new()
 	var init_err = _init_runtime(core)
 	if init_err != OCCTL_OK:
 		return "runtime_init failed: %d" % init_err
 
-	var topo = OcctlTopo.new()
-	var graph: OcctlGraphHandle = topo.graph_create()
+	var topo = OclTopo.new()
+	var graph: OclGraphHandle = topo.graph_create()
 	if graph == null:
 		core.runtime_shutdown()
 		return "graph_create returned null"
@@ -156,7 +156,7 @@ static func test_select_tagged_iter() -> String:
 		return "Failed to add tag: status=%d" % status
 
 	# Verify tag exists using out-param
-	var out_has_tag := OcctlInt32.new()
+	var out_has_tag := OclInt32.new()
 	status = topo.graph_tag_has(graph, solid_id, tag, out_has_tag)
 	if status != OCCTL_OK:
 		topo.graph_free(graph)
@@ -168,9 +168,9 @@ static func test_select_tagged_iter() -> String:
 		return "Tag not found after adding (has_tag=%d)" % out_has_tag.get_value()
 
 	# Select tagged nodes
-	var topo_build = OcctlTopoBuild.new()
+	var topo_build = OclTopoBuild.new()
 	var options := _make_select_options(topo_build)
-	var iter: OcctlSelectIterHandle = topo_build.select_tagged_iter_create(graph, options, tag)
+	var iter: OclSelectIterHandle = topo_build.select_tagged_iter_create(graph, options, tag)
 	if iter == null:
 		topo.graph_free(graph)
 		core.runtime_shutdown()
@@ -195,13 +195,13 @@ static func test_select_tagged_iter() -> String:
 	return ""
 
 static func test_select_group_iter() -> String:
-	var core = OcctlCore.new()
+	var core = OclCore.new()
 	var init_err = _init_runtime(core)
 	if init_err != OCCTL_OK:
 		return "runtime_init failed: %d" % init_err
 
-	var topo = OcctlTopo.new()
-	var graph: OcctlGraphHandle = topo.graph_create()
+	var topo = OclTopo.new()
+	var graph: OclGraphHandle = topo.graph_create()
 	if graph == null:
 		core.runtime_shutdown()
 		return "graph_create returned null"
@@ -214,7 +214,7 @@ static func test_select_group_iter() -> String:
 		return "Failed to create box"
 
 	# Create select and group options with proper initialization
-	var topo_build = OcctlTopoBuild.new()
+	var topo_build = OclTopoBuild.new()
 	var select_options := _make_select_options(topo_build)
 	select_options.kind_mask = 1 << 1  # OCCTL_KIND_SOLID
 	var group_options := _make_group_options(topo_build)
@@ -229,7 +229,7 @@ static func test_select_group_iter() -> String:
 	# Iterate groups
 	var found_solid := false
 	while true:
-		var out_view := OcctlSelectGroupView.new()
+		var out_view := OclSelectGroupView.new()
 		var status = topo_build.select_group_iter_next(iter, out_view)
 		if status == OCCTL_NOT_FOUND:
 			break
