@@ -8,6 +8,7 @@ const COLOR_DEBUG := "#9ca3af"
 
 const INDEX_FILE := "res://tests/index.gd"
 const TESTS_DIR := "res://tests"
+const TESTS_AUTOWRAPPER_DIR := "res://tests/autowrapper"
 
 var log_label: RichTextLabel
 var indent_level: int = 0
@@ -82,20 +83,38 @@ func _ready() -> void:
 
 
 func _try_regenerate_test_index() -> void:
-	# Try to regenerate the index in development builds
-	var dir := DirAccess.open(TESTS_DIR)
+	# Try to regenerate the test index in development builds
+	# Look in both the main tests dir and the autowrapper subdirectory
+	var dir := DirAccess.open(TESTS_AUTOWRAPPER_DIR)
 	if dir == null:
 		# Cannot access filesystem - likely running an exported binary
-		return
+		# Try parent dir as fallback
+		dir = DirAccess.open(TESTS_DIR)
+		if dir == null:
+			return
 
 	var test_files: Array[String] = []
-	dir.list_dir_begin()
-	var fname := dir.get_next()
-	while fname != "":
-		if not dir.current_is_dir() and fname.begins_with("test_") and fname.ends_with(".gd"):
-			test_files.append(fname)
-		fname = dir.get_next()
-	dir.list_dir_end()
+	if DirAccess.dir_exists_absolute(TESTS_AUTOWRAPPER_DIR):
+		dir = DirAccess.open(TESTS_AUTOWRAPPER_DIR)
+		if dir != null:
+			dir.list_dir_begin()
+			var fname := dir.get_next()
+			while fname != "":
+				if not dir.current_is_dir() and fname.begins_with("test_") and fname.ends_with(".gd"):
+					test_files.append("res://tests/autowrapper/" + fname)
+				fname = dir.get_next()
+			dir.list_dir_end()
+
+	# Also look for hand-written tests in the parent tests directory
+	dir = DirAccess.open(TESTS_DIR)
+	if dir != null:
+		dir.list_dir_begin()
+		var fname := dir.get_next()
+		while fname != "":
+			if not dir.current_is_dir() and fname.begins_with("test_") and fname.ends_with(".gd") and dir.dir_exists("autowrapper") == false:
+				test_files.append("res://tests/" + fname)
+			fname = dir.get_next()
+		dir.list_dir_end()
 
 	if test_files.is_empty():
 		# No tests found, create empty index
@@ -114,10 +133,13 @@ func _write_test_index(test_files: Array[String]) -> void:
 """
 	var content := header
 
-	content += "const SUITES := [\n"
-	for fname in test_files:
-		content += "\t\"res://tests/%s\",\n" % fname
-	content += "]\n"
+	if test_files.is_empty():
+		content += "const SUITES := []\n"
+	else:
+		content += "const SUITES := [\n"
+		for fname in test_files:
+			content += "\t\"%s\",\n" % fname
+		content += "]\n"
 
 	var file := FileAccess.open(INDEX_FILE, FileAccess.WRITE)
 	if file == null:
@@ -145,23 +167,41 @@ func _get_test_files() -> Array[String]:
 			var files: Array[String] = []
 			for suite_path in suites:
 				if suite_path is String:
-					files.append(suite_path.get_file())
+					files.append(suite_path)
 			if not files.is_empty():
 				return files
 
 	# Fallback: Try to discover test files dynamically (only works in editor)
-	var dir := DirAccess.open(TESTS_DIR)
-	if dir == null:
-		return []
-
 	var test_files: Array[String] = []
-	dir.list_dir_begin()
-	var fname := dir.get_next()
-	while fname != "":
-		if not dir.current_is_dir() and fname.begins_with("test_") and fname.ends_with(".gd"):
-			test_files.append(fname)
-		fname = dir.get_next()
-	dir.list_dir_end()
+	var dir := DirAccess.open(TESTS_AUTOWRAPPER_DIR)
+	if dir != null:
+		dir.list_dir_begin()
+		var fname := dir.get_next()
+		while fname != "":
+			if not dir.current_is_dir() and fname.begins_with("test_") and fname.ends_with(".gd"):
+				test_files.append("res://tests/autowrapper/" + fname)
+			fname = dir.get_next()
+		dir.list_dir_end()
+
+	# Also look for hand-written tests in parent dir
+	var parent_dir := DirAccess.open(TESTS_DIR)
+	if parent_dir != null:
+		parent_dir.list_dir_begin()
+		var fname := parent_dir.get_next()
+		while fname != "":
+			if not parent_dir.current_is_dir() and fname.begins_with("test_") and fname.ends_with(".gd"):
+				var full_path := "res://tests/" + fname
+				if full_path not in test_files:
+					test_files.append(full_path)
+			fname = parent_dir.get_next()
+		parent_dir.list_dir_end()
+
+	# Add manual test files
+	for mt in ["test_select_iter"]:
+		var mt_path = "res://tests/" + mt + ".gd"
+		if FileAccess.file_exists(mt_path) and mt_path not in test_files:
+			test_files.append(mt_path)
+
 	test_files.sort()
 	return test_files
 
@@ -173,8 +213,8 @@ func _on_timeout() -> void:
 			get_tree().quit(1)
 
 
-func _run_suite(file: String) -> void:
-	var path := "res://tests/" + file
+func _run_suite(path: String) -> void:
+	var file := path.get_file()
 	var script := load(path)
 
 	if script == null:
