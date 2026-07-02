@@ -1,4 +1,4 @@
-# Portfile for sqlite3-gd: builds the Godot extension
+# Portfile for the Godot extension of this project
 # ABI change to force rebuild
 
 # The dependencies are specified in vcpkg.json
