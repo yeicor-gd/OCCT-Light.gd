@@ -62,6 +62,11 @@ static void occtl_light_gd_initialize(ModuleInitializationLevel p_level) {
         return;
     }
 
+    // Enable OCCT stack traces for Standard_Failure exceptions. The default
+    // stack trace length is 0, which means no stack trace is generated.
+    // We set it to 32 to provide a reasonable amount of context for debugging.
+    Standard_Failure::SetDefaultStackTraceLength(32);
+
     // Register autowrapper-generated classes
     gdext_initialize_module_auto(p_level);
 
