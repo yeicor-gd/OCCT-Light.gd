@@ -10,6 +10,10 @@
 // OCCT-Light core runtime
 #include <occtl/occtl_core.h>
 
+#if defined(_MSC_VER)
+#include <crtdbg.h>
+#endif
+
 // OCCT fix: Godot destroys std::cout before OCCT's static destructors run
 // during exit(). When Message_PrinterOStream::~Message_PrinterOStream calls
 // Close(), it tries to flush the already-destroyed stream and crashes.
@@ -62,10 +66,21 @@ static void occtl_light_gd_initialize(ModuleInitializationLevel p_level) {
         return;
     }
 
-    // Enable OCCT stack traces for Standard_Failure exceptions. The default
-    // stack trace length is 0, which means no stack trace is generated.
-    // We set it to 32 to provide a reasonable amount of context for debugging.
+#if !defined(NDEBUG)
+    // Enable OCCT stack traces for Standard_Failure exceptions in debug
+    // builds. The default stack trace length is 0 (no stack trace), we set
+    // it to 32 for debugging context.
     Standard_Failure::SetDefaultStackTraceLength(32);
+#endif
+
+#if defined(_MSC_VER)
+    // Suppress CRT assert dialog on Windows so the headless test runner won't
+    // hang waiting for user interaction when OCCT's Standard_ASSERT fires
+    // (e.g. BRepTools_History rejecting unsupported shape types in debug).
+    // Route assertions to stderr (visible in console) and debugger output.
+    _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE | _CRTDBG_MODE_DEBUG);
+    _CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
+#endif
 
     // Register autowrapper-generated classes
     gdext_initialize_module_auto(p_level);
@@ -95,19 +110,19 @@ static void occtl_light_gd_uninitialize(ModuleInitializationLevel p_level) {
 }
 
 extern "C" {
-GDExtensionBool GDE_EXPORT gdext_library_init(
-    GDExtensionInterfaceGetProcAddress p_get_proc_address,
-    GDExtensionClassLibraryPtr p_library,
-    GDExtensionInitialization *r_initialization
-) {
-    const godot::GDExtensionBinding::InitObject init_obj(
-        p_get_proc_address, p_library, r_initialization
-    );
-
-    init_obj.register_initializer(occtl_light_gd_initialize);
-    init_obj.register_terminator(occtl_light_gd_uninitialize);
-    init_obj.set_minimum_library_initialization_level(MODULE_INITIALIZATION_LEVEL_SCENE);
-
-    return init_obj.init();
-}
+    GDExtensionBool GDE_EXPORT gdext_library_init(
+        GDExtensionInterfaceGetProcAddress p_get_proc_address,
+        GDExtensionClassLibraryPtr p_library,
+        GDExtensionInitialization *r_initialization
+    ) {
+        const godot::GDExtensionBinding::InitObject init_obj(
+            p_get_proc_address, p_library, r_initialization
+        );
+    
+        init_obj.register_initializer(occtl_light_gd_initialize);
+        init_obj.register_terminator(occtl_light_gd_uninitialize);
+        init_obj.set_minimum_library_initialization_level(MODULE_INITIALIZATION_LEVEL_SCENE);
+    
+        return init_obj.init();
+    }
 }
