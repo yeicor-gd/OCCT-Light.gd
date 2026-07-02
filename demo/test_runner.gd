@@ -83,23 +83,16 @@ func _ready() -> void:
 
 
 func _try_regenerate_test_index() -> void:
-	# Try to regenerate the test index in development builds
-	# This is only needed for exported binaries where gen_tests.py
-	# cannot run. In editor/dev builds, gen_tests.py writes the index
-	# and we just use it.
+	# Regenerate the test index from the filesystem so newly added test
+	# files are picked up automatically. The checked-in index.gd serves
+	# exported builds where DirAccess/FileAccess can't enumerate or write.
 	#
-	# However, we still regenerate if the index doesn't exist yet
-	# (e.g. first run after export).
-	if FileAccess.file_exists(INDEX_FILE):
-		# In editor/dev builds, the index was already written by gen_tests.py
-		# which includes both autowrapper and manual tests. Skip regeneration
-		# to avoid losing the manual test entries.
-		return
+	# In exported builds, DirAccess cannot enumerate .gd files, so this
+	# will silently find nothing and the bundled index.gd is used instead.
 
-	# Cannot access filesystem - regeneration needed for exported builds
 	var test_files: Array[String] = []
 
-	# Look for generated tests in autowrapper subdirectory
+	# Look for tests in autowrapper subdirectory
 	if DirAccess.dir_exists_absolute(TESTS_AUTOWRAPPER_DIR):
 		var dir := DirAccess.open(TESTS_AUTOWRAPPER_DIR)
 		if dir != null:
@@ -111,7 +104,7 @@ func _try_regenerate_test_index() -> void:
 				fname = dir.get_next()
 			dir.list_dir_end()
 
-	# Also look for hand-written tests in the parent tests directory
+	# Look for hand-written tests in the parent tests directory
 	if DirAccess.dir_exists_absolute(TESTS_DIR):
 		var dir := DirAccess.open(TESTS_DIR)
 		if dir != null:
@@ -126,8 +119,8 @@ func _try_regenerate_test_index() -> void:
 			dir.list_dir_end()
 
 	if test_files.is_empty():
-		# No tests found, create empty index
-		_write_test_index([])
+		# Cannot enumerate files (exported build) or no tests.
+		# The bundled index.gd handles this case.
 		return
 
 	test_files.sort()
@@ -346,11 +339,14 @@ func _log(message: String, color: String) -> void:
 # unrelated to this GDExtension. Any await statements outside of _log() will cause
 # the test runner to hang indefinitely on Windows, even though the same code works
 # on Linux and macOS. The shutdown must be immediate and synchronous.
+#
+# Only auto-quits when running in headless or GODOT_TEST_RUNNER mode.
+# In game mode (desktop/mobile), stays open so the user can see results
+# regardless of pass/fail.
 func _quit_tests_now(code: int) -> void:
-	# Always quit when running in test mode or headless
 	var env_test_runner := OS.get_environment("GODOT_TEST_RUNNER") == "true"
 	var is_headless_mode := DisplayServer.get_name() == "headless"
-	var should_quit := env_test_runner or is_headless_mode or code != 0
+	var should_quit := env_test_runner or is_headless_mode
 
 	if should_quit:
 		get_tree().quit(code)
