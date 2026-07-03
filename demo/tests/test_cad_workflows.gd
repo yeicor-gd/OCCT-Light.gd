@@ -45,12 +45,11 @@ static func _make_box(dx: float = 10.0, dy: float = 10.0, dz: float = 10.0) -> D
 
 	var prim = OclPrimSolid.new()
 	var info = OclPrimBoxInfo.new()
-	prim.box_info_init(info)
 	info.set_dx(dx)
 	info.set_dy(dy)
 	info.set_dz(dz)
 	var out_solid = OclNodeId.new()
-	var status = prim.make_box(graph, info, out_solid)
+	var status = prim.box(graph, info, out_solid)
 	if status != OK:
 		return {"error": "make_box failed: %s" % _status_str(status)}
 	return {"graph": graph, "root": out_solid, "topo": topo, "core": OclCore.new()}
@@ -70,18 +69,16 @@ static func _make_two_overlapping_boxes() -> Dictionary:
 
 	# Box 1 at origin
 	var info1 = OclPrimBoxInfo.new()
-	prim.box_info_init(info1)
 	info1.set_dx(20.0)
 	info1.set_dy(20.0)
 	info1.set_dz(20.0)
 	var out1 = OclNodeId.new()
-	var status = prim.make_box(graph, info1, out1)
+	var status = prim.box(graph, info1, out1)
 	if status != OK:
 		return {"error": "make_box 1 failed: %s" % _status_str(status)}
 
 	# Box 2 shifted by +10 in X so they overlap by 10
 	var info2 = OclPrimBoxInfo.new()
-	prim.box_info_init(info2)
 	info2.set_dx(20.0)
 	info2.set_dy(20.0)
 	info2.set_dz(20.0)
@@ -99,7 +96,7 @@ static func _make_two_overlapping_boxes() -> Dictionary:
 	axis.set_x_dir_ref(x_dir_ref)
 	info2.set_placement(axis)
 	var out2 = OclNodeId.new()
-	status = prim.make_box(graph, info2, out2)
+	status = prim.box(graph, info2, out2)
 	if status != OK:
 		return {"error": "make_box 2 failed: %s" % _status_str(status)}
 
@@ -161,7 +158,7 @@ static func _make_box_full(dx: float = 10.0, dy: float = 20.0, dz: float = 30.0)
 	info.set_dz(dz)
 
 	var out_solid = OclNodeId.new()
-	var status = prim.make_box(graph, info, out_solid)
+	var status = prim.box(graph, info, out_solid)
 	if status != OK:
 		return {"error": "make_box failed: %s" % _status_str(status)}
 	return {"graph": graph, "root": out_solid, "topo": topo, "core": core}
@@ -196,7 +193,7 @@ static func test_make_box_and_count_topology() -> String:
 		return result.error
 
 	var graph: OclGraphHandle = result.graph
-	var root: OclNodeId = result.root
+	var _root: OclNodeId = result.root
 
 	# A box has: 1 solid, 1 shell, 6 faces, 12 edges, 8 vertices
 	var solids = _collect_ids(graph, OclCore.KIND_SOLID)
@@ -233,13 +230,12 @@ static func test_make_sphere() -> String:
 
 	var prim = OclPrimSolid.new()
 	var info = OclPrimSphereInfo.new()
-	prim.sphere_info_init(info)
 	info.set_radius(50.0)
 	# Default angles give a full sphere (-pi/2 to pi/2 lat, 2pi lon).
 	# OCCT uses radians for angular parameters.
 
 	var out_solid = OclNodeId.new()
-	var status = prim.make_sphere(graph, info, out_solid)
+	var status = prim.sphere(graph, info, out_solid)
 	if status != OK:
 		return "make_sphere failed: %s" % _status_str(status)
 
@@ -270,13 +266,12 @@ static func test_make_cylinder() -> String:
 
 	var prim = OclPrimSolid.new()
 	var info = OclPrimCylinderInfo.new()
-	prim.cylinder_info_init(info)
 	info.set_radius(25.0)
 	info.set_height(60.0)
 	# Default angle = 2*pi (full cylinder)
 
 	var out_solid = OclNodeId.new()
-	var status = prim.make_cylinder(graph, info, out_solid)
+	var status = prim.cylinder(graph, info, out_solid)
 	if status != OK:
 		return "make_cylinder failed: %s" % _status_str(status)
 
@@ -303,14 +298,13 @@ static func test_make_cone() -> String:
 
 	var prim = OclPrimSolid.new()
 	var info = OclPrimConeInfo.new()
-	prim.cone_info_init(info)
 	info.set_r1(20.0)
 	info.set_r2(10.0)
 	info.set_height(40.0)
 	# Default angle = 2*pi (full cone)
 
 	var out_solid = OclNodeId.new()
-	var status = prim.make_cone(graph, info, out_solid)
+	var status = prim.cone(graph, info, out_solid)
 	if status != OK:
 		return "make_cone failed: %s" % _status_str(status)
 
@@ -332,13 +326,12 @@ static func test_make_torus() -> String:
 
 	var prim = OclPrimSolid.new()
 	var info = OclPrimTorusInfo.new()
-	prim.torus_info_init(info)
 	info.set_r1(50.0)
 	info.set_r2(15.0)
 	# Default angles give full torus
 
 	var out_solid = OclNodeId.new()
-	var status = prim.make_torus(graph, info, out_solid)
+	var status = prim.torus(graph, info, out_solid)
 	if status != OK:
 		return "make_torus failed: %s" % _status_str(status)
 
@@ -360,14 +353,13 @@ static func test_make_wedge() -> String:
 
 	var prim = OclPrimSolid.new()
 	var info = OclPrimWedgeInfo.new()
-	prim.wedge_info_init(info)
 	info.set_dx(30.0)
 	info.set_dy(20.0)
 	info.set_dz(10.0)
 	info.set_ltx(15.0)
 
 	var out_solid = OclNodeId.new()
-	var status = prim.make_wedge(graph, info, out_solid)
+	var status = prim.wedge(graph, info, out_solid)
 	if status != OK:
 		return "make_wedge failed: %s" % _status_str(status)
 
@@ -392,7 +384,6 @@ static func test_boolean_fuse_two_boxes() -> String:
 
 	var bool_mod = OclBool.new()
 	var opts = OclBoolOptions.new()
-	bool_mod.options_init(opts)
 
 	var objects = PackedInt64Array([box1.get_bits()])
 	var tools = PackedInt64Array([box2.get_bits()])
@@ -419,7 +410,6 @@ static func test_boolean_cut_two_boxes() -> String:
 
 	var bool_mod = OclBool.new()
 	var opts = OclBoolOptions.new()
-	bool_mod.options_init(opts)
 
 	var objects = PackedInt64Array([box1.get_bits()])
 	var tools = PackedInt64Array([box2.get_bits()])
@@ -441,7 +431,6 @@ static func test_boolean_common_two_boxes() -> String:
 
 	var bool_mod = OclBool.new()
 	var opts = OclBoolOptions.new()
-	bool_mod.options_init(opts)
 
 	var objects = PackedInt64Array([box1.get_bits()])
 	var tools = PackedInt64Array([box2.get_bits()])
@@ -463,7 +452,6 @@ static func test_boolean_section_two_boxes() -> String:
 
 	var bool_mod = OclBool.new()
 	var opts = OclBoolOptions.new()
-	bool_mod.options_init(opts)
 
 	var objects = PackedInt64Array([box1.get_bits()])
 	var tools = PackedInt64Array([box2.get_bits()])
@@ -1951,7 +1939,6 @@ static func test_mesh_generate() -> String:
 
 	var mw = OclMesh.new()
 	var opts = OclMeshOptions.new()
-	mw.options_init(opts)
 	opts.set_deflection(1.0)
 
 	var status = mw.generate(graph, PackedInt64Array([root.get_bits()]), opts)
@@ -1970,7 +1957,6 @@ static func test_mesh_faces_on_box() -> String:
 
 	var mw = OclMesh.new()
 	var opts = OclMeshOptions.new()
-	mw.options_init(opts)
 	opts.set_deflection(0.5)
 
 	var status = mw.generate(graph, PackedInt64Array([root.get_bits()]), opts)
@@ -2151,7 +2137,6 @@ static func test_edge_view() -> String:
 		return "Expected at least 1 edge"
 
 	var view = OclEdgeView.new()
-	topo.edge_view_init(view)
 	var status = topo.topo_edge_view(graph, edges[0], view)
 	if status != OK:
 		return "topo_edge_view failed: %s" % _status_str(status)
@@ -2170,7 +2155,6 @@ static func test_vertex_view() -> String:
 		return "Expected at least 1 vertex"
 
 	var view = OclVertexView.new()
-	topo.vertex_view_init(view)
 	var status = topo.topo_vertex_view(graph, vertices[0], view)
 	if status != OK:
 		return "topo_vertex_view failed: %s" % _status_str(status)
@@ -2189,7 +2173,6 @@ static func test_face_view() -> String:
 		return "Expected at least 1 face"
 
 	var view = OclFaceView.new()
-	topo.face_view_init(view)
 	var status = topo.topo_face_view(graph, faces[0], view)
 	if status != OK:
 		return "topo_face_view failed: %s" % _status_str(status)
@@ -2208,7 +2191,6 @@ static func test_wire_view() -> String:
 		return "Expected at least 1 wire"
 
 	var view = OclWireView.new()
-	topo.wire_view_init(view)
 	var status = topo.topo_wire_view(graph, wires[0], view)
 	if status != OK:
 		return "topo_wire_view failed: %s" % _status_str(status)
@@ -2227,7 +2209,6 @@ static func test_shell_view() -> String:
 		return "Expected at least 1 shell"
 
 	var view = OclShellView.new()
-	topo.shell_view_init(view)
 	var status = topo.topo_shell_view(graph, shells[0], view)
 	if status != OK:
 		return "topo_shell_view failed: %s" % _status_str(status)
@@ -2246,7 +2227,6 @@ static func test_solid_view() -> String:
 		return "Expected at least 1 solid"
 
 	var view = OclSolidView.new()
-	topo.solid_view_init(view)
 	var status = topo.topo_solid_view(graph, solids[0], view)
 	if status != OK:
 		return "topo_solid_view failed: %s" % _status_str(status)
@@ -2262,7 +2242,6 @@ static func test_compound_view() -> String:
 	var topo = OclTopo.new()
 
 	var view = OclCompoundView.new()
-	topo.compound_view_init(view)
 	# A box graph has no compound, so this should return NOT_FOUND
 	var status = topo.topo_compound_view(graph, 0, view)
 	if status != NOT_FOUND:
@@ -2323,7 +2302,6 @@ static func test_select_iter_create() -> String:
 	var topo_build = OclTopoBuild.new()
 
 	var sel_opts = OclSelectOptions.new()
-	topo_build.select_options_init(sel_opts)
 
 	# Set up a select for faces (kind_mask uses bit flags: 1 << kind)
 	sel_opts.kind_mask = 1 << OclCore.KIND_FACE

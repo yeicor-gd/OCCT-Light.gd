@@ -171,7 +171,7 @@ func _get_test_files() -> Array[String]:
 			if not files.is_empty():
 				return files
 
-    # Fallback: Try to discover test files dynamically (only works in editor)
+	# Fallback: Try to discover test files dynamically (only works in editor)
 	var test_files: Array[String] = []
 
 	# Scan hand-written tests in the tests directory

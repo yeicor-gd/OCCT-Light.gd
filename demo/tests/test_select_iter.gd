@@ -17,12 +17,11 @@ const NOT_FOUND := 4
 static func _make_box(graph: OclGraphHandle) -> int:
 	var prim_solid = OclPrimSolid.new()
 	var box_info := OclPrimBoxInfo.new()
-	prim_solid.box_info_init(box_info)
 	box_info.dx = 10.0
 	box_info.dy = 10.0
 	box_info.dz = 10.0
 	var out_solid := OclNodeId.new()
-	var status := prim_solid.make_box(graph, box_info, out_solid)
+	var status := prim_solid.box(graph, box_info, out_solid)
 	if status != OK:
 		printerr("Failed to create box: status=", status)
 		return -1
@@ -38,13 +37,11 @@ static func _init_runtime(core: OclCore) -> int:
 # Helper: create select options with default init
 static func _make_select_options(topo_build: OclTopoBuild) -> OclSelectOptions:
 	var opt := OclSelectOptions.new()
-	topo_build.select_options_init(opt)
 	return opt
 
 # Helper: create group options with default init
 static func _make_group_options(topo_build: OclTopoBuild) -> OclSelectGroupOptions:
 	var opt := OclSelectGroupOptions.new()
-	topo_build.select_group_options_init(opt)
 	return opt
 
 # Helper: iterate and collect results

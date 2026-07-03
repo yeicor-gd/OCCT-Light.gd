@@ -58,13 +58,12 @@ static func _make_box_graph() -> Dictionary:
 
 	var prim = OclPrimSolid.new()
 	var info = OclPrimBoxInfo.new()
-	prim.box_info_init(info)
 	info.set_dx(10.0)
 	info.set_dy(20.0)
 	info.set_dz(30.0)
 
 	var box_root = OclNodeId.new()
-	var status = prim.make_box(graph, info, box_root)
+	var status = prim.box(graph, info, box_root)
 	if status != 0:
 		return {"error": "make_box failed: %d" % status}
 
@@ -168,7 +167,6 @@ static func test_mesh_faces_with_box() -> String:
 	# Test with all attributes enabled and explicit mesh options
 	var mw = OclMesh.new()
 	var mesh_opts = OclMeshOptions.new()
-	mw.options_init(mesh_opts)
 	mesh_opts.set_deflection(1.0)
 	var root_id = PackedInt64Array([result.root.get_bits()])
 	var mesh_status = mw.generate(graph, root_id, mesh_opts)
@@ -219,7 +217,6 @@ static func test_mesh_faces_defaults_no_attributes() -> String:
 
 	var mw = OclMesh.new()
 	var mesh_opts = OclMeshOptions.new()
-	mw.options_init(mesh_opts)
 	mesh_opts.set_deflection(1.0)
 	var root_id = PackedInt64Array([result.root.get_bits()])
 	var mesh_status = mw.generate(graph, root_id, mesh_opts)
@@ -261,7 +258,6 @@ static func test_mesh_edges_with_box() -> String:
 
 	var mw = OclMesh.new()
 	var mesh_opts = OclMeshOptions.new()
-	mw.options_init(mesh_opts)
 	mesh_opts.set_deflection(1.0)
 	var root_id = PackedInt64Array([result.root.get_bits()])
 	var mesh_status = mw.generate(graph, root_id, mesh_opts)
@@ -293,7 +289,6 @@ static func test_mesh_vertices_with_box() -> String:
 
 	var mw = OclMesh.new()
 	var mesh_opts = OclMeshOptions.new()
-	mw.options_init(mesh_opts)
 	mesh_opts.set_deflection(1.0)
 	var root_id = PackedInt64Array([result.root.get_bits()])
 	var mesh_status = mw.generate(graph, root_id, mesh_opts)
@@ -330,7 +325,6 @@ static func test_mesh_bbox_consistency() -> String:
 
 	var mw = OclMesh.new()
 	var mesh_opts = OclMeshOptions.new()
-	mw.options_init(mesh_opts)
 	mesh_opts.set_deflection(1.0)
 	var root_id = PackedInt64Array([result.root.get_bits()])
 	var mesh_status = mw.generate(graph, root_id, mesh_opts)
@@ -376,7 +370,6 @@ static func test_mesh_faces_physics_body() -> String:
 
 	var mw = OclMesh.new()
 	var mesh_opts = OclMeshOptions.new()
-	mw.options_init(mesh_opts)
 	mesh_opts.set_deflection(1.0)
 	var root_id = PackedInt64Array([result.root.get_bits()])
 	var mesh_status = mw.generate(graph, root_id, mesh_opts)
@@ -419,7 +412,6 @@ static func test_mesh_edges_physics_body() -> String:
 
 	var mw = OclMesh.new()
 	var mesh_opts = OclMeshOptions.new()
-	mw.options_init(mesh_opts)
 	mesh_opts.set_deflection(1.0)
 	var root_id = PackedInt64Array([result.root.get_bits()])
 	var mesh_status = mw.generate(graph, root_id, mesh_opts)
@@ -461,7 +453,6 @@ static func test_mesh_vertices_physics_body() -> String:
 
 	var mw = OclMesh.new()
 	var mesh_opts = OclMeshOptions.new()
-	mw.options_init(mesh_opts)
 	mesh_opts.set_deflection(1.0)
 	var root_id = PackedInt64Array([result.root.get_bits()])
 	var mesh_status = mw.generate(graph, root_id, mesh_opts)
@@ -503,7 +494,6 @@ static func test_physics_body_reuse_clears_children() -> String:
 
 	var mw = OclMesh.new()
 	var mesh_opts = OclMeshOptions.new()
-	mw.options_init(mesh_opts)
 	mesh_opts.set_deflection(1.0)
 	var root_id = PackedInt64Array([result.root.get_bits()])
 	var mesh_status = mw.generate(graph, root_id, mesh_opts)
