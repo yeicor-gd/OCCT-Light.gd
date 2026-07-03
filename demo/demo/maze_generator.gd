@@ -20,10 +20,10 @@ extends Node3D
 # ---------------------------------------------------------------------------
 
 const NODE_SIZE: float = 10.0
-const SPHERE_DIAMETER: float = 100.0
+const SPHERE_DIAMETER: float = 250.0
 const SHELL_THICKNESS: float = 2.5
 const BALL_DIAMETER: float = 6.0
-const SEED: int = 4
+const SEED: int = 0
 const NUMBER_OF_WAYPOINTS: int = 14
 const MOUNTING_POINTS: int = 4
 const WALL_THICKNESS: float = 1.2
@@ -40,7 +40,7 @@ const ACCENT_COLOR: Color = Color(0.93, 0.93, 0.93)
 const MOUNTING_RING_COLOR: Color = Color(1.0, 0.84, 0.0)
 
 const OCCTL_OK := 0
-const OCCTL_KIND_SOLID := OclCore.OCCTL_KIND_SOLID
+const OCCTL_KIND_SOLID := OclCore.KIND_SOLID
 
 
 # ---------------------------------------------------------------------------
@@ -585,7 +585,9 @@ static func _fuse_multiple(
 	if solid_ids.size() == 0:
 		return OclNodeId.new()
 	if solid_ids.size() == 1:
-		return
+		var res := OclNodeId.new()
+		res.bits = solid_ids[0]
+		return res
 
 	var result := OclNodeId.new()
 	bool_mod.fuse(graph, solid_ids, PackedInt64Array(), opts, result)
@@ -657,7 +659,12 @@ static func _solid_to_mesh_instance(
 	unshaded: bool = false
 ) -> MeshInstance3D:
 	"""Convert an OCCT solid to a Godot MeshInstance3D via mesh_faces()."""
-	var mesh = graph.mesh_faces(
+	var options := OclMeshOptions.new()
+	options.angle = 1
+	options.deflection = 0.1
+	var mesher = OclGodotMesher.new()
+	var mesh = mesher.mesh_faces(
+		graph, null, options,
 		PackedInt64Array([solid_id.get_bits()]),
 		true,  # normals
 		false, # uvs
@@ -672,9 +679,9 @@ static func _solid_to_mesh_instance(
 	inst.mesh = mesh
 
 	var mat := StandardMaterial3D.new()
-	mat.diffuse_color = color
+	mat.albedo_color = color
 	mat.metallic = 0.3
-	mat.specular = 0.1
+	mat.metallic_specular = 0.1
 
 	if unshaded:
 		mat.shading_mode = 0

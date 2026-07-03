@@ -112,7 +112,7 @@ endif()
 # the OCCT runtime libraries and include directories via FindOCCT.cmake).
 target_link_libraries(${PROJECT_NAME} PRIVATE godot-cpp OCCTL::core OCCTL::geom OCCTL::topo OCCTL::prim OCCTL::text OCCTL::bool OCCTL::mesh OCCTL::heal OCCTL::io_brep OCCTL::io_step OCCTL::io_iges OCCTL::io_stl OCCTL::io_obj OCCTL::io_gltf OCCTL::io_vrml OCCTL::io_ply OCCTL::de)
 target_include_directories(${PROJECT_NAME} SYSTEM PRIVATE godot-cpp/include)
-target_include_directories(${PROJECT_NAME} PRIVATE src/autowrapper)
+target_include_directories(${PROJECT_NAME} PRIVATE src/autowrapper src)
 
 # OCCT-Light headers are installed under the occtl/ subdirectory of the
 # OCCTL include tree (e.g. <prefix>/include/occtl/occtl_core.h).

@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!-- Hand-written doc for OclGodotMesher -->
+<class name="OclGodotMesher" inherits="RefCounted" version="4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/godotengine/godot/master/doc/class.xsd">
+	<brief_description>Batch meshing utility for OCCT graph handles.</brief_description>
+	<description>
+		Provides convenient batch meshing ([method mesh_faces], [method mesh_edges], [method mesh_vertices]) that converts OCCT topological entities into Godot mesh resources (ArrayMesh, MultiMesh, or PhysicsBody3D collision shapes).
+		All meshing methods take an [OclGraphHandle] as the first argument and accept an optional [code]existing[/code] parameter that can be an ArrayMesh, MultiMesh, or PhysicsBody3D:
+		- [b]ArrayMesh[/b] / [b]MultiMesh[/b]: surfaces/instances are cleared and re-created; user customizations (shader materials, etc.) are preserved.
+		- [b]PhysicsBody3D[/b] (StaticBody3D, RigidBody3D, CharacterBody3D, ...): one CollisionShape3D child is added per feature, each with [code]occtl[/code] metadata containing a [code]feature_id[/code] key that maps back to the original face/edge/vertex node ID. Faces use ConcavePolygonShape3D, edges use CapsuleShape3D, and vertices use SphereShape3D.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="mesh_faces">
+			<return type="ArrayMesh" />
+			<argument index="0" name="graph" type="OclGraphHandle" />
+			<argument index="1" name="existing" type="Variant" />
+			<argument index="2" name="options" type="OclMeshOptions" />
+			<argument index="3" name="face_ids" type="Variant" />
+			<argument index="4" name="include_normals" type="bool" />
+			<argument index="5" name="include_uvs" type="bool" />
+			<argument index="6" name="include_tangents" type="bool" />
+			<argument index="7" name="include_feature_ids" type="bool" />
+			<description>
+				Triangulate faces into an [ArrayMesh] or create collision shapes on a [PhysicsBody3D].
+				- [code]graph[/code]: The graph handle (must be valid).
+				- [code]existing[/code]: [code]null[/code], [ArrayMesh], or [PhysicsBody3D].
+				- [code]options[/code]: Meshing options controlling deflection, angle, etc. When [code]null[/code], defaults are used.
+				- [code]face_ids[/code]: [code]null[/code] for all faces, or a [PackedInt64Array] of face node IDs.
+				- [code]include_normals[/code]: Compute angle-thresholded smooth normals (sharp/smooth edges are handled automatically based on the angle limit in [code]options[/code]).
+				- [code]include_uvs[/code]: Include UV coordinates if available.
+				- [code]include_tangents[/code]: Compute tangent vectors (requires normals and UVs).
+				- [code]include_feature_ids[/code]: Encode face node IDs as vertex colors (one colour per face).
+			</description>
+		</method>
+		<method name="mesh_edges">
+			<return type="MultiMesh" />
+			<argument index="0" name="graph" type="OclGraphHandle" />
+			<argument index="1" name="existing" type="Variant" />
+			<argument index="2" name="options" type="OclMeshOptions" />
+			<argument index="3" name="edge_ids" type="Variant" />
+			<argument index="4" name="radius" type="float" />
+			<description>
+				Build edge tube instances as a [MultiMesh] or create collision shapes on a [PhysicsBody3D].
+				A low-resolution cylinder mesh is instanced along each edge polyline segment using [MultiMesh] transforms — one cylinder per segment — for efficient rendering.
+				- [code]graph[/code]: The graph handle (must be valid).
+				- [code]existing[/code]: [code]null[/code], [MultiMesh], or [PhysicsBody3D].
+				- [code]options[/code]: Meshing options (controls cylinder resolution via the angle parameter).
+				- [code]edge_ids[/code]: [code]null[/code] for all edges, or a [PackedInt64Array] of edge node IDs.
+				- [code]radius[/code]: Tube radius. Default [code]0.01[/code]. If [code]&lt;= 0[/code], uses [code]options.deflection * 10[/code]. The radius is automatically scaled by the graph's bounding box diagonal for consistent visual size across different models.
+			</description>
+		</method>
+		<method name="mesh_vertices">
+			<return type="MultiMesh" />
+			<argument index="0" name="graph" type="OclGraphHandle" />
+			<argument index="1" name="existing" type="Variant" />
+			<argument index="2" name="options" type="OclMeshOptions" />
+			<argument index="3" name="vertex_ids" type="Variant" />
+			<argument index="4" name="radius" type="float" />
+			<description>
+				Build vertex sphere instances as a [MultiMesh] or create collision shapes on a [PhysicsBody3D].
+				A low-resolution sphere mesh is instanced at each vertex position using [MultiMesh] transforms for efficient rendering.
+				- [code]graph[/code]: The graph handle (must be valid).
+				- [code]existing[/code]: [code]null[/code], [MultiMesh], or [PhysicsBody3D].
+				- [code]options[/code]: Meshing options (controls sphere resolution via the angle parameter).
+				- [code]vertex_ids[/code]: [code]null[/code] for all vertices, or a [PackedInt64Array] of vertex node IDs.
+				- [code]radius[/code]: Sphere radius. Default [code]0.02[/code] (double the edge radius default). If [code]&lt;= 0[/code], uses [code]options.deflection * 10[/code]. The radius is automatically scaled by the graph's bounding box diagonal.
+			</description>
+		</method>
+	</methods>
+</class>

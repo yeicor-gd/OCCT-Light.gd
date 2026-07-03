@@ -92,7 +92,19 @@ func _try_regenerate_test_index() -> void:
 
 	var test_files: Array[String] = []
 
-	# Look for tests in autowrapper subdirectory
+	# Scan hand-written tests in the tests directory
+	if DirAccess.dir_exists_absolute(TESTS_DIR):
+		var dir := DirAccess.open(TESTS_DIR)
+		if dir != null:
+			dir.list_dir_begin()
+			var fname := dir.get_next()
+			while fname != "":
+				if not dir.current_is_dir() and fname.begins_with("test_") and fname.ends_with(".gd"):
+					test_files.append("res://tests/" + fname)
+				fname = dir.get_next()
+			dir.list_dir_end()
+
+	# Scan auto-generated tests in the autowrapper subdirectory
 	if DirAccess.dir_exists_absolute(TESTS_AUTOWRAPPER_DIR):
 		var dir := DirAccess.open(TESTS_AUTOWRAPPER_DIR)
 		if dir != null:
@@ -101,20 +113,6 @@ func _try_regenerate_test_index() -> void:
 			while fname != "":
 				if not dir.current_is_dir() and fname.begins_with("test_") and fname.ends_with(".gd"):
 					test_files.append("res://tests/autowrapper/" + fname)
-				fname = dir.get_next()
-			dir.list_dir_end()
-
-	# Look for hand-written tests in the parent tests directory
-	if DirAccess.dir_exists_absolute(TESTS_DIR):
-		var dir := DirAccess.open(TESTS_DIR)
-		if dir != null:
-			dir.list_dir_begin()
-			var fname := dir.get_next()
-			while fname != "":
-				if not dir.current_is_dir() and fname.begins_with("test_") and fname.ends_with(".gd"):
-					var full_path := "res://tests/" + fname
-					if full_path not in test_files:
-						test_files.append(full_path)
 				fname = dir.get_next()
 			dir.list_dir_end()
 
@@ -173,30 +171,30 @@ func _get_test_files() -> Array[String]:
 			if not files.is_empty():
 				return files
 
-	# Fallback: Try to discover test files dynamically (only works in editor)
+    # Fallback: Try to discover test files dynamically (only works in editor)
 	var test_files: Array[String] = []
-	var dir := DirAccess.open(TESTS_AUTOWRAPPER_DIR)
+
+	# Scan hand-written tests in the tests directory
+	var dir := DirAccess.open(TESTS_DIR)
 	if dir != null:
 		dir.list_dir_begin()
 		var fname := dir.get_next()
 		while fname != "":
 			if not dir.current_is_dir() and fname.begins_with("test_") and fname.ends_with(".gd"):
-				test_files.append("res://tests/autowrapper/" + fname)
+				test_files.append("res://tests/" + fname)
 			fname = dir.get_next()
 		dir.list_dir_end()
 
-	# Also look for hand-written tests in parent dir
-	var parent_dir := DirAccess.open(TESTS_DIR)
-	if parent_dir != null:
-		parent_dir.list_dir_begin()
-		var fname := parent_dir.get_next()
-		while fname != "":
-			if not parent_dir.current_is_dir() and fname.begins_with("test_") and fname.ends_with(".gd"):
-				var full_path := "res://tests/" + fname
-				if full_path not in test_files:
-					test_files.append(full_path)
-			fname = parent_dir.get_next()
-		parent_dir.list_dir_end()
+	# Scan auto-generated tests in the autowrapper subdirectory
+	var dir2 := DirAccess.open(TESTS_AUTOWRAPPER_DIR)
+	if dir2 != null:
+		dir2.list_dir_begin()
+		var fname2 := dir2.get_next()
+		while fname2 != "":
+			if not dir2.current_is_dir() and fname2.begins_with("test_") and fname2.ends_with(".gd"):
+				test_files.append("res://tests/autowrapper/" + fname2)
+			fname2 = dir2.get_next()
+		dir2.list_dir_end()
 
 	test_files.sort()
 	return test_files

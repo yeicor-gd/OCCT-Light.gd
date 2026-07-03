@@ -25,3 +25,9 @@ shadow_enabled = true
 
 [node name="MazeGenerator" type="Node3D" parent="." unique_id=477641465]
 script = ExtResource("1_d6po2")
+
+[node name="Camera3D" type="Camera3D" parent="." unique_id=1289782351]
+transform = Transform3D(0.70710677, -0.43045932, 0.5609855, 0, 0.7933533, 0.6087614, -0.70710677, -0.43045932, 0.5609855, 250, 250, 250)
+
+[node name="CSGBox3D" type="CSGBox3D" parent="." unique_id=320724666]
+size = Vector3(10, 10, 10)
