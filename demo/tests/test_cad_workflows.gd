@@ -15,44 +15,39 @@ const NOT_FOUND := 4
 
 # Helper: init runtime (tolerates double-init)
 static func _init_runtime() -> int:
-	var core = OclCore.new()
-	var rt_status = core.runtime_init()
+	var rt_status = OclCore.runtime_init()
 	if rt_status != OK and rt_status != 2:
 		return rt_status
 	return OK
 
 # Helper: format a status code with its string name for error messages
 static func _status_str(s: int) -> String:
-	var core = OclCore.new()
-	return "%s (%d)" % [core.status_to_string(s), s]
+	return "%s (%d)" % [OclCore.status_to_string(s), s]
 
 # Helper: format a node kind with its string name for error messages
 static func _kind_str(k: int) -> String:
-	var core = OclCore.new()
-	return "%s (%d)" % [core.node_kind_to_string(k), k]
+	return "%s (%d)" % [OclCore.node_kind_to_string(k), k]
 
 # Helper: create a simple box on a new graph.
-# Returns Dictionary with "graph", "root", "topo", "core" keys, or {"error": ...}.
+# Returns Dictionary with "graph", "root" keys, or {"error": ...}.
 static func _make_box(dx: float = 10.0, dy: float = 10.0, dz: float = 10.0) -> Dictionary:
 	var init_err = _init_runtime()
 	if init_err != OK:
 		return {"error": "runtime_init failed: %s" % _status_str(init_err)}
 
-	var topo = OclTopo.new()
-	var graph: OclGraphHandle = topo.graph_create()
+	var graph: OclGraphHandle = OclTopo.graph_create()
 	if graph == null:
 		return {"error": "graph_create returned null"}
 
-	var prim = OclPrimSolid.new()
 	var info = OclPrimBoxInfo.new()
 	info.set_dx(dx)
 	info.set_dy(dy)
 	info.set_dz(dz)
 	var out_solid = OclNodeId.new()
-	var status = prim.box(graph, info, out_solid)
+	var status = OclPrimSolid.box(graph, info, out_solid)
 	if status != OK:
 		return {"error": "make_box failed: %s" % _status_str(status)}
-	return {"graph": graph, "root": out_solid, "topo": topo, "core": OclCore.new()}
+	return {"graph": graph, "root": out_solid}
 
 # Helper: create two overlapping boxes in the same graph for boolean ops
 static func _make_two_overlapping_boxes() -> Dictionary:
@@ -60,20 +55,16 @@ static func _make_two_overlapping_boxes() -> Dictionary:
 	if init_err != OK:
 		return {"error": "runtime_init failed: %s" % _status_str(init_err)}
 
-	var topo = OclTopo.new()
-	var graph: OclGraphHandle = topo.graph_create()
+	var graph: OclGraphHandle = OclTopo.graph_create()
 	if graph == null:
 		return {"error": "graph_create returned null"}
-
-	var prim = OclPrimSolid.new()
-
 	# Box 1 at origin
 	var info1 = OclPrimBoxInfo.new()
 	info1.set_dx(20.0)
 	info1.set_dy(20.0)
 	info1.set_dz(20.0)
 	var out1 = OclNodeId.new()
-	var status = prim.box(graph, info1, out1)
+	var status = OclPrimSolid.box(graph, info1, out1)
 	if status != OK:
 		return {"error": "make_box 1 failed: %s" % _status_str(status)}
 
@@ -96,72 +87,67 @@ static func _make_two_overlapping_boxes() -> Dictionary:
 	axis.set_x_dir_ref(x_dir_ref)
 	info2.set_placement(axis)
 	var out2 = OclNodeId.new()
-	status = prim.box(graph, info2, out2)
+	status = OclPrimSolid.box(graph, info2, out2)
 	if status != OK:
 		return {"error": "make_box 2 failed: %s" % _status_str(status)}
 
-	return {"graph": graph, "box1": out1, "box2": out2, "topo": topo, "core": OclCore.new()}
+	return {"graph": graph, "box1": out1, "box2": out2}
 
 # Helper: collect node ids of a given kind from a graph
 static func _collect_ids(graph: OclGraphHandle, kind: int) -> Array:
-	var topo = OclTopo.new()
 	var ids = []
 	var iter: OclNodeIterHandle
 	match kind:
 		OclCore.KIND_SOLID:
-			iter = topo.graph_solid_iter_create(graph)
+			iter = OclTopo.graph_solid_iter_create(graph)
 		OclCore.KIND_SHELL:
-			iter = topo.graph_shell_iter_create(graph)
+			iter = OclTopo.graph_shell_iter_create(graph)
 		OclCore.KIND_FACE:
-			iter = topo.graph_face_iter_create(graph)
+			iter = OclTopo.graph_face_iter_create(graph)
 		OclCore.KIND_WIRE:
-			iter = topo.graph_wire_iter_create(graph)
+			iter = OclTopo.graph_wire_iter_create(graph)
 		OclCore.KIND_EDGE:
-			iter = topo.graph_edge_iter_create(graph)
+			iter = OclTopo.graph_edge_iter_create(graph)
 		OclCore.KIND_VERTEX:
-			iter = topo.graph_vertex_iter_create(graph)
+			iter = OclTopo.graph_vertex_iter_create(graph)
 		OclCore.KIND_COMPOUND:
-			iter = topo.graph_compound_iter_create(graph)
+			iter = OclTopo.graph_compound_iter_create(graph)
 		OclCore.KIND_COMPSOLID:
-			iter = topo.graph_compsolid_iter_create(graph)
+			iter = OclTopo.graph_compsolid_iter_create(graph)
 		OclCore.KIND_COEDGE:
-			iter = topo.graph_coedge_iter_create(graph)
+			iter = OclTopo.graph_coedge_iter_create(graph)
 		_:
 			return []
 	if iter == null:
 		return []
 	var out_id = OclNodeId.new()
 	while true:
-		var status = topo.node_iter_next(iter, out_id)
+		var status = OclTopo.node_iter_next(iter, out_id)
 		if status != 0:
 			break
 		ids.append(out_id.get_bits())
 	return ids
 
-# Helper: create a graph with a box solid and return {graph, root, topo, prim, core}
+# Helper: create a graph with a box solid and return {graph, root}
 static func _make_box_full(dx: float = 10.0, dy: float = 20.0, dz: float = 30.0) -> Dictionary:
 	var init_err = _init_runtime()
 	if init_err != OK:
 		return {"error": "runtime_init failed: %s" % _status_str(init_err)}
 
-	var topo = OclTopo.new()
-	var core = OclCore.new()
-	var graph: OclGraphHandle = topo.graph_create()
+	var graph: OclGraphHandle = OclTopo.graph_create()
 	if graph == null:
 		return {"error": "graph_create returned null"}
 
-	var prim = OclPrimSolid.new()
 	var info = OclPrimBoxInfo.new()
-	prim.box_info_init(info)
 	info.set_dx(dx)
 	info.set_dy(dy)
 	info.set_dz(dz)
 
 	var out_solid = OclNodeId.new()
-	var status = prim.box(graph, info, out_solid)
+	var status = OclPrimSolid.box(graph, info, out_solid)
 	if status != OK:
 		return {"error": "make_box failed: %s" % _status_str(status)}
-	return {"graph": graph, "root": out_solid, "topo": topo, "core": core}
+	return {"graph": graph, "root": out_solid}
 
 # Helper: make a Count helper
 static func _count(graph: OclGraphHandle, count_fn: Callable) -> int:
@@ -193,7 +179,6 @@ static func test_make_box_and_count_topology() -> String:
 		return result.error
 
 	var graph: OclGraphHandle = result.graph
-	var _root: OclNodeId = result.root
 
 	# A box has: 1 solid, 1 shell, 6 faces, 12 edges, 8 vertices
 	var solids = _collect_ids(graph, OclCore.KIND_SOLID)
@@ -223,19 +208,17 @@ static func test_make_sphere() -> String:
 	if init_err != OK:
 		return "runtime_init failed: %s" % _status_str(init_err)
 
-	var topo = OclTopo.new()
-	var graph: OclGraphHandle = topo.graph_create()
+	var graph: OclGraphHandle = OclTopo.graph_create()
 	if graph == null:
 		return "graph_create returned null"
 
-	var prim = OclPrimSolid.new()
 	var info = OclPrimSphereInfo.new()
 	info.set_radius(50.0)
 	# Default angles give a full sphere (-pi/2 to pi/2 lat, 2pi lon).
 	# OCCT uses radians for angular parameters.
 
 	var out_solid = OclNodeId.new()
-	var status = prim.sphere(graph, info, out_solid)
+	var status = OclPrimSolid.sphere(graph, info, out_solid)
 	if status != OK:
 		return "make_sphere failed: %s" % _status_str(status)
 
@@ -259,19 +242,17 @@ static func test_make_cylinder() -> String:
 	if init_err != OK:
 		return "runtime_init failed: %s" % _status_str(init_err)
 
-	var topo = OclTopo.new()
-	var graph: OclGraphHandle = topo.graph_create()
+	var graph: OclGraphHandle = OclTopo.graph_create()
 	if graph == null:
 		return "graph_create returned null"
 
-	var prim = OclPrimSolid.new()
 	var info = OclPrimCylinderInfo.new()
 	info.set_radius(25.0)
 	info.set_height(60.0)
 	# Default angle = 2*pi (full cylinder)
 
 	var out_solid = OclNodeId.new()
-	var status = prim.cylinder(graph, info, out_solid)
+	var status = OclPrimSolid.cylinder(graph, info, out_solid)
 	if status != OK:
 		return "make_cylinder failed: %s" % _status_str(status)
 
@@ -291,12 +272,10 @@ static func test_make_cone() -> String:
 	if init_err != OK:
 		return "runtime_init failed: %s" % _status_str(init_err)
 
-	var topo = OclTopo.new()
-	var graph: OclGraphHandle = topo.graph_create()
+	var graph: OclGraphHandle = OclTopo.graph_create()
 	if graph == null:
 		return "graph_create returned null"
 
-	var prim = OclPrimSolid.new()
 	var info = OclPrimConeInfo.new()
 	info.set_r1(20.0)
 	info.set_r2(10.0)
@@ -304,7 +283,7 @@ static func test_make_cone() -> String:
 	# Default angle = 2*pi (full cone)
 
 	var out_solid = OclNodeId.new()
-	var status = prim.cone(graph, info, out_solid)
+	var status = OclPrimSolid.cone(graph, info, out_solid)
 	if status != OK:
 		return "make_cone failed: %s" % _status_str(status)
 
@@ -319,19 +298,17 @@ static func test_make_torus() -> String:
 	if init_err != OK:
 		return "runtime_init failed: %s" % _status_str(init_err)
 
-	var topo = OclTopo.new()
-	var graph: OclGraphHandle = topo.graph_create()
+	var graph: OclGraphHandle = OclTopo.graph_create()
 	if graph == null:
 		return "graph_create returned null"
 
-	var prim = OclPrimSolid.new()
 	var info = OclPrimTorusInfo.new()
 	info.set_r1(50.0)
 	info.set_r2(15.0)
 	# Default angles give full torus
 
 	var out_solid = OclNodeId.new()
-	var status = prim.torus(graph, info, out_solid)
+	var status = OclPrimSolid.torus(graph, info, out_solid)
 	if status != OK:
 		return "make_torus failed: %s" % _status_str(status)
 
@@ -346,12 +323,10 @@ static func test_make_wedge() -> String:
 	if init_err != OK:
 		return "runtime_init failed: %s" % _status_str(init_err)
 
-	var topo = OclTopo.new()
-	var graph: OclGraphHandle = topo.graph_create()
+	var graph: OclGraphHandle = OclTopo.graph_create()
 	if graph == null:
 		return "graph_create returned null"
 
-	var prim = OclPrimSolid.new()
 	var info = OclPrimWedgeInfo.new()
 	info.set_dx(30.0)
 	info.set_dy(20.0)
@@ -359,7 +334,7 @@ static func test_make_wedge() -> String:
 	info.set_ltx(15.0)
 
 	var out_solid = OclNodeId.new()
-	var status = prim.wedge(graph, info, out_solid)
+	var status = OclPrimSolid.wedge(graph, info, out_solid)
 	if status != OK:
 		return "make_wedge failed: %s" % _status_str(status)
 
@@ -382,13 +357,12 @@ static func test_boolean_fuse_two_boxes() -> String:
 	var box1: OclNodeId = result.box1
 	var box2: OclNodeId = result.box2
 
-	var bool_mod = OclBool.new()
 	var opts = OclBoolOptions.new()
 
 	var objects = PackedInt64Array([box1.get_bits()])
 	var tools = PackedInt64Array([box2.get_bits()])
 	var out_root = OclNodeId.new()
-	var status = bool_mod.fuse(graph, objects, tools, opts, out_root)
+	var status = OclBool.fuse(graph, objects, tools, opts, out_root)
 	if status != OK:
 			return "fuse failed: %s" % _status_str(status)
 
@@ -408,13 +382,12 @@ static func test_boolean_cut_two_boxes() -> String:
 	var box1: OclNodeId = result.box1
 	var box2: OclNodeId = result.box2
 
-	var bool_mod = OclBool.new()
 	var opts = OclBoolOptions.new()
 
 	var objects = PackedInt64Array([box1.get_bits()])
 	var tools = PackedInt64Array([box2.get_bits()])
 	var out_root = OclNodeId.new()
-	var status = bool_mod.cut(graph, objects, tools, opts, out_root)
+	var status = OclBool.cut(graph, objects, tools, opts, out_root)
 	if status != OK:
 			return "cut failed: %s" % _status_str(status)
 
@@ -429,13 +402,12 @@ static func test_boolean_common_two_boxes() -> String:
 	var box1: OclNodeId = result.box1
 	var box2: OclNodeId = result.box2
 
-	var bool_mod = OclBool.new()
 	var opts = OclBoolOptions.new()
 
 	var objects = PackedInt64Array([box1.get_bits()])
 	var tools = PackedInt64Array([box2.get_bits()])
 	var out_root = OclNodeId.new()
-	var status = bool_mod.common(graph, objects, tools, opts, out_root)
+	var status = OclBool.common(graph, objects, tools, opts, out_root)
 	if status != OK:
 			return "common failed: %s" % _status_str(status)
 
@@ -450,13 +422,12 @@ static func test_boolean_section_two_boxes() -> String:
 	var box1: OclNodeId = result.box1
 	var box2: OclNodeId = result.box2
 
-	var bool_mod = OclBool.new()
 	var opts = OclBoolOptions.new()
 
 	var objects = PackedInt64Array([box1.get_bits()])
 	var tools = PackedInt64Array([box2.get_bits()])
 	var out_root = OclNodeId.new()
-	var status = bool_mod.section(graph, objects, tools, opts, out_root)
+	var status = OclBool.section(graph, objects, tools, opts, out_root)
 	if status != OK:
 			return "section failed: %s" % _status_str(status)
 
@@ -472,45 +443,44 @@ static func test_graph_node_count() -> String:
 		return result.error
 
 	var graph: OclGraphHandle = result.graph
-	var topo = OclTopo.new()
 
 	var out_solid = OclSize.new()
-	var status = topo.graph_solid_count(graph, out_solid)
+	var status = OclTopo.graph_solid_count(graph, out_solid)
 	if status != OK:
 			return "graph_solid_count failed: %s" % _status_str(status)
 	if out_solid.get_value() != 1:
 		return "Expected 1 solid, got %d" % out_solid.get_value()
 
 	var out_face = OclSize.new()
-	status = topo.graph_face_count(graph, out_face)
+	status = OclTopo.graph_face_count(graph, out_face)
 	if status != OK:
 			return "graph_face_count failed: %s" % _status_str(status)
 	if out_face.get_value() != 6:
 		return "Expected 6 faces, got %d" % out_face.get_value()
 
 	var out_edge = OclSize.new()
-	status = topo.graph_edge_count(graph, out_edge)
+	status = OclTopo.graph_edge_count(graph, out_edge)
 	if status != OK:
 			return "graph_edge_count failed: %s" % _status_str(status)
 	if out_edge.get_value() != 12:
 		return "Expected 12 edges, got %d" % out_edge.get_value()
 
 	var out_vtx = OclSize.new()
-	status = topo.graph_vertex_count(graph, out_vtx)
+	status = OclTopo.graph_vertex_count(graph, out_vtx)
 	if status != OK:
 			return "graph_vertex_count failed: %s" % _status_str(status)
 	if out_vtx.get_value() != 8:
 		return "Expected 8 vertices, got %d" % out_vtx.get_value()
 
 	var out_shell = OclSize.new()
-	status = topo.graph_shell_count(graph, out_shell)
+	status = OclTopo.graph_shell_count(graph, out_shell)
 	if status != OK:
 			return "graph_shell_count failed: %s" % _status_str(status)
 	if out_shell.get_value() != 1:
 		return "Expected 1 shell, got %d" % out_shell.get_value()
 
 	var out_wire = OclSize.new()
-	status = topo.graph_wire_count(graph, out_wire)
+	status = OclTopo.graph_wire_count(graph, out_wire)
 	if status != OK:
 			return "graph_wire_count failed: %s" % _status_str(status)
 	if out_wire.get_value() < 6:
@@ -529,10 +499,9 @@ static func test_graph_node_kind() -> String:
 
 	var graph: OclGraphHandle = result.graph
 	var root: OclNodeId = result.root
-	var topo = OclTopo.new()
 
 	var out_kind = OclInt32.new()
-	var status = topo.graph_node_kind(graph, root.get_bits(), out_kind)
+	var status = OclTopo.graph_node_kind(graph, root.get_bits(), out_kind)
 	if status != OK:
 		return "graph_node_kind failed: %s" % _status_str(status)
 	if out_kind.get_value() != OclCore.KIND_SOLID:
@@ -555,9 +524,8 @@ static func test_vertex_point_query() -> String:
 	if vertices.size() != 8:
 		return "Expected 8 vertices, got %d" % vertices.size()
 
-	var topo = OclTopo.new()
 	var out_pt = OclPoint3.new()
-	var status = topo.topo_vertex_point(graph, vertices[0], out_pt)
+	var status = OclTopo.topo_vertex_point(graph, vertices[0], out_pt)
 	if status != OK:
 		return "topo_vertex_point failed: %s" % _status_str(status)
 
@@ -580,9 +548,8 @@ static func test_vertex_tolerance() -> String:
 	if vertices.size() < 1:
 		return "Expected at least 1 vertex"
 
-	var topo = OclTopo.new()
 	var out_tol = OclDouble.new()
-	var status = topo.topo_vertex_tolerance(graph, vertices[0], out_tol)
+	var status = OclTopo.topo_vertex_tolerance(graph, vertices[0], out_tol)
 	if status != OK:
 		return "topo_vertex_tolerance failed: %s" % _status_str(status)
 	if out_tol.get_value() < 0.0:
@@ -600,9 +567,8 @@ static func test_vertex_edge_count() -> String:
 	if vertices.size() < 1:
 		return "Expected at least 1 vertex"
 
-	var topo = OclTopo.new()
 	var out_count = OclUint32.new()
-	var status = topo.topo_vertex_edge_count(graph, vertices[0], out_count)
+	var status = OclTopo.topo_vertex_edge_count(graph, vertices[0], out_count)
 	if status != OK:
 		return "topo_vertex_edge_count failed: %s" % _status_str(status)
 	# Each vertex of a box belongs to 3 edges
@@ -621,7 +587,6 @@ static func test_edge_face_count() -> String:
 		return result.error
 
 	var graph: OclGraphHandle = result.graph
-	var topo = OclTopo.new()
 
 	var edges = _collect_ids(graph, OclCore.KIND_EDGE)
 	if edges.size() != 12:
@@ -629,7 +594,7 @@ static func test_edge_face_count() -> String:
 
 	var edge_id = edges[0]
 	var out_count = OclUint32.new()
-	var status = topo.topo_edge_face_count(graph, edge_id, out_count)
+	var status = OclTopo.topo_edge_face_count(graph, edge_id, out_count)
 	if status != OK:
 		return "topo_edge_face_count failed: %s" % _status_str(status)
 	if out_count.get_value() != 2:
@@ -643,7 +608,6 @@ static func test_edge_range() -> String:
 		return result.error
 
 	var graph: OclGraphHandle = result.graph
-	var topo = OclTopo.new()
 
 	var edges = _collect_ids(graph, OclCore.KIND_EDGE)
 	if edges.size() < 1:
@@ -651,7 +615,7 @@ static func test_edge_range() -> String:
 
 	var out_first = OclDouble.new()
 	var out_last = OclDouble.new()
-	var status = topo.topo_edge_range(graph, edges[0], out_first, out_last)
+	var status = OclTopo.topo_edge_range(graph, edges[0], out_first, out_last)
 	if status != OK:
 		return "topo_edge_range failed: %s" % _status_str(status)
 	if out_last.get_value() <= out_first.get_value():
@@ -665,14 +629,13 @@ static func test_edge_tolerance() -> String:
 		return result.error
 
 	var graph: OclGraphHandle = result.graph
-	var topo = OclTopo.new()
 
 	var edges = _collect_ids(graph, OclCore.KIND_EDGE)
 	if edges.size() < 1:
 		return "Expected at least 1 edge"
 
 	var out_tol = OclDouble.new()
-	var status = topo.topo_edge_tolerance(graph, edges[0], out_tol)
+	var status = OclTopo.topo_edge_tolerance(graph, edges[0], out_tol)
 	if status != OK:
 		return "topo_edge_tolerance failed: %s" % _status_str(status)
 	if out_tol.get_value() < 0.0:
@@ -686,13 +649,12 @@ static func test_edge_has_curve() -> String:
 		return result.error
 
 	var graph: OclGraphHandle = result.graph
-	var topo = OclTopo.new()
 	var edges = _collect_ids(graph, OclCore.KIND_EDGE)
 	if edges.size() < 1:
 		return "Expected at least 1 edge"
 
 	var out_has = OclInt32.new()
-	var status = topo.topo_edge_has_curve(graph, edges[0], out_has)
+	var status = OclTopo.topo_edge_has_curve(graph, edges[0], out_has)
 	if status != OK:
 		return "topo_edge_has_curve failed: %s" % _status_str(status)
 	if out_has.get_value() != 1:
@@ -706,13 +668,12 @@ static func test_edge_curve_kind() -> String:
 		return result.error
 
 	var graph: OclGraphHandle = result.graph
-	var topo = OclTopo.new()
 	var edges = _collect_ids(graph, OclCore.KIND_EDGE)
 	if edges.size() < 1:
 		return "Expected at least 1 edge"
 
 	var out_kind = OclInt32.new()
-	var status = topo.topo_edge_curve_kind(graph, edges[0], out_kind)
+	var status = OclTopo.topo_edge_curve_kind(graph, edges[0], out_kind)
 	if status != OK:
 		return "topo_edge_curve_kind failed: %s" % _status_str(status)
 	# Box edges are lines; CURVE_KIND_LINE is some constant
@@ -732,9 +693,8 @@ static func test_edge_curve_kind_get_via_build() -> String:
 	if edges.size() < 1:
 		return "Expected at least 1 edge"
 
-	var topo_build = OclTopoBuild.new()
 	var out_kind = OclInt32.new()
-	var status = topo_build.graph_edge_curve_kind_get(graph, edges[0], out_kind)
+	var status = OclTopoBuild.graph_edge_curve_kind_get(graph, edges[0], out_kind)
 	if status != OK:
 		return "graph_edge_curve_kind_get failed: %s" % _status_str(status)
 	if out_kind.get_value() < 0:
@@ -748,20 +708,19 @@ static func test_edge_eval() -> String:
 		return result.error
 
 	var graph: OclGraphHandle = result.graph
-	var topo = OclTopo.new()
 	var edges = _collect_ids(graph, OclCore.KIND_EDGE)
 	if edges.size() < 1:
 		return "Expected at least 1 edge"
 
 	var out_first = OclDouble.new()
 	var out_last = OclDouble.new()
-	var st = topo.topo_edge_range(graph, edges[0], out_first, out_last)
+	var st = OclTopo.topo_edge_range(graph, edges[0], out_first, out_last)
 	if st != OK:
 		return "topo_edge_range failed: %s" % _status_str(st)
 
 	var mid = (out_first.get_value() + out_last.get_value()) / 2.0
 	var out_p = OclPoint3.new()
-	var status = topo.topo_edge_eval(graph, edges[0], mid, out_p)
+	var status = OclTopo.topo_edge_eval(graph, edges[0], mid, out_p)
 	if status != OK:
 		return "topo_edge_eval failed: %s" % _status_str(status)
 
@@ -773,15 +732,14 @@ static func test_edge_start_end_vertex() -> String:
 		return result.error
 
 	var graph: OclGraphHandle = result.graph
-	var topo = OclTopo.new()
 	var edges = _collect_ids(graph, OclCore.KIND_EDGE)
 	if edges.size() < 1:
 		return "Expected at least 1 edge"
 
 	var out_sv = OclNodeId.new()
 	var out_ev = OclNodeId.new()
-	var st1 = topo.topo_edge_start_vertex(graph, edges[0], out_sv)
-	var st2 = topo.topo_edge_end_vertex(graph, edges[0], out_ev)
+	var st1 = OclTopo.topo_edge_start_vertex(graph, edges[0], out_sv)
+	var st2 = OclTopo.topo_edge_end_vertex(graph, edges[0], out_ev)
 	if st1 != OK or st2 != OK:
 		return "topo_edge_start/end_vertex failed: %s / %s" % [_status_str(st1), _status_str(st2)]
 	if out_sv.get_bits() == out_ev.get_bits():
@@ -795,13 +753,12 @@ static func test_edge_vertex_count() -> String:
 		return result.error
 
 	var graph: OclGraphHandle = result.graph
-	var topo = OclTopo.new()
 	var edges = _collect_ids(graph, OclCore.KIND_EDGE)
 	if edges.size() < 1:
 		return "Expected at least 1 edge"
 
 	var out_count = OclUint32.new()
-	var status = topo.topo_edge_vertex_count(graph, edges[0], out_count)
+	var status = OclTopo.topo_edge_vertex_count(graph, edges[0], out_count)
 	if status != OK:
 		return "topo_edge_vertex_count failed: %s" % _status_str(status)
 	# A box edge has 2 vertices (start and end)
@@ -820,14 +777,13 @@ static func test_wire_is_closed() -> String:
 		return result.error
 
 	var graph: OclGraphHandle = result.graph
-	var topo = OclTopo.new()
 
 	var wires = _collect_ids(graph, OclCore.KIND_WIRE)
 	if wires.size() < 1:
 		return "Expected at least 1 wire"
 
 	var out_closed = OclInt32.new()
-	var status = topo.topo_wire_is_closed(graph, wires[0], out_closed)
+	var status = OclTopo.topo_wire_is_closed(graph, wires[0], out_closed)
 	if status != OK:
 		return "topo_wire_is_closed failed: %s" % _status_str(status)
 	if out_closed.get_value() != 1:
@@ -841,13 +797,12 @@ static func test_wire_edge_count() -> String:
 		return result.error
 
 	var graph: OclGraphHandle = result.graph
-	var topo = OclTopo.new()
 	var wires = _collect_ids(graph, OclCore.KIND_WIRE)
 	if wires.size() < 1:
 		return "Expected at least 1 wire"
 
 	var out_count = OclUint32.new()
-	var status = topo.topo_wire_edge_count(graph, wires[0], out_count)
+	var status = OclTopo.topo_wire_edge_count(graph, wires[0], out_count)
 	if status != OK:
 		return "topo_wire_edge_count failed: %s" % _status_str(status)
 	# Each wire of a box face has 4 edges
@@ -862,13 +817,12 @@ static func test_wire_coedge_count() -> String:
 		return result.error
 
 	var graph: OclGraphHandle = result.graph
-	var topo = OclTopo.new()
 	var wires = _collect_ids(graph, OclCore.KIND_WIRE)
 	if wires.size() < 1:
 		return "Expected at least 1 wire"
 
 	var out_count = OclUint32.new()
-	var status = topo.topo_wire_coedge_count(graph, wires[0], out_count)
+	var status = OclTopo.topo_wire_coedge_count(graph, wires[0], out_count)
 	if status != OK:
 		return "topo_wire_coedge_count failed: %s" % _status_str(status)
 	if out_count.get_value() != 4:
@@ -882,13 +836,12 @@ static func test_wire_face_of() -> String:
 		return result.error
 
 	var graph: OclGraphHandle = result.graph
-	var topo = OclTopo.new()
 	var wires = _collect_ids(graph, OclCore.KIND_WIRE)
 	if wires.size() < 1:
 		return "Expected at least 1 wire"
 
 	var out_face = OclNodeId.new()
-	var status = topo.topo_wire_face_of(graph, wires[0], out_face)
+	var status = OclTopo.topo_wire_face_of(graph, wires[0], out_face)
 	if status != OK:
 		return "topo_wire_face_of failed: %s" % _status_str(status)
 	if out_face.get_bits() == 0:
@@ -902,13 +855,12 @@ static func test_wire_is_outer() -> String:
 		return result.error
 
 	var graph: OclGraphHandle = result.graph
-	var topo = OclTopo.new()
 	var wires = _collect_ids(graph, OclCore.KIND_WIRE)
 	if wires.size() < 1:
 		return "Expected at least 1 wire"
 
 	var out_outer = OclInt32.new()
-	var status = topo.topo_wire_is_outer(graph, wires[0], out_outer)
+	var status = OclTopo.topo_wire_is_outer(graph, wires[0], out_outer)
 	if status != OK:
 		return "topo_wire_is_outer failed: %s" % _status_str(status)
 	# First wire should be outer
@@ -927,14 +879,13 @@ static func test_shell_is_closed() -> String:
 		return result.error
 
 	var graph: OclGraphHandle = result.graph
-	var topo = OclTopo.new()
 
 	var shells = _collect_ids(graph, OclCore.KIND_SHELL)
 	if shells.size() < 1:
 		return "Expected at least 1 shell"
 
 	var out_closed = OclInt32.new()
-	var status = topo.topo_shell_is_closed(graph, shells[0], out_closed)
+	var status = OclTopo.topo_shell_is_closed(graph, shells[0], out_closed)
 	if status != OK:
 		return "topo_shell_is_closed failed: %s" % _status_str(status)
 	if out_closed.get_value() != 1:
@@ -948,13 +899,12 @@ static func test_shell_face_count() -> String:
 		return result.error
 
 	var graph: OclGraphHandle = result.graph
-	var topo = OclTopo.new()
 	var shells = _collect_ids(graph, OclCore.KIND_SHELL)
 	if shells.size() < 1:
 		return "Expected at least 1 shell"
 
 	var out_count = OclUint32.new()
-	var status = topo.topo_shell_face_count(graph, shells[0], out_count)
+	var status = OclTopo.topo_shell_face_count(graph, shells[0], out_count)
 	if status != OK:
 		return "topo_shell_face_count failed: %s" % _status_str(status)
 	if out_count.get_value() != 6:
@@ -972,13 +922,12 @@ static func test_face_wire_count() -> String:
 		return result.error
 
 	var graph: OclGraphHandle = result.graph
-	var topo = OclTopo.new()
 	var faces = _collect_ids(graph, OclCore.KIND_FACE)
 	if faces.size() < 1:
 		return "Expected at least 1 face"
 
 	var out_count = OclUint32.new()
-	var status = topo.topo_face_wire_count(graph, faces[0], out_count)
+	var status = OclTopo.topo_face_wire_count(graph, faces[0], out_count)
 	if status != OK:
 		return "topo_face_wire_count failed: %s" % _status_str(status)
 	# Each box face has 1 wire
@@ -993,13 +942,12 @@ static func test_face_outer_wire() -> String:
 		return result.error
 
 	var graph: OclGraphHandle = result.graph
-	var topo = OclTopo.new()
 	var faces = _collect_ids(graph, OclCore.KIND_FACE)
 	if faces.size() < 1:
 		return "Expected at least 1 face"
 
 	var out_wire = OclNodeId.new()
-	var status = topo.topo_face_outer_wire(graph, faces[0], out_wire)
+	var status = OclTopo.topo_face_outer_wire(graph, faces[0], out_wire)
 	if status != OK:
 		return "topo_face_outer_wire failed: %s" % _status_str(status)
 	if out_wire.get_bits() == 0:
@@ -1013,7 +961,6 @@ static func test_face_uv_bounds() -> String:
 		return result.error
 
 	var graph: OclGraphHandle = result.graph
-	var topo = OclTopo.new()
 	var faces = _collect_ids(graph, OclCore.KIND_FACE)
 	if faces.size() < 1:
 		return "Expected at least 1 face"
@@ -1022,7 +969,7 @@ static func test_face_uv_bounds() -> String:
 	var out_umax = OclDouble.new()
 	var out_vmin = OclDouble.new()
 	var out_vmax = OclDouble.new()
-	var status = topo.topo_face_uv_bounds(graph, faces[0], out_umin, out_umax, out_vmin, out_vmax)
+	var status = OclTopo.topo_face_uv_bounds(graph, faces[0], out_umin, out_umax, out_vmin, out_vmax)
 	if status != OK:
 		return "topo_face_uv_bounds failed: %s" % _status_str(status)
 	if out_umax.get_value() <= out_umin.get_value():
@@ -1036,13 +983,12 @@ static func test_face_surface_kind() -> String:
 		return result.error
 
 	var graph: OclGraphHandle = result.graph
-	var topo = OclTopo.new()
 	var faces = _collect_ids(graph, OclCore.KIND_FACE)
 	if faces.size() < 1:
 		return "Expected at least 1 face"
 
 	var out_kind = OclInt32.new()
-	var status = topo.topo_face_surface_kind(graph, faces[0], out_kind)
+	var status = OclTopo.topo_face_surface_kind(graph, faces[0], out_kind)
 	if status != OK:
 		return "topo_face_surface_kind failed: %s" % _status_str(status)
 	if out_kind.get_value() < 0:
@@ -1060,9 +1006,8 @@ static func test_face_surface_kind_get_via_build() -> String:
 	if faces.size() < 1:
 		return "Expected at least 1 face"
 
-	var topo_build = OclTopoBuild.new()
 	var out_kind = OclInt32.new()
-	var status = topo_build.graph_face_surface_kind_get(graph, faces[0], out_kind)
+	var status = OclTopoBuild.graph_face_surface_kind_get(graph, faces[0], out_kind)
 	if status != OK:
 		return "graph_face_surface_kind_get failed: %s" % _status_str(status)
 	if out_kind.get_value() < 0:
@@ -1080,9 +1025,8 @@ static func test_face_uv_bounds_get_via_build() -> String:
 	if faces.size() < 1:
 		return "Expected at least 1 face"
 
-	var topo_build = OclTopoBuild.new()
 	var out_uv = OclGraphUvBounds.new()
-	var status = topo_build.graph_face_uv_bounds_get(graph, faces[0], out_uv)
+	var status = OclTopoBuild.graph_face_uv_bounds_get(graph, faces[0], out_uv)
 	if status != OK:
 		return "graph_face_uv_bounds_get failed: %s" % _status_str(status)
 	if out_uv.get_u_max() <= out_uv.get_u_min():
@@ -1100,13 +1044,12 @@ static func test_solid_shell_count() -> String:
 		return result.error
 
 	var graph: OclGraphHandle = result.graph
-	var topo = OclTopo.new()
 	var solids = _collect_ids(graph, OclCore.KIND_SOLID)
 	if solids.size() < 1:
 		return "Expected at least 1 solid"
 
 	var out_count = OclUint32.new()
-	var status = topo.topo_solid_shell_count(graph, solids[0], out_count)
+	var status = OclTopo.topo_solid_shell_count(graph, solids[0], out_count)
 	if status != OK:
 		return "topo_solid_shell_count failed: %s" % _status_str(status)
 	if out_count.get_value() != 1:
@@ -1125,39 +1068,38 @@ static func test_graph_tag_operations() -> String:
 
 	var graph: OclGraphHandle = result.graph
 	var root: OclNodeId = result.root
-	var topo = OclTopo.new()
 
 	# Add a tag
 	var tag = "my_test_tag"
-	var status = topo.graph_tag_add(graph, root.get_bits(), tag)
+	var status = OclTopo.graph_tag_add(graph, root.get_bits(), tag)
 	if status != OK:
 		return "graph_tag_add failed: %s" % _status_str(status)
 
 	# Check tag exists
 	var out_has = OclInt32.new()
-	status = topo.graph_tag_has(graph, root.get_bits(), tag, out_has)
+	status = OclTopo.graph_tag_has(graph, root.get_bits(), tag, out_has)
 	if status != OK:
 		return "graph_tag_has failed: %s" % _status_str(status)
 	if out_has.get_value() != 1:
 		return "graph_tag_has returned false (got %d)" % out_has.get_value()
 
 	# List tags
-	var tags = topo.graph_tag_list(graph, root.get_bits())
+	var tags = OclTopo.graph_tag_list(graph, root.get_bits())
 	if tags.size() != 1 or tags[0].get_tag() != tag:
 		return "Expected [%s] tags, got %s" % [tag, str(tags)]
 
 	# Query nodes by tag
-	var tagged_nodes = topo.graph_tag_nodes(graph, tag)
+	var tagged_nodes = OclTopo.graph_tag_nodes(graph, tag)
 	if tagged_nodes.size() != 1:
 		return "Expected 1 node with tag, got %d" % tagged_nodes.size()
 
 	# Remove tag
-	status = topo.graph_tag_remove(graph, root.get_bits(), tag)
+	status = OclTopo.graph_tag_remove(graph, root.get_bits(), tag)
 	if status != OK:
 		return "graph_tag_remove failed: %s" % _status_str(status)
 
 	# Verify tag is gone
-	status = topo.graph_tag_has(graph, root.get_bits(), tag, out_has)
+	status = OclTopo.graph_tag_has(graph, root.get_bits(), tag, out_has)
 	if status != OK:
 		return "graph_tag_has after remove failed: %s" % _status_str(status)
 	if out_has.get_value() != 0:
@@ -1176,21 +1118,20 @@ static func test_graph_name_operations() -> String:
 
 	var graph: OclGraphHandle = result.graph
 	var root: OclNodeId = result.root
-	var topo = OclTopo.new()
 
 	# Set a name on the solid node
 	var name = "MyBoxSolid"
-	var status = topo.graph_name_set(graph, root.get_bits(), name)
+	var status = OclTopo.graph_name_set(graph, root.get_bits(), name)
 	if status != OK:
 		return "graph_name_set failed: %s" % _status_str(status)
 
 	# Get the name back (returns String directly)
-	var out_name = topo.graph_name_get(graph, root.get_bits())
+	var out_name = OclTopo.graph_name_get(graph, root.get_bits())
 	if out_name != name:
 		return "Expected name '%s', got '%s'" % [name, out_name]
 
 	# Query name_nodes
-	var named_nodes = topo.graph_name_nodes(graph)
+	var named_nodes = OclTopo.graph_name_nodes(graph)
 	if named_nodes.size() < 1:
 		return "Expected at least 1 named node, got %d" % named_nodes.size()
 
@@ -1207,7 +1148,6 @@ static func test_graph_color_operations() -> String:
 
 	var graph: OclGraphHandle = result.graph
 	var root: OclNodeId = result.root
-	var topo = OclTopo.new()
 
 	# Create a color
 	var color = OclColorRgba.new()
@@ -1217,13 +1157,13 @@ static func test_graph_color_operations() -> String:
 	color.set_a(1.0)
 
 	# Set color on the root node
-	var status = topo.graph_color_set(graph, root.get_bits(), color)
+	var status = OclTopo.graph_color_set(graph, root.get_bits(), color)
 	if status != OK:
 		return "graph_color_set failed: %s" % _status_str(status)
 
 	# Get color back
 	var out_color = OclColorRgba.new()
-	status = topo.graph_color_get(graph, root.get_bits(), out_color)
+	status = OclTopo.graph_color_get(graph, root.get_bits(), out_color)
 	if status != OK:
 		return "graph_color_get failed: %s" % _status_str(status)
 	# Check values approximately
@@ -1232,12 +1172,12 @@ static func test_graph_color_operations() -> String:
 		return "Color mismatch: (%f,%f,%f)" % [out_color.get_r(), out_color.get_g(), out_color.get_b()]
 
 	# Query color entries
-	var entries = topo.graph_color_entries(graph)
+	var entries = OclTopo.graph_color_entries(graph)
 	if entries.size() < 1:
 		return "Expected at least 1 color entry"
 
 	# Unset color
-	status = topo.graph_color_unset(graph, root.get_bits())
+	status = OclTopo.graph_color_unset(graph, root.get_bits())
 	if status != OK:
 		return "graph_color_unset failed: %s" % _status_str(status)
 
@@ -1254,49 +1194,48 @@ static func test_graph_metadata_operations() -> String:
 
 	var graph: OclGraphHandle = result.graph
 	var root: OclNodeId = result.root
-	var topo = OclTopo.new()
 
 	# Set node metadata
-	var status = topo.graph_node_metadata_set(graph, root.get_bits(), "my_key", "my_value")
+	var status = OclTopo.graph_node_metadata_set(graph, root.get_bits(), "my_key", "my_value")
 	if status != OK:
 		return "graph_node_metadata_set failed: %s" % _status_str(status)
 
 	# Get node metadata back
-	var val = topo.graph_node_metadata_get(graph, root.get_bits(), "my_key")
+	var val = OclTopo.graph_node_metadata_get(graph, root.get_bits(), "my_key")
 	if val != "my_value":
 		return "Expected 'my_value', got '%s'" % val
 
 	# List node metadata keys
-	var keys = topo.graph_node_metadata_keys(graph, root.get_bits())
+	var keys = OclTopo.graph_node_metadata_keys(graph, root.get_bits())
 	if keys.size() < 1 or keys[0].get_key() != "my_key":
 		return "Expected keys containing 'my_key', got %s" % str(keys)
 
 	# Query metadata nodes
-	var meta_nodes = topo.graph_node_metadata_nodes(graph)
+	var meta_nodes = OclTopo.graph_node_metadata_nodes(graph)
 	if meta_nodes.size() < 1:
 		return "Expected at least 1 metadata node"
 
 	# Set graph-level metadata
-	status = topo.graph_metadata_set(graph, "graph_key", "graph_value")
+	status = OclTopo.graph_metadata_set(graph, "graph_key", "graph_value")
 	if status != OK:
 		return "graph_metadata_set failed: %s" % _status_str(status)
 
-	val = topo.graph_metadata_get(graph, "graph_key")
+	val = OclTopo.graph_metadata_get(graph, "graph_key")
 	if val != "graph_value":
 		return "Expected 'graph_value', got '%s'" % val
 
 	# List graph metadata keys
-	var gkeys = topo.graph_metadata_keys(graph)
+	var gkeys = OclTopo.graph_metadata_keys(graph)
 	if gkeys.size() < 1 or gkeys[0].get_key() != "graph_key":
 		return "Expected graph keys containing 'graph_key', got %s" % str(gkeys)
 
 	# Unset graph metadata
-	status = topo.graph_metadata_unset(graph, "graph_key")
+	status = OclTopo.graph_metadata_unset(graph, "graph_key")
 	if status != OK:
 		return "graph_metadata_unset failed: %s" % _status_str(status)
 
 	# Unset node metadata
-	status = topo.graph_node_metadata_unset(graph, root.get_bits(), "my_key")
+	status = OclTopo.graph_node_metadata_unset(graph, root.get_bits(), "my_key")
 	if status != OK:
 		return "graph_node_metadata_unset failed: %s" % _status_str(status)
 
@@ -1313,7 +1252,6 @@ static func test_graph_material_set() -> String:
 
 	var graph: OclGraphHandle = result.graph
 	var root: OclNodeId = result.root
-	var topo = OclTopo.new()
 
 	# Create material info with name
 	var mat_info = OclMaterialInfo.new()
@@ -1324,23 +1262,23 @@ static func test_graph_material_set() -> String:
 	mat_info.set_has_density(1)
 	mat_info.set_density(2700.0)
 
-	var status = topo.graph_material_set(graph, root.get_bits(), mat_info)
+	var status = OclTopo.graph_material_set(graph, root.get_bits(), mat_info)
 	if status != OK:
 		return "graph_material_set failed: %s" % _status_str(status)
 
 	# Get material back (returns String + fills out_info)
 	var out_info = OclMaterialInfo.new()
-	mat_name = topo.graph_material_get(graph, root.get_bits(), out_info)
+	mat_name = OclTopo.graph_material_get(graph, root.get_bits(), out_info)
 	if mat_name != "Aluminium":
 		return "Expected material name 'Aluminium', got '%s'" % mat_name
 
 	# Query material nodes
-	var mat_nodes = topo.graph_material_nodes(graph)
+	var mat_nodes = OclTopo.graph_material_nodes(graph)
 	if mat_nodes.size() < 1:
 		return "Expected at least 1 material node"
 
 	# Unset material
-	status = topo.graph_material_unset(graph, root.get_bits())
+	status = OclTopo.graph_material_unset(graph, root.get_bits())
 	if status != OK:
 		return "graph_material_unset failed: %s" % _status_str(status)
 
@@ -1356,16 +1294,15 @@ static func test_graph_units() -> String:
 		return result.error
 
 	var graph: OclGraphHandle = result.graph
-	var topo = OclTopo.new()
 
 	# Set units to millimeters (0.001 meter per unit, name "mm")
-	var status = topo.graph_units_set(graph, 0.001, "mm")
+	var status = OclTopo.graph_units_set(graph, 0.001, "mm")
 	if status != OK:
 		return "graph_units_set failed: %s" % _status_str(status)
 
 	# Get units back (returns name + fills out_length_unit_to_meter)
 	var out_scale = OclDouble.new()
-	var unit_name = topo.graph_units_get(graph, out_scale)
+	var unit_name = OclTopo.graph_units_get(graph, out_scale)
 	if unit_name != "mm":
 		return "Expected 'mm', got '%s'" % unit_name
 	if abs(out_scale.get_value() - 0.001) > 1e-9:
@@ -1384,10 +1321,9 @@ static func test_bounding_box_box() -> String:
 
 	var graph: OclGraphHandle = result.graph
 	var root: OclNodeId = result.root
-	var topo_build = OclTopoBuild.new()
 
 	var bbox = OclSelectBbox.new()
-	var status = topo_build.graph_bbox_get(graph, root.get_bits(), bbox)
+	var status = OclTopoBuild.graph_bbox_get(graph, root.get_bits(), bbox)
 	if status != OK:
 		return "graph_bbox_get failed: %s" % _status_str(status)
 
@@ -1418,10 +1354,9 @@ static func test_obb_box() -> String:
 
 	var graph: OclGraphHandle = result.graph
 	var root: OclNodeId = result.root
-	var topo_build = OclTopoBuild.new()
 
 	var obb = OclGraphObb.new()
-	var status = topo_build.graph_obb_get(graph, root.get_bits(), obb)
+	var status = OclTopoBuild.graph_obb_get(graph, root.get_bits(), obb)
 	if status != OK:
 		return "graph_obb_get failed: %s" % _status_str(status)
 
@@ -1456,10 +1391,9 @@ static func test_mass_properties_box() -> String:
 
 	var graph: OclGraphHandle = result.graph
 	var root: OclNodeId = result.root
-	var topo_build = OclTopoBuild.new()
 
 	var mass_props = OclGraphMassProperties.new()
-	var status = topo_build.graph_mass_properties_get(graph, root.get_bits(), mass_props)
+	var status = OclTopoBuild.graph_mass_properties_get(graph, root.get_bits(), mass_props)
 	if status != OK:
 		return "graph_mass_properties_get failed: %s" % _status_str(status)
 
@@ -1497,27 +1431,26 @@ static func test_descendant_queries() -> String:
 
 	var graph: OclGraphHandle = result.graph
 	var root: OclNodeId = result.root
-	var topo_build = OclTopoBuild.new()
 
 	# Descendant edges from the root solid
-	var edges = topo_build.graph_descendant_edges_get(graph, root.get_bits())
+	var edges = OclTopoBuild.graph_descendant_edges_get(graph, root.get_bits())
 	if edges.size() != 12:
 		return "Expected 12 descendant edges, got %d" % edges.size()
 
 	# Descendant faces from the root solid
-	var faces = topo_build.graph_descendant_faces_get(graph, root.get_bits())
+	var faces = OclTopoBuild.graph_descendant_faces_get(graph, root.get_bits())
 	if faces.size() != 6:
 		return "Expected 6 descendant faces, got %d" % faces.size()
 
 	# Descendant vertices from the root solid
-	var vertices = topo_build.graph_descendant_vertices_get(graph, root.get_bits())
+	var vertices = OclTopoBuild.graph_descendant_vertices_get(graph, root.get_bits())
 	if vertices.size() != 8:
 		return "Expected 8 descendant vertices, got %d" % vertices.size()
 
 	# Descendants with kind (get each kind separately)
-	var desc_faces = topo_build.graph_descendants_get(graph, root.get_bits(), OclCore.KIND_FACE)
-	var desc_edges = topo_build.graph_descendants_get(graph, root.get_bits(), OclCore.KIND_EDGE)
-	var desc_verts = topo_build.graph_descendants_get(graph, root.get_bits(), OclCore.KIND_VERTEX)
+	var desc_faces = OclTopoBuild.graph_descendants_get(graph, root.get_bits(), OclCore.KIND_FACE)
+	var desc_edges = OclTopoBuild.graph_descendants_get(graph, root.get_bits(), OclCore.KIND_EDGE)
+	var desc_verts = OclTopoBuild.graph_descendants_get(graph, root.get_bits(), OclCore.KIND_VERTEX)
 	if desc_faces.size() != 6:
 		return "Expected 6 face descendants, got %d" % desc_faces.size()
 	if desc_edges.size() != 12:
@@ -1533,14 +1466,13 @@ static func test_adjacent_queries() -> String:
 		return result.error
 
 	var graph: OclGraphHandle = result.graph
-	var topo_build = OclTopoBuild.new()
 
 	# Get a face and query adjacent faces
 	var faces = _collect_ids(graph, OclCore.KIND_FACE)
 	if faces.size() < 1:
 		return "Expected at least 1 face"
 
-	var adj_faces = topo_build.graph_adjacent_faces_get(graph, faces[0])
+	var adj_faces = OclTopoBuild.graph_adjacent_faces_get(graph, faces[0])
 	if adj_faces.size() < 1:
 		return "Expected at least 1 adjacent face"
 
@@ -1549,7 +1481,7 @@ static func test_adjacent_queries() -> String:
 	if edges.size() < 1:
 		return "Expected at least 1 edge"
 
-	var adj_edges = topo_build.graph_adjacent_edges_get(graph, edges[0])
+	var adj_edges = OclTopoBuild.graph_adjacent_edges_get(graph, edges[0])
 	if adj_edges.size() < 1:
 		return "Expected at least 1 adjacent edge"
 
@@ -1565,19 +1497,17 @@ static func test_graph_clone() -> String:
 		return result.error
 
 	var graph: OclGraphHandle = result.graph
-	var topo_build = OclTopoBuild.new()
 
 	# Clone the graph (returns OclGraphHandle directly)
-	var cloned: OclGraphHandle = topo_build.graph_clone(graph)
+	var cloned: OclGraphHandle = OclTopoBuild.graph_clone(graph)
 	if cloned == null:
 		return "graph_clone returned null"
 
 	# Both graphs should have the same counts
 	var out_solid_orig = OclSize.new()
 	var out_solid_clone = OclSize.new()
-	var topo = OclTopo.new()
-	topo.graph_solid_count(graph, out_solid_orig)
-	topo.graph_solid_count(cloned, out_solid_clone)
+	OclTopo.graph_solid_count(graph, out_solid_orig)
+	OclTopo.graph_solid_count(cloned, out_solid_clone)
 	if out_solid_orig.get_value() != out_solid_clone.get_value():
 		return "Clone has %d solids, expected %d" % [out_solid_clone.get_value(), out_solid_orig.get_value()]
 
@@ -1594,9 +1524,8 @@ static func test_graph_compact() -> String:
 		return result.error
 
 	var graph: OclGraphHandle = result.graph
-	var topo_build = OclTopoBuild.new()
 
-	var status = topo_build.graph_compact(graph)
+	var status = OclTopoBuild.graph_compact(graph)
 	if status != OK:
 		return "graph_compact failed: %s" % _status_str(status)
 
@@ -1612,7 +1541,6 @@ static func test_edge_split() -> String:
 		return result.error
 
 	var graph: OclGraphHandle = result.graph
-	var topo_build = OclTopoBuild.new()
 
 	# Get the first edge
 	var edges = _collect_ids(graph, OclCore.KIND_EDGE)
@@ -1622,13 +1550,12 @@ static func test_edge_split() -> String:
 	# Split the edge at midpoint in parameter space
 	var out_first = OclDouble.new()
 	var out_last = OclDouble.new()
-	var topo = OclTopo.new()
-	topo.topo_edge_range(graph, edges[0], out_first, out_last)
+	OclTopo.topo_edge_range(graph, edges[0], out_first, out_last)
 
 	var mid_param = (out_first.get_value() + out_last.get_value()) / 2.0
 	var out_e1 = OclNodeId.new()
 	var out_e2 = OclNodeId.new()
-	var status = topo_build.topo_edge_split(graph, edges[0], mid_param, out_e1, out_e2)
+	var status = OclTopoBuild.topo_edge_split(graph, edges[0], mid_param, out_e1, out_e2)
 	if status != OK:
 		return "topo_edge_split failed: %s" % _status_str(status)
 	if out_e1.get_bits() == 0 or out_e2.get_bits() == 0:
@@ -1646,15 +1573,14 @@ static func test_batch_operations() -> String:
 		return result.error
 
 	var graph: OclGraphHandle = result.graph
-	var topo_build = OclTopoBuild.new()
 
 	# Begin a batch
-	var batch_id = topo_build.graph_begin_batch(graph)
+	var batch_id = OclTopoBuild.graph_begin_batch(graph)
 	if batch_id == 0:
 		return "graph_begin_batch returned 0"
 
 	# Commit the batch (without making any changes)
-	var status = topo_build.batch_commit(batch_id)
+	var status = OclTopoBuild.batch_commit(batch_id)
 	if status != OK:
 		return "batch_commit failed: %s" % _status_str(status)
 
@@ -1670,10 +1596,9 @@ static func test_topo_remove() -> String:
 		return result.error
 
 	var graph: OclGraphHandle = result.graph
-	var topo_build = OclTopoBuild.new()
 
 	# Remove the second box's solid
-	var status = topo_build.topo_remove(graph, result.box2.get_bits())
+	var status = OclTopoBuild.topo_remove(graph, result.box2.get_bits())
 	if status != OK:
 		return "topo_remove failed: %s" % _status_str(status)
 
@@ -1685,10 +1610,9 @@ static func test_topo_remove_subgraph() -> String:
 		return result.error
 
 	var graph: OclGraphHandle = result.graph
-	var topo_build = OclTopoBuild.new()
 
 	# Remove the subgraph of the second box
-	var status = topo_build.topo_remove_subgraph(graph, result.box2.get_bits())
+	var status = OclTopoBuild.topo_remove_subgraph(graph, result.box2.get_bits())
 	if status != OK:
 		return "topo_remove_subgraph failed: %s" % _status_str(status)
 
@@ -1704,8 +1628,7 @@ static func test_graph_measure() -> String:
 		return result.error
 
 	var graph: OclGraphHandle = result.graph
-	var root: OclNodeId = result.root
-	var topo_build = OclTopoBuild.new()
+	var _root: OclNodeId = result.root
 
 	# Measure the pair distance between two vertices
 	var vertices = _collect_ids(graph, OclCore.KIND_VERTEX)
@@ -1713,7 +1636,7 @@ static func test_graph_measure() -> String:
 		return "Expected at least 2 vertices"
 
 	var out_dist = OclDouble.new()
-	var status = topo_build.graph_pair_distance_get(graph, vertices[0], vertices[1], out_dist)
+	var status = OclTopoBuild.graph_pair_distance_get(graph, vertices[0], vertices[1], out_dist)
 	if status != OK:
 		return "graph_pair_distance_get failed: %s" % _status_str(status)
 	if out_dist.get_value() <= 0.0:
@@ -1726,25 +1649,23 @@ static func test_graph_measure() -> String:
 # ---------------------------------------------------------------------------
 
 static func test_error_handling() -> String:
-	var core = OclCore.new()
 	# Clear any previous errors
-	core.error_clear()
+	OclCore.error_clear()
 
 	# Try an invalid operation to trigger an error
-	var topo = OclTopo.new()
-	var graph: OclGraphHandle = topo.graph_create()
+	var graph: OclGraphHandle = OclTopo.graph_create()
 	if graph == null:
 		return "graph_create returned null"
 
 	# Query kind on an invalid node ID
 	var out_kind = OclInt32.new()
-	var status = topo.graph_node_kind(graph, 99999, out_kind)
+	var status = OclTopo.graph_node_kind(graph, 99999, out_kind)
 	# Should fail
 	if status == OK:
 		return "Expected error for invalid node, got %s" % _status_str(status)
 
 	# Should have an error
-	var err = core.error_last()
+	var err = OclCore.error_last()
 	if err == null:
 		return "Expected error_last to return non-null"
 	if err.get_status() == 0:
@@ -1762,7 +1683,6 @@ static func test_graph_for_each() -> String:
 		return result.error
 
 	var graph: OclGraphHandle = result.graph
-	var topo = OclTopo.new()
 
 	# Iterate over all solids
 	var visited = []
@@ -1771,7 +1691,7 @@ static func test_graph_for_each() -> String:
 		return 0  # continue
 
 	# Kind mask must be bit-shifted: 1 << kind
-	var status = topo.graph_for_each(graph, 1 << OclCore.KIND_SOLID, callable)
+	var status = OclTopo.graph_for_each(graph, 1 << OclCore.KIND_SOLID, callable)
 	if status != OK:
 		return "graph_for_each failed: %s" % _status_str(status)
 	if visited.size() < 1:
@@ -1790,11 +1710,10 @@ static func test_uid_roundtrip() -> String:
 
 	var graph: OclGraphHandle = result.graph
 	var root: OclNodeId = result.root
-	var topo = OclTopo.new()
 
 	# Get UID from node ID
 	var out_uid = OclUid.new()
-	var status = topo.graph_uid_from_node_id(graph, root.get_bits(), out_uid)
+	var status = OclTopo.graph_uid_from_node_id(graph, root.get_bits(), out_uid)
 	if status != OK:
 		return "graph_uid_from_node_id failed: %s" % _status_str(status)
 	if out_uid.get_bits() == 0:
@@ -1802,7 +1721,7 @@ static func test_uid_roundtrip() -> String:
 
 	# Round-trip back to node ID
 	var out_node = OclNodeId.new()
-	status = topo.graph_node_id_from_uid(graph, out_uid.get_bits(), out_node)
+	status = OclTopo.graph_node_id_from_uid(graph, out_uid.get_bits(), out_node)
 	if status != OK:
 		return "graph_node_id_from_uid failed: %s" % _status_str(status)
 	if out_node.get_bits() != root.get_bits():
@@ -1821,22 +1740,21 @@ static func test_graph_history() -> String:
 
 	var graph: OclGraphHandle = result.graph
 	var root: OclNodeId = result.root
-	var topo = OclTopo.new()
 
 	# Get UID from node ID
 	var out_uid = OclUid.new()
-	var status = topo.graph_uid_from_node_id(graph, root.get_bits(), out_uid)
+	var status = OclTopo.graph_uid_from_node_id(graph, root.get_bits(), out_uid)
 	if status != OK:
 		return "graph_uid_from_node_id failed: %s" % _status_str(status)
 
 	# Query history_modified
-	var modified = topo.graph_history_modified(graph, out_uid.get_bits())
+	var modified = OclTopo.graph_history_modified(graph, out_uid.get_bits())
 	# This should return an array (possibly empty if no modification history)
 	if modified == null:
 		return "Expected non-null history_modified array"
 
 	# Query history_generated
-	var generated = topo.graph_history_generated(graph, out_uid.get_bits())
+	var generated = OclTopo.graph_history_generated(graph, out_uid.get_bits())
 	if generated == null:
 		return "Expected non-null history_generated array"
 
@@ -1852,7 +1770,6 @@ static func test_coedge_queries() -> String:
 		return result.error
 
 	var graph: OclGraphHandle = result.graph
-	var topo = OclTopo.new()
 
 	var coedges = _collect_ids(graph, OclCore.KIND_COEDGE)
 	if coedges.size() < 1:
@@ -1860,13 +1777,13 @@ static func test_coedge_queries() -> String:
 
 	# Query is_seam
 	var out_seam = OclInt32.new()
-	var status = topo.topo_coedge_is_seam(graph, coedges[0], out_seam)
+	var status = OclTopo.topo_coedge_is_seam(graph, coedges[0], out_seam)
 	if status != OK:
 		return "topo_coedge_is_seam failed: %s" % _status_str(status)
 
 	# Query edge_of
 	var out_edge = OclNodeId.new()
-	status = topo.topo_coedge_edge_of(graph, coedges[0], out_edge)
+	status = OclTopo.topo_coedge_edge_of(graph, coedges[0], out_edge)
 	if status != OK:
 		return "topo_coedge_edge_of failed: %s" % _status_str(status)
 	if out_edge.get_bits() == 0:
@@ -1874,7 +1791,7 @@ static func test_coedge_queries() -> String:
 
 	# Query face_of
 	var out_face = OclNodeId.new()
-	status = topo.topo_coedge_face_of(graph, coedges[0], out_face)
+	status = OclTopo.topo_coedge_face_of(graph, coedges[0], out_face)
 	if status != OK:
 		return "topo_coedge_face_of failed: %s" % _status_str(status)
 	if out_face.get_bits() == 0:
@@ -1882,20 +1799,20 @@ static func test_coedge_queries() -> String:
 
 	# Query is_reversed
 	var out_rev = OclInt32.new()
-	status = topo.topo_coedge_is_reversed(graph, coedges[0], out_rev)
+	status = OclTopo.topo_coedge_is_reversed(graph, coedges[0], out_rev)
 	if status != OK:
 		return "topo_coedge_is_reversed failed: %s" % _status_str(status)
 
 	# Query has_pcurve
 	var out_has = OclInt32.new()
-	status = topo.topo_coedge_has_pcurve(graph, coedges[0], out_has)
+	status = OclTopo.topo_coedge_has_pcurve(graph, coedges[0], out_has)
 	if status != OK:
 		return "topo_coedge_has_pcurve failed: %s" % _status_str(status)
 
 	# Query coedge range
 	var out_first = OclDouble.new()
 	var out_last = OclDouble.new()
-	status = topo.topo_coedge_range(graph, coedges[0], out_first, out_last)
+	status = OclTopo.topo_coedge_range(graph, coedges[0], out_first, out_last)
 	if status != OK:
 		return "topo_coedge_range failed: %s" % _status_str(status)
 
@@ -1906,20 +1823,19 @@ static func test_coedge_queries() -> String:
 # ---------------------------------------------------------------------------
 
 static func test_runtime_version() -> String:
-	var core = OclCore.new()
 	var out_major = OclUint32.new()
 	var out_minor = OclUint32.new()
 	var out_patch = OclUint32.new()
-	core.runtime_version(out_major, out_minor, out_patch)
+	OclCore.runtime_version(out_major, out_minor, out_patch)
 
 	if out_major.get_value() == 0 and out_minor.get_value() == 0 and out_patch.get_value() == 0:
 		return "Expected non-zero runtime version"
 
-	var abi = core.runtime_abi_version()
+	var abi = OclCore.runtime_abi_version()
 	if abi <= 0:
 		return "Expected positive ABI version"
 
-	var occt_ver = core.runtime_occt_version()
+	var occt_ver = OclCore.runtime_occt_version()
 	if occt_ver == "":
 		return "Expected non-empty OCCT version string"
 
@@ -1937,11 +1853,10 @@ static func test_mesh_generate() -> String:
 	var graph: OclGraphHandle = result.graph
 	var root: OclNodeId = result.root
 
-	var mw = OclMesh.new()
 	var opts = OclMeshOptions.new()
 	opts.set_deflection(1.0)
 
-	var status = mw.generate(graph, PackedInt64Array([root.get_bits()]), opts)
+	var status = OclMesh.generate(graph, PackedInt64Array([root.get_bits()]), opts)
 	if status != OK:
 		return "mesh generate failed: %s" % _status_str(status)
 
@@ -1955,11 +1870,10 @@ static func test_mesh_faces_on_box() -> String:
 	var graph: OclGraphHandle = result.graph
 	var root: OclNodeId = result.root
 
-	var mw = OclMesh.new()
 	var opts = OclMeshOptions.new()
 	opts.set_deflection(0.5)
 
-	var status = mw.generate(graph, PackedInt64Array([root.get_bits()]), opts)
+	var status = OclMesh.generate(graph, PackedInt64Array([root.get_bits()]), opts)
 	if status != OK:
 		return "mesh generate failed: %s" % _status_str(status)
 
@@ -1987,24 +1901,23 @@ static func test_edge_boolean_queries() -> String:
 		return result.error
 
 	var graph: OclGraphHandle = result.graph
-	var topo = OclTopo.new()
 	var edges = _collect_ids(graph, OclCore.KIND_EDGE)
 	if edges.size() < 1:
 		return "Expected at least 1 edge"
 
 	# is_degenerated
 	var out_val = OclInt32.new()
-	var st = topo.topo_edge_is_degenerated(graph, edges[0], out_val)
+	var st = OclTopo.topo_edge_is_degenerated(graph, edges[0], out_val)
 	if st != OK:
 		return "topo_edge_is_degenerated failed: %s" % _status_str(st)
 
 	# is_manifold
-	st = topo.topo_edge_is_manifold(graph, edges[0], out_val)
+	st = OclTopo.topo_edge_is_manifold(graph, edges[0], out_val)
 	if st != OK:
 		return "topo_edge_is_manifold failed: %s" % _status_str(st)
 
 	# is_boundary
-	st = topo.topo_edge_is_boundary(graph, edges[0], out_val)
+	st = OclTopo.topo_edge_is_boundary(graph, edges[0], out_val)
 	if st != OK:
 		return "topo_edge_is_boundary failed: %s" % _status_str(st)
 
@@ -2020,17 +1933,16 @@ static func test_vertex_parameter_on_edge() -> String:
 		return result.error
 
 	var graph: OclGraphHandle = result.graph
-	var topo = OclTopo.new()
 
 	var edges = _collect_ids(graph, OclCore.KIND_EDGE)
 	if edges.size() < 1:
 		return "Expected at least 1 edge"
 
 	var out_sv = OclNodeId.new()
-	topo.topo_edge_start_vertex(graph, edges[0], out_sv)
+	OclTopo.topo_edge_start_vertex(graph, edges[0], out_sv)
 
 	var out_param = OclDouble.new()
-	var status = topo.topo_vertex_parameter(graph, out_sv.get_bits(), edges[0], out_param)
+	var status = OclTopo.topo_vertex_parameter(graph, out_sv.get_bits(), edges[0], out_param)
 	if status != OK:
 		return "topo_vertex_parameter failed: %s" % _status_str(status)
 
@@ -2046,26 +1958,25 @@ static func test_face_boolean_queries() -> String:
 		return result.error
 
 	var graph: OclGraphHandle = result.graph
-	var topo = OclTopo.new()
 	var faces = _collect_ids(graph, OclCore.KIND_FACE)
 	if faces.size() < 1:
 		return "Expected at least 1 face"
 
 	# has_surface
 	var out_val = OclInt32.new()
-	var st = topo.topo_face_has_surface(graph, faces[0], out_val)
+	var st = OclTopo.topo_face_has_surface(graph, faces[0], out_val)
 	if st != OK:
 		return "topo_face_has_surface failed: %s" % _status_str(st)
 	if out_val.get_value() != 1:
 		return "Expected face to have surface"
 
 	# natural_restriction
-	st = topo.topo_face_natural_restriction(graph, faces[0], out_val)
+	st = OclTopo.topo_face_natural_restriction(graph, faces[0], out_val)
 	if st != OK:
 		return "topo_face_natural_restriction failed: %s" % _status_str(st)
 
 	# has_triangulation (before meshing, should be 0)
-	st = topo.topo_face_has_triangulation(graph, faces[0], out_val)
+	st = OclTopo.topo_face_has_triangulation(graph, faces[0], out_val)
 	if st != OK:
 		return "topo_face_has_triangulation failed: %s" % _status_str(st)
 
@@ -2081,17 +1992,16 @@ static func test_edge_same_parameter_and_range() -> String:
 		return result.error
 
 	var graph: OclGraphHandle = result.graph
-	var topo = OclTopo.new()
 	var edges = _collect_ids(graph, OclCore.KIND_EDGE)
 	if edges.size() < 1:
 		return "Expected at least 1 edge"
 
 	var out_val = OclInt32.new()
-	var st = topo.topo_edge_same_parameter(graph, edges[0], out_val)
+	var st = OclTopo.topo_edge_same_parameter(graph, edges[0], out_val)
 	if st != OK:
 		return "topo_edge_same_parameter failed: %s" % _status_str(st)
 
-	st = topo.topo_edge_same_range(graph, edges[0], out_val)
+	st = OclTopo.topo_edge_same_range(graph, edges[0], out_val)
 	if st != OK:
 		return "topo_edge_same_range failed: %s" % _status_str(st)
 
@@ -2107,13 +2017,12 @@ static func test_wire_distinct_edge_count() -> String:
 		return result.error
 
 	var graph: OclGraphHandle = result.graph
-	var topo = OclTopo.new()
 	var wires = _collect_ids(graph, OclCore.KIND_WIRE)
 	if wires.size() < 1:
 		return "Expected at least 1 wire"
 
 	var out_count = OclUint32.new()
-	var status = topo.topo_wire_distinct_edge_count(graph, wires[0], out_count)
+	var status = OclTopo.topo_wire_distinct_edge_count(graph, wires[0], out_count)
 	if status != OK:
 		return "topo_wire_distinct_edge_count failed: %s" % _status_str(status)
 	if out_count.get_value() != 4:
@@ -2131,13 +2040,12 @@ static func test_edge_view() -> String:
 		return result.error
 
 	var graph: OclGraphHandle = result.graph
-	var topo = OclTopo.new()
 	var edges = _collect_ids(graph, OclCore.KIND_EDGE)
 	if edges.size() < 1:
 		return "Expected at least 1 edge"
 
 	var view = OclEdgeView.new()
-	var status = topo.topo_edge_view(graph, edges[0], view)
+	var status = OclTopo.topo_edge_view(graph, edges[0], view)
 	if status != OK:
 		return "topo_edge_view failed: %s" % _status_str(status)
 
@@ -2149,13 +2057,12 @@ static func test_vertex_view() -> String:
 		return result.error
 
 	var graph: OclGraphHandle = result.graph
-	var topo = OclTopo.new()
 	var vertices = _collect_ids(graph, OclCore.KIND_VERTEX)
 	if vertices.size() < 1:
 		return "Expected at least 1 vertex"
 
 	var view = OclVertexView.new()
-	var status = topo.topo_vertex_view(graph, vertices[0], view)
+	var status = OclTopo.topo_vertex_view(graph, vertices[0], view)
 	if status != OK:
 		return "topo_vertex_view failed: %s" % _status_str(status)
 
@@ -2167,13 +2074,12 @@ static func test_face_view() -> String:
 		return result.error
 
 	var graph: OclGraphHandle = result.graph
-	var topo = OclTopo.new()
 	var faces = _collect_ids(graph, OclCore.KIND_FACE)
 	if faces.size() < 1:
 		return "Expected at least 1 face"
 
 	var view = OclFaceView.new()
-	var status = topo.topo_face_view(graph, faces[0], view)
+	var status = OclTopo.topo_face_view(graph, faces[0], view)
 	if status != OK:
 		return "topo_face_view failed: %s" % _status_str(status)
 
@@ -2185,13 +2091,12 @@ static func test_wire_view() -> String:
 		return result.error
 
 	var graph: OclGraphHandle = result.graph
-	var topo = OclTopo.new()
 	var wires = _collect_ids(graph, OclCore.KIND_WIRE)
 	if wires.size() < 1:
 		return "Expected at least 1 wire"
 
 	var view = OclWireView.new()
-	var status = topo.topo_wire_view(graph, wires[0], view)
+	var status = OclTopo.topo_wire_view(graph, wires[0], view)
 	if status != OK:
 		return "topo_wire_view failed: %s" % _status_str(status)
 
@@ -2203,13 +2108,12 @@ static func test_shell_view() -> String:
 		return result.error
 
 	var graph: OclGraphHandle = result.graph
-	var topo = OclTopo.new()
 	var shells = _collect_ids(graph, OclCore.KIND_SHELL)
 	if shells.size() < 1:
 		return "Expected at least 1 shell"
 
 	var view = OclShellView.new()
-	var status = topo.topo_shell_view(graph, shells[0], view)
+	var status = OclTopo.topo_shell_view(graph, shells[0], view)
 	if status != OK:
 		return "topo_shell_view failed: %s" % _status_str(status)
 
@@ -2221,13 +2125,12 @@ static func test_solid_view() -> String:
 		return result.error
 
 	var graph: OclGraphHandle = result.graph
-	var topo = OclTopo.new()
 	var solids = _collect_ids(graph, OclCore.KIND_SOLID)
 	if solids.size() < 1:
 		return "Expected at least 1 solid"
 
 	var view = OclSolidView.new()
-	var status = topo.topo_solid_view(graph, solids[0], view)
+	var status = OclTopo.topo_solid_view(graph, solids[0], view)
 	if status != OK:
 		return "topo_solid_view failed: %s" % _status_str(status)
 
@@ -2239,11 +2142,10 @@ static func test_compound_view() -> String:
 		return result.error
 
 	var graph: OclGraphHandle = result.graph
-	var topo = OclTopo.new()
 
 	var view = OclCompoundView.new()
 	# A box graph has no compound, so this should return NOT_FOUND
-	var status = topo.topo_compound_view(graph, 0, view)
+	var status = OclTopo.topo_compound_view(graph, 0, view)
 	if status != NOT_FOUND:
 		return "Expected NOT_FOUND for invalid compound, got %s" % _status_str(status)
 
@@ -2260,28 +2162,26 @@ static func test_ref_uid_roundtrip() -> String:
 		return result.error
 
 	var graph: OclGraphHandle = result.graph
-	var topo = OclTopo.new()
 	var faces = _collect_ids(graph, OclCore.KIND_FACE)
 	if faces.size() < 1:
 		return "Expected at least 1 face"
 
 	# Get UID from node ID
 	var out_uid = OclUid.new()
-	var status = topo.graph_uid_from_node_id(graph, faces[0], out_uid)
+	var status = OclTopo.graph_uid_from_node_id(graph, faces[0], out_uid)
 	if status != OK:
 		return "graph_uid_from_node_id failed: %s" % _status_str(status)
 
 	# Test uid_to_bytes and uid_from_bytes round trip (using OclCore, not ref_uid variant)
-	var core = OclCore.new()
 	var out_bytes = OclByteArray.new()
-	status = core.uid_to_bytes(out_uid.get_bits(), out_bytes)
+	status = OclCore.uid_to_bytes(out_uid.get_bits(), out_bytes)
 	if status != OK:
 		return "uid_to_bytes failed: %s" % _status_str(status)
 	if out_bytes.get_value().size() == 0:
 		return "Expected non-empty byte array"
 
 	var out_uid2 = OclUid.new()
-	status = core.uid_from_bytes(out_bytes.get_value(), out_uid2)
+	status = OclCore.uid_from_bytes(out_bytes.get_value(), out_uid2)
 	if status != OK:
 		return "uid_from_bytes failed: %s" % _status_str(status)
 	if out_uid2.get_bits() != out_uid.get_bits():
@@ -2299,14 +2199,13 @@ static func test_select_iter_create() -> String:
 		return result.error
 
 	var graph: OclGraphHandle = result.graph
-	var topo_build = OclTopoBuild.new()
 
 	var sel_opts = OclSelectOptions.new()
 
 	# Set up a select for faces (kind_mask uses bit flags: 1 << kind)
 	sel_opts.kind_mask = 1 << OclCore.KIND_FACE
 
-	var iter = topo_build.select_iter_create(graph, sel_opts)
+	var iter = OclTopoBuild.select_iter_create(graph, sel_opts)
 	if iter == null:
 		return "select_iter_create returned null"
 
@@ -2314,12 +2213,12 @@ static func test_select_iter_create() -> String:
 	var out_node = OclNodeId.new()
 	var face_count = 0
 	while true:
-		var status = topo_build.select_iter_next(iter, out_node)
+		var status = OclTopoBuild.select_iter_next(iter, out_node)
 		if status != 0:
 			break
 		face_count += 1
 
-	topo_build.select_iter_free(iter)
+	OclTopoBuild.select_iter_free(iter)
 
 	if face_count != 6:
 		return "Expected 6 selected faces, got %d" % face_count
@@ -2336,13 +2235,12 @@ static func test_graph_uid_table() -> String:
 		return result.error
 
 	var graph: OclGraphHandle = result.graph
-	var topo = OclTopo.new()
 
-	var uid_table = topo.graph_uid_table(graph)
+	var uid_table = OclTopo.graph_uid_table(graph)
 	if uid_table.size() < 1:
 		return "Expected non-empty UID table"
 
-	var ref_uid_table = topo.graph_ref_uid_table(graph)
+	var ref_uid_table = OclTopo.graph_ref_uid_table(graph)
 	if ref_uid_table == null:
 		return "Expected non-null ref UID table"
 
@@ -2358,9 +2256,8 @@ static func test_graph_history_deleted_all() -> String:
 		return result.error
 
 	var graph: OclGraphHandle = result.graph
-	var topo = OclTopo.new()
 
-	var deleted = topo.graph_history_deleted_all(graph)
+	var deleted = OclTopo.graph_history_deleted_all(graph)
 	# Should return an array (possibly empty if no delete history)
 	if deleted == null:
 		return "Expected non-null deleted_all array"
@@ -2377,7 +2274,6 @@ static func test_compound_child_count_empty() -> String:
 		return result.error
 
 	var graph: OclGraphHandle = result.graph
-	var topo = OclTopo.new()
 	var compounds = _collect_ids(graph, OclCore.KIND_COMPOUND)
 	# Box graph has no compounds
 	if compounds.size() != 0:

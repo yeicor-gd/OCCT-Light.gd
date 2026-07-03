@@ -238,10 +238,9 @@ static func _make_sphere_shell(
 
 	# Outer sphere
 	var outer_info := OclPrimSphereInfo.new()
-	prim.sphere_info_init(outer_info)
 	outer_info.set_radius(outer_radius)
 	var outer_solid := OclNodeId.new()
-	var st := prim.make_sphere(graph, outer_info, outer_solid)
+	var st := prim.sphere(graph, outer_info, outer_solid)
 	assert(st == OCCTL_OK, "make_sphere outer failed: %s" % OclCore.new().status_to_string(st))
 
 	# Inner sphere (to hollow out)

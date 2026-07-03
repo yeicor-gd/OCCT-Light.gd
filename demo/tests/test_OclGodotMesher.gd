@@ -10,64 +10,60 @@ class_name TestOclGodotMesher
 # ---------------------------------------------------------------------------
 
 static func _collect_node_kind_ids(graph, kind: int) -> Array:
-	var topo = OclTopo.new()
 	var ids = []
 	var iter: OclNodeIterHandle
 	match kind:
 		OclCore.KIND_SOLID:
-			iter = topo.graph_solid_iter_create(graph)
+			iter = OclTopo.graph_solid_iter_create(graph)
 		OclCore.KIND_SHELL:
-			iter = topo.graph_shell_iter_create(graph)
+			iter = OclTopo.graph_shell_iter_create(graph)
 		OclCore.KIND_FACE:
-			iter = topo.graph_face_iter_create(graph)
+			iter = OclTopo.graph_face_iter_create(graph)
 		OclCore.KIND_WIRE:
-			iter = topo.graph_wire_iter_create(graph)
+			iter = OclTopo.graph_wire_iter_create(graph)
 		OclCore.KIND_EDGE:
-			iter = topo.graph_edge_iter_create(graph)
+			iter = OclTopo.graph_edge_iter_create(graph)
 		OclCore.KIND_VERTEX:
-			iter = topo.graph_vertex_iter_create(graph)
+			iter = OclTopo.graph_vertex_iter_create(graph)
 		OclCore.KIND_COMPOUND:
-			iter = topo.graph_compound_iter_create(graph)
+			iter = OclTopo.graph_compound_iter_create(graph)
 		OclCore.KIND_COMPSOLID:
-			iter = topo.graph_compsolid_iter_create(graph)
+			iter = OclTopo.graph_compsolid_iter_create(graph)
 		OclCore.KIND_COEDGE:
-			iter = topo.graph_coedge_iter_create(graph)
+			iter = OclTopo.graph_coedge_iter_create(graph)
 		_:
 			return []
 	if iter == null:
 		return []
 	var out_id = OclNodeId.new()
 	while true:
-		var status = topo.node_iter_next(iter, out_id)
+		var status = OclTopo.node_iter_next(iter, out_id)
 		if status != 0:
 			break
 		ids.append(out_id.get_bits())
 	return ids
 
 static func _make_box_graph() -> Dictionary:
-	var core = OclCore.new()
-	var rt_status = core.runtime_init()
+	var rt_status = OclCore.runtime_init()
 	# INVALID_ARGUMENT (2) = runtime already initialized — not a fatal error
 	if rt_status != 0 and rt_status != 2:
 		return {"error": "runtime_init failed: %d" % rt_status}
 
-	var topo = OclTopo.new()
-	var graph = topo.graph_create()
+	var graph = OclTopo.graph_create()
 	if graph == null:
 		return {"error": "graph_create returned null"}
 
-	var prim = OclPrimSolid.new()
 	var info = OclPrimBoxInfo.new()
 	info.set_dx(10.0)
 	info.set_dy(20.0)
 	info.set_dz(30.0)
 
 	var box_root = OclNodeId.new()
-	var status = prim.box(graph, info, box_root)
+	var status = OclPrimSolid.box(graph, info, box_root)
 	if status != 0:
 		return {"error": "make_box failed: %d" % status}
 
-	return {"graph": graph, "root": box_root, "core": core}
+	return {"graph": graph, "root": box_root}
 
 # ---------------------------------------------------------------------------
 # Mesh batch methods — edge cases (null/invalid graph)
@@ -165,11 +161,10 @@ static func test_mesh_faces_with_box() -> String:
 	var mesher = OclGodotMesher.new()
 
 	# Test with all attributes enabled and explicit mesh options
-	var mw = OclMesh.new()
 	var mesh_opts = OclMeshOptions.new()
 	mesh_opts.set_deflection(1.0)
 	var root_id = PackedInt64Array([result.root.get_bits()])
-	var mesh_status = mw.generate(graph, root_id, mesh_opts)
+	var mesh_status = OclMesh.generate(graph, root_id, mesh_opts)
 	if mesh_status != 0:
 		return "mesh generate failed: %d" % mesh_status
 
@@ -215,11 +210,10 @@ static func test_mesh_faces_defaults_no_attributes() -> String:
 	var graph: OclGraphHandle = result.graph
 	var mesher = OclGodotMesher.new()
 
-	var mw = OclMesh.new()
 	var mesh_opts = OclMeshOptions.new()
 	mesh_opts.set_deflection(1.0)
 	var root_id = PackedInt64Array([result.root.get_bits()])
-	var mesh_status = mw.generate(graph, root_id, mesh_opts)
+	var mesh_status = OclMesh.generate(graph, root_id, mesh_opts)
 	if mesh_status != 0:
 		return "mesh generate failed: %d" % mesh_status
 
@@ -256,11 +250,10 @@ static func test_mesh_edges_with_box() -> String:
 	var graph: OclGraphHandle = result.graph
 	var mesher = OclGodotMesher.new()
 
-	var mw = OclMesh.new()
 	var mesh_opts = OclMeshOptions.new()
 	mesh_opts.set_deflection(1.0)
 	var root_id = PackedInt64Array([result.root.get_bits()])
-	var mesh_status = mw.generate(graph, root_id, mesh_opts)
+	var mesh_status = OclMesh.generate(graph, root_id, mesh_opts)
 	if mesh_status != 0:
 		return "mesh generate failed: %d" % mesh_status
 
@@ -287,11 +280,10 @@ static func test_mesh_vertices_with_box() -> String:
 	var graph: OclGraphHandle = result.graph
 	var mesher = OclGodotMesher.new()
 
-	var mw = OclMesh.new()
 	var mesh_opts = OclMeshOptions.new()
 	mesh_opts.set_deflection(1.0)
 	var root_id = PackedInt64Array([result.root.get_bits()])
-	var mesh_status = mw.generate(graph, root_id, mesh_opts)
+	var mesh_status = OclMesh.generate(graph, root_id, mesh_opts)
 	if mesh_status != 0:
 		return "mesh generate failed: %d" % mesh_status
 
@@ -323,11 +315,10 @@ static func test_mesh_bbox_consistency() -> String:
 	var graph: OclGraphHandle = result.graph
 	var mesher = OclGodotMesher.new()
 
-	var mw = OclMesh.new()
 	var mesh_opts = OclMeshOptions.new()
 	mesh_opts.set_deflection(1.0)
 	var root_id = PackedInt64Array([result.root.get_bits()])
-	var mesh_status = mw.generate(graph, root_id, mesh_opts)
+	var mesh_status = OclMesh.generate(graph, root_id, mesh_opts)
 	if mesh_status != 0:
 		return "mesh generate failed: %d" % mesh_status
 
@@ -368,11 +359,10 @@ static func test_mesh_faces_physics_body() -> String:
 	var graph: OclGraphHandle = result.graph
 	var mesher = OclGodotMesher.new()
 
-	var mw = OclMesh.new()
 	var mesh_opts = OclMeshOptions.new()
 	mesh_opts.set_deflection(1.0)
 	var root_id = PackedInt64Array([result.root.get_bits()])
-	var mesh_status = mw.generate(graph, root_id, mesh_opts)
+	var mesh_status = OclMesh.generate(graph, root_id, mesh_opts)
 	if mesh_status != 0:
 		return "mesh generate failed: %d" % mesh_status
 
@@ -410,11 +400,10 @@ static func test_mesh_edges_physics_body() -> String:
 	var graph: OclGraphHandle = result.graph
 	var mesher = OclGodotMesher.new()
 
-	var mw = OclMesh.new()
 	var mesh_opts = OclMeshOptions.new()
 	mesh_opts.set_deflection(1.0)
 	var root_id = PackedInt64Array([result.root.get_bits()])
-	var mesh_status = mw.generate(graph, root_id, mesh_opts)
+	var mesh_status = OclMesh.generate(graph, root_id, mesh_opts)
 	if mesh_status != 0:
 		return "mesh generate failed: %d" % mesh_status
 
@@ -451,11 +440,10 @@ static func test_mesh_vertices_physics_body() -> String:
 	var graph: OclGraphHandle = result.graph
 	var mesher = OclGodotMesher.new()
 
-	var mw = OclMesh.new()
 	var mesh_opts = OclMeshOptions.new()
 	mesh_opts.set_deflection(1.0)
 	var root_id = PackedInt64Array([result.root.get_bits()])
-	var mesh_status = mw.generate(graph, root_id, mesh_opts)
+	var mesh_status = OclMesh.generate(graph, root_id, mesh_opts)
 	if mesh_status != 0:
 		return "mesh generate failed: %d" % mesh_status
 
@@ -492,11 +480,10 @@ static func test_physics_body_reuse_clears_children() -> String:
 	var graph: OclGraphHandle = result.graph
 	var mesher = OclGodotMesher.new()
 
-	var mw = OclMesh.new()
 	var mesh_opts = OclMeshOptions.new()
 	mesh_opts.set_deflection(1.0)
 	var root_id = PackedInt64Array([result.root.get_bits()])
-	var mesh_status = mw.generate(graph, root_id, mesh_opts)
+	var mesh_status = OclMesh.generate(graph, root_id, mesh_opts)
 	if mesh_status != 0:
 		return "mesh generate failed: %d" % mesh_status
 
