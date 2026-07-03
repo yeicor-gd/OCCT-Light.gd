@@ -221,6 +221,37 @@ static func test_make_box_and_count_topology() -> String:
 
 	return ""
 
+static func test_make_box_result_helper() -> String:
+	var init_err = _init_runtime()
+	if init_err != OK:
+		return "runtime_init failed: %s" % _status_str(init_err)
+
+	var topo = OclTopo.new()
+	var graph: OclGraphHandle = topo.graph_create()
+	if graph == null:
+		return "graph_create returned null"
+
+	var prim = OclPrimSolid.new()
+	var info = OclPrimBoxInfo.new()
+	prim.box_info_init(info)
+	info.set_dx(8.0)
+	info.set_dy(9.0)
+	info.set_dz(10.0)
+
+	var result = prim.make_box_result(graph, info)
+	if not result.has("status") or not result.has("value") or not result.has("solid"):
+		return "make_box_result did not return the expected Dictionary keys"
+	if result.status != OK:
+		return "make_box_result failed: %s" % _status_str(result.status)
+	if result.value == null or result.solid == null:
+		return "make_box_result returned a null output wrapper"
+	if result.value.get_bits() != result.solid.get_bits():
+		return "make_box_result value and solid aliases disagree"
+	if result.value.get_bits() == 0:
+		return "make_box_result returned an invalid NodeId"
+
+	return ""
+
 static func test_make_sphere() -> String:
 	var init_err = _init_runtime()
 	if init_err != OK:
