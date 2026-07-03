@@ -319,6 +319,7 @@ jobs:
         shell: bash
         run: |
           set -e
+          if brew tap | grep -qx "aws/tap"; then brew trust aws/tap; fi
           brew install autoconf autoconf-archive automake libtool
 
       - name: Setup Emscripten

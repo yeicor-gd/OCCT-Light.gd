@@ -360,13 +360,14 @@ Ref<ArrayMesh> OclGodotMesher::mesh_faces(
 
     // Resolve face IDs
     std::vector<occtl_node_id_t> ids_vec;
-
     if (face_ids.get_type() == Variant::PACKED_INT64_ARRAY) {
         PackedInt64Array ids_arr = face_ids;
         ids_vec.reserve(ids_arr.size());
-        for (int64_t id : ids_arr) {
+        for (int i = 0; i < ids_arr.size(); i++) {
+            int64_t val = ids_arr[i];
+            uint64_t face_id = static_cast<uint64_t>(val < 0 ? -val : val);
             occtl_node_id_t nid;
-            nid.bits = static_cast<uint64_t>(id);
+            nid.bits = face_id;
             ids_vec.push_back(nid);
         }
     } else if (face_ids.get_type() != Variant::NIL) {
@@ -555,21 +556,28 @@ Ref<ArrayMesh> OclGodotMesher::mesh_faces(
         };
 
         for (const auto& fd : face_data) {
-            for (int i = 0; i < static_cast<int>(fd.indices.size()); i++) {
-                int local_idx = fd.indices[i];
-                const Vector3& pos = fd.verts[local_idx];
-                uint64_t key = pos_hash(pos);
-                auto it = pos_map.find(key);
-                if (it != pos_map.end()) {
-                    if ((out_verts[it->second] - pos).length_squared() < 1e-20) {
-                        out_indices.push_back(it->second);
-                        continue;
+            // Process as triplets
+            for (int i = 0; i < static_cast<int>(fd.indices.size()); i += 3) {
+                int tri[3];
+                tri[0] = fd.indices[i];
+                tri[1] = fd.indices[i + 2];
+                tri[2] = fd.indices[i + 1];
+                for (int j = 0; j < 3; j++) {
+                    int local_idx = tri[j];
+                    const Vector3& pos = fd.verts[local_idx];
+                    uint64_t key = pos_hash(pos);
+                    auto it = pos_map.find(key);
+                    if (it != pos_map.end()) {
+                        if ((out_verts[it->second] - pos).length_squared() < 1e-20) {
+                            out_indices.push_back(it->second);
+                            continue;
+                        }
                     }
+                    int new_idx = out_verts.size();
+                    out_verts.push_back(pos);
+                    out_indices.push_back(new_idx);
+                    pos_map[key] = new_idx;
                 }
-                int new_idx = out_verts.size();
-                out_verts.push_back(pos);
-                out_indices.push_back(new_idx);
-                pos_map[key] = new_idx;
             }
         }
     } else {
@@ -593,8 +601,11 @@ Ref<ArrayMesh> OclGodotMesher::mesh_faces(
                 face_vert_map[fi][i] = voff;
                 voff++;
             }
-            for (size_t i = 0; i < fd.indices.size(); i++) {
+            // Process as triplets
+            for (size_t i = 0; i < fd.indices.size(); i += 3) {
                 out_indices[ioff++] = face_vert_map[fi][fd.indices[i]];
+                out_indices[ioff++] = face_vert_map[fi][fd.indices[i + 2]];
+                out_indices[ioff++] = face_vert_map[fi][fd.indices[i + 1]];
             }
         }
         out_verts.resize(voff);
@@ -622,8 +633,9 @@ Ref<ArrayMesh> OclGodotMesher::mesh_faces(
                 const auto& fd = face_data[ti];
                 for (size_t j = 0; j < fd.indices.size() / 3; j++) {
                     int i0 = face_vert_map[ti][fd.indices[3 * j]];
-                    int i1 = face_vert_map[ti][fd.indices[3 * j + 1]];
-                    int i2 = face_vert_map[ti][fd.indices[3 * j + 2]];
+                    int i1, i2;
+                    i1 = face_vert_map[ti][fd.indices[3 * j + 2]];
+                    i2 = face_vert_map[ti][fd.indices[3 * j + 1]];
 
                     Vector3 e1 = out_verts[i1] - out_verts[i0];
                     Vector3 e2 = out_verts[i2] - out_verts[i0];
@@ -657,8 +669,9 @@ Ref<ArrayMesh> OclGodotMesher::mesh_faces(
                 const auto& fd = face_data[ti];
                 for (size_t j = 0; j < fd.indices.size() / 3; j++) {
                     int i0 = face_vert_map[ti][fd.indices[3 * j]];
-                    int i1 = face_vert_map[ti][fd.indices[3 * j + 1]];
-                    int i2 = face_vert_map[ti][fd.indices[3 * j + 2]];
+                    int i1, i2;
+                    i1 = face_vert_map[ti][fd.indices[3 * j + 2]];
+                    i2 = face_vert_map[ti][fd.indices[3 * j + 1]];
 
                     Vector3 e1 = out_verts[i1] - out_verts[i0];
                     Vector3 e2 = out_verts[i2] - out_verts[i0];
@@ -724,8 +737,9 @@ Ref<ArrayMesh> OclGodotMesher::mesh_faces(
                 if (fd.uvs.empty()) continue;
                 for (size_t j = 0; j < fd.indices.size() / 3; j++) {
                     int i0 = face_vert_map[ti][fd.indices[3 * j]];
-                    int i1 = face_vert_map[ti][fd.indices[3 * j + 1]];
-                    int i2 = face_vert_map[ti][fd.indices[3 * j + 2]];
+                    int i1, i2;
+                    i1 = face_vert_map[ti][fd.indices[3 * j + 2]];
+                    i2 = face_vert_map[ti][fd.indices[3 * j + 1]];
 
                     Vector3 e1 = out_verts[i1] - out_verts[i0];
                     Vector3 e2 = out_verts[i2] - out_verts[i0];
