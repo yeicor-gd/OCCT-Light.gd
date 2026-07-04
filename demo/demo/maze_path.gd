@@ -18,6 +18,8 @@ extends Path3D
 ## spline hug the node positions more tightly (lower = smoother / looser).
 @export_range(0.5, 30.0) var sharpness: float = 5.0
 
+@export var regenerate_on_play := false
+
 @export_group("Solver")
 
 ## Number of PBD iterations. More iterations = stiffer constraint
@@ -168,6 +170,10 @@ func _get_shell_margin() -> float:
 # a small jitter — producing a space-filling curve inside the shell.
 # -----------------------------------------------------------------------------
 
+func _ready():
+	if regenerate_on_play and !Engine.is_editor_hint():
+		_generate()
+
 func _reset():
 	nodes.clear()
 	_update_curve()
@@ -308,16 +314,32 @@ func _update_curve():
 	var n = nodes.size()
 	if n < 2:
 		return
-	curve.point_count = n
+	curve.point_count = 0
 	for i in range(n):
 		var pos = nodes[i].pos
-		curve.set_point_position(i, pos)
-		var prev_pos = mirror_vec3_across_plane(nodes[i + 1].pos, Plane(Vector3.FORWARD, pos)) if i == 0 else nodes[i - 1].pos
-		var next_pos = mirror_vec3_across_plane(nodes[i - 1].pos, Plane(Vector3.FORWARD, pos)) if i == n - 1 else nodes[i + 1].pos
+		curve.add_point(pos)
+		var prev_pos = pos if i == 0 else nodes[i - 1].pos
+		var next_pos = pos if i == n - 1 else nodes[i + 1].pos
 		curve.set_point_out(i, (next_pos - prev_pos) / sharpness)
 		curve.set_point_in(i, (prev_pos - next_pos) / sharpness)
 	print("MazePath::_update_curve took ", (Time.get_ticks_usec() - start_time) / 1000.0, " ms to build ", n, " nodes")
-
-func mirror_vec3_across_plane(point: Vector3, plane: Plane) -> Vector3:
-	var distance_to_plane = plane.distance_to(point)
-	return point - (2 * distance_to_plane * plane.normal)
+	start_time = Time.get_ticks_usec()
+	# Now fix the up vectors to actually point away from the origin by modifying tilt
+	for i in range(n):
+		var pos = nodes[i].pos
+		var offset := curve.get_closest_offset(pos)
+		var tangent := curve.sample_baked_with_rotation(offset).basis.z.normalized()
+		var desired_up: Vector3 = (pos - tangent * pos.dot(tangent)).normalized()
+		var lo := -PI
+		var hi := PI
+		for j in 16:
+			var mid := (lo + hi) * 0.5
+			curve.set_point_tilt(i, mid)
+			var up := curve.sample_baked_with_rotation(offset, false, true).basis.y
+			var err := tangent.dot(up.cross(desired_up))
+			if err > 0.0:
+				hi = mid
+			else:
+				lo = mid
+		curve.set_point_tilt(i, (lo + hi) * 0.5)
+	print("MazePath::_update_curve took ", (Time.get_ticks_usec() - start_time) / 1000.0, " ms to update up vectors")
