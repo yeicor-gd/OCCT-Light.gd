@@ -9,6 +9,20 @@ class_name TestOclGodotMesher
 # Helper functions
 # ---------------------------------------------------------------------------
 
+static func v3_to_p3(v3: Vector3) -> OclPoint3:
+	var p3 := OclPoint3.new()
+	p3.x = v3.x
+	p3.y = v3.y
+	p3.z = v3.z
+	return p3
+
+static func v3_to_d3(v3: Vector3) -> OclDirection3:
+	var p3 := OclDirection3.new()
+	p3.x = v3.x
+	p3.y = v3.y
+	p3.z = v3.z
+	return p3
+
 static func _collect_node_kind_ids(graph, kind: int) -> Array:
 	var ids := []
 	var out_iter := OclNodeIterHandle.new()
@@ -66,6 +80,82 @@ static func _make_box_graph() -> Dictionary:
 		return {"error": "make_box failed: %d" % status}
 
 	return {"graph": graph, "root": box_root}
+
+static func _make_advanced_pipe_graph() -> Dictionary:
+	var rt_status = OclCore.runtime_init()
+	if rt_status != 0 and rt_status != 2:
+		return {"error": "runtime_init failed: %d" % rt_status}
+
+	var graph := OclGraphHandle.new()
+	var create_err := OclTopo.graph_create(graph)
+	if create_err != 0 or graph == null:
+		return {"error": "graph_create failed: err=%d" % create_err}
+
+	# Spline control points (avoid Godot Path3D/Curve3D which would leak)
+	var ctrl_points := [
+		Vector3(-12.0, 0.0, 0.0),
+		Vector3(-6.0, 3.0, 2.0),
+		Vector3(0.0, 0.0, 6.0),
+		Vector3(8.0, -2.0, 10.0),
+		Vector3(14.0, 1.0, 14.0),
+	]
+
+	var spline_info := OclPrimSplineInfo.new()
+	spline_info.points = OclPoint3Array.from(ctrl_points.map(func(p): return v3_to_p3(p)))
+	var spline_wire_id := OclNodeId.new()
+	var status = OclPrimSketch.spline(graph, spline_info, spline_wire_id) as OclCore.status
+	if status != OclCore.OK:
+		return {"error": "spline failed: %s" % OclCore.status_to_string(status)}
+
+	var plane_info := OclPrimPlaneInfo.new()
+	plane_info.width = 8.0
+	plane_info.height = 3.2
+	var plane_info_placement := OclAxis2Placement.new()
+	plane_info_placement.x_dir = v3_to_d3(-Vector3(0, 0, 1))
+	plane_info_placement.x_dir_ref = v3_to_d3(-Vector3(1, 0, 0))
+	# The spline starts at the first control point when the curve passes
+	# through all points (OCCT BSpline interpolation)
+	plane_info_placement.location = v3_to_p3(ctrl_points[0])
+	plane_info.placement = plane_info_placement
+	var plane_face_id := OclNodeId.new()
+	status = OclPrimSketch.plane(graph, plane_info, plane_face_id) as OclCore.status
+	if status != OclCore.OK:
+		return {"error": "plane failed: %s" % OclCore.status_to_string(status)}
+
+	var sweep_info := OclPrimPipeInfo.new()
+	sweep_info.spine_wire = spline_wire_id.bits
+	sweep_info.profile = plane_face_id.bits
+	var sweep_id := OclNodeId.new()
+	status = OclPrimSweep.pipe(graph, sweep_info, sweep_id) as OclCore.status
+	if status != OclCore.OK:
+		return {"error": "pipe failed: %s" % OclCore.status_to_string(status)}
+
+	return {"graph": graph, "root": sweep_id}
+
+static func _triangle_normal_sum_from_nodes(nodes: PackedFloat64Array, triangles: PackedInt32Array) -> Vector3:
+	var sum := Vector3.ZERO
+	for i in range(0, triangles.size(), 3):
+		var i0 := triangles[i]
+		var i1 := triangles[i + 1]
+		var i2 := triangles[i + 2]
+		var a := Vector3(nodes[i0 * 3], nodes[i0 * 3 + 1], nodes[i0 * 3 + 2])
+		var b := Vector3(nodes[i1 * 3], nodes[i1 * 3 + 1], nodes[i1 * 3 + 2])
+		var c := Vector3(nodes[i2 * 3], nodes[i2 * 3 + 1], nodes[i2 * 3 + 2])
+		var n := (b - a).cross(c - a)
+		if n.length_squared() > 1e-30:
+			sum += n.normalized()
+	return sum
+
+static func _triangle_normal_sum_from_verts(verts: PackedVector3Array, triangles: PackedInt32Array) -> Vector3:
+	var sum := Vector3.ZERO
+	for i in range(0, triangles.size(), 3):
+		var a := verts[triangles[i]]
+		var b := verts[triangles[i + 1]]
+		var c := verts[triangles[i + 2]]
+		var n := (b - a).cross(c - a)
+		if n.length_squared() > 1e-30:
+			sum += n.normalized()
+	return sum
 
 # ---------------------------------------------------------------------------
 # Mesh batch methods — edge cases (null/invalid graph)
@@ -196,6 +286,96 @@ static func test_mesh_faces_with_box() -> String:
 		return "expected feature ID colors (include_feature_ids=true)"
 
 	return "OK"
+
+static func test_mesh_faces_winding_matches_triangulation_on_advanced_pipe() -> String:
+	var result = _make_advanced_pipe_graph()
+	if result.has("error"):
+		return result.error
+
+	var graph: OclGraphHandle = result.graph
+
+	var mesh_opts = OclMeshOptions.new()
+	mesh_opts.set_deflection(1.0)
+	var root_id = PackedInt64Array([result.root.get_bits()])
+	var mesh_status = OclMesh.generate(graph, root_id, mesh_opts)
+	if mesh_status != 0:
+		return "mesh generate failed: %d" % mesh_status
+
+	var face_ids = _collect_node_kind_ids(graph, OclCore.KIND_FACE)
+	if face_ids.size() == 0:
+		return "no faces found in pipe graph"
+
+	var chosen_face: int = -1
+	var source_tri := OclTriangulationView.new()
+	var source_nodes: PackedFloat64Array
+	var source_triangles: PackedInt32Array
+	for face_id in face_ids:
+		source_tri = OclTriangulationView.new()
+		var tri_status := OclMesh.face_triangulation(graph, face_id, source_tri)
+		if tri_status == 0 and source_tri.nodes.size() != 0 and source_tri.triangles.size() != 0:
+			chosen_face = face_id
+			# Eagerly copy triangulation data while OCCT cache pointers are still valid.
+			# mesh_faces() below may regenerate the mesh and invalidate borrowed pointers.
+			source_nodes = source_tri.nodes
+			source_triangles = source_tri.triangles
+			break
+	if chosen_face < 0:
+		return "no triangulated face found on advanced pipe"
+
+	var mesh = OclGodotMesher.mesh_faces(graph, null, mesh_opts,
+		PackedInt64Array([chosen_face]), true, true, true, true)
+	if mesh == null:
+		return "mesh_faces returned null"
+	if mesh.get_surface_count() != 1:
+		return "expected a single surface for one face, got %d" % mesh.get_surface_count()
+
+	var surface_arrays = mesh.surface_get_arrays(0)
+	var verts = surface_arrays[Mesh.ARRAY_VERTEX] as PackedVector3Array
+	var normals = surface_arrays[Mesh.ARRAY_NORMAL] as PackedVector3Array
+	var indices = surface_arrays[Mesh.ARRAY_INDEX] as PackedInt32Array
+	if verts.size() == 0:
+		return "expected non-empty vertex array"
+	if normals.size() == 0:
+		return "expected non-empty normals array"
+	if indices.size() == 0:
+		return "expected non-empty index array"
+
+	# Compare geometric normals from source triangulation winding and mesh_faces winding.
+	# The OCCT-Light layer already adjusts REVERSED faces so that the triangulation
+	# always has CCW winding (as seen from outside).  mesh_faces must preserve this
+	# winding — the geometric face normal computed from both should agree.
+	var source_normal := _triangle_normal_sum_from_nodes(source_nodes, source_triangles)
+	if source_normal.length_squared() < 0.1:
+		return "OCCT triangulation has degenerate geometry (all zero-area triangles)"
+
+	var mesh_normal := _triangle_normal_sum_from_verts(verts, indices)
+	if mesh_normal.length_squared() < 0.1:
+		return "mesh_faces produced degenerate geometry (all zero-area triangles)"
+
+	var dot := source_normal.dot(mesh_normal)
+	if dot <= 0.0:
+		return "expected Godot mesh face normal (%s) to point in same direction as OCCT triangulation normal (%s), got dot=%f" % [mesh_normal, source_normal, dot]
+
+	return "OK"
+
+# Compute the face normal from OCCT per-vertex normals (true surface orientation).
+static func _triangle_normal_sum_from_nodes_and_normals(nodes: PackedFloat64Array, normals: PackedFloat64Array, triangles: PackedInt32Array) -> Vector3:
+	if normals.size() == 0:
+		return Vector3.ZERO
+	var sum := Vector3.ZERO
+	for i in range(0, triangles.size(), 3):
+		var i0 := triangles[i]
+		var i1 := triangles[i + 1]
+		var i2 := triangles[i + 2]
+		var n0 := Vector3(normals[i0 * 3], normals[i0 * 3 + 1], normals[i0 * 3 + 2])
+		var n1 := Vector3(normals[i1 * 3], normals[i1 * 3 + 1], normals[i1 * 3 + 2])
+		var n2 := Vector3(normals[i2 * 3], normals[i2 * 3 + 1], normals[i2 * 3 + 2])
+		var avg := (n0 + n1 + n2) / 3.0
+		if avg.length_squared() > 1e-30:
+			sum += avg.normalized()
+	if sum.length_squared() > 1e-30:
+		return sum.normalized()
+	return Vector3.ZERO
 
 static func test_mesh_faces_defaults_no_attributes() -> String:
 	var result = _make_box_graph()

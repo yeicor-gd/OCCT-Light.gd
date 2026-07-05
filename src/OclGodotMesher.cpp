@@ -402,6 +402,12 @@ Ref<ArrayMesh> OclGodotMesher::mesh_faces(
     }
 
     // Collect triangulations from all requested faces
+    //
+    // The OCCT-Light library's occtl_mesh_face_triangulation() already
+    // handles face orientation internally: it negates per-vertex normals
+    // and reverses triangle winding for REVERSED faces so that the output
+    // always has CCW winding (as seen from outside) with outward-pointing
+    // normals.  Therefore no additional winding flip is needed here.
     struct TriFaceData {
         occtl_node_id_t face_id;
         std::vector<Vector3> verts;      // local vertex positions
@@ -604,8 +610,8 @@ Ref<ArrayMesh> OclGodotMesher::mesh_faces(
             // Process as triplets
             for (size_t i = 0; i < fd.indices.size(); i += 3) {
                 out_indices[ioff++] = face_vert_map[fi][fd.indices[i]];
-                out_indices[ioff++] = face_vert_map[fi][fd.indices[i + 2]];
                 out_indices[ioff++] = face_vert_map[fi][fd.indices[i + 1]];
+                out_indices[ioff++] = face_vert_map[fi][fd.indices[i + 2]];
             }
         }
         out_verts.resize(voff);
@@ -634,8 +640,8 @@ Ref<ArrayMesh> OclGodotMesher::mesh_faces(
                 for (size_t j = 0; j < fd.indices.size() / 3; j++) {
                     int i0 = face_vert_map[ti][fd.indices[3 * j]];
                     int i1, i2;
-                    i1 = face_vert_map[ti][fd.indices[3 * j + 2]];
-                    i2 = face_vert_map[ti][fd.indices[3 * j + 1]];
+                    i1 = face_vert_map[ti][fd.indices[3 * j + 1]];
+                    i2 = face_vert_map[ti][fd.indices[3 * j + 2]];
 
                     Vector3 e1 = out_verts[i1] - out_verts[i0];
                     Vector3 e2 = out_verts[i2] - out_verts[i0];
@@ -670,8 +676,8 @@ Ref<ArrayMesh> OclGodotMesher::mesh_faces(
                 for (size_t j = 0; j < fd.indices.size() / 3; j++) {
                     int i0 = face_vert_map[ti][fd.indices[3 * j]];
                     int i1, i2;
-                    i1 = face_vert_map[ti][fd.indices[3 * j + 2]];
-                    i2 = face_vert_map[ti][fd.indices[3 * j + 1]];
+                    i1 = face_vert_map[ti][fd.indices[3 * j + 1]];
+                    i2 = face_vert_map[ti][fd.indices[3 * j + 2]];
 
                     Vector3 e1 = out_verts[i1] - out_verts[i0];
                     Vector3 e2 = out_verts[i2] - out_verts[i0];
@@ -738,8 +744,8 @@ Ref<ArrayMesh> OclGodotMesher::mesh_faces(
                 for (size_t j = 0; j < fd.indices.size() / 3; j++) {
                     int i0 = face_vert_map[ti][fd.indices[3 * j]];
                     int i1, i2;
-                    i1 = face_vert_map[ti][fd.indices[3 * j + 2]];
-                    i2 = face_vert_map[ti][fd.indices[3 * j + 1]];
+                    i1 = face_vert_map[ti][fd.indices[3 * j + 1]];
+                    i2 = face_vert_map[ti][fd.indices[3 * j + 2]];
 
                     Vector3 e1 = out_verts[i1] - out_verts[i0];
                     Vector3 e2 = out_verts[i2] - out_verts[i0];
