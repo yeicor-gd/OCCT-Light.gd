@@ -349,7 +349,7 @@ static func test_mesh_faces_winding_matches_triangulation_on_advanced_pipe() -> 
 	var ref_normal := _triangle_normal_sum_from_nodes_and_normals(
 		source_nodes, source_normals, source_triangles)
 	if ref_normal.length_squared() < 0.1:
-	    # FIXME: return "OCCT triangulation has no per-vertex normals (cannot determine face orientation)"
+		# FIXME: return "OCCT triangulation has no per-vertex normals (cannot determine face orientation)"
 		return "OK"
 
 	# Verify the mesher's geometric winding normal points outward
