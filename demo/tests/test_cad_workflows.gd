@@ -1961,8 +1961,7 @@ static func test_mesh_faces_on_box() -> String:
 	if face_ids.size() == 0:
 		return "no faces found in box graph"
 
-	var mesher = OclGodotMesher.new()
-	var mesh = mesher.mesh_faces(graph, null, opts,
+	var mesh = OclGodotMesher.mesh_faces(graph, null, opts,
 		PackedInt64Array(face_ids), true, true, false, false)
 	if mesh == null:
 		return "mesh_faces returned null"

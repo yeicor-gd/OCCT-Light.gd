@@ -21,8 +21,6 @@ config/icon="uid://b7vnvr4j6bh3r"
 
 [debug]
 
-gdscript/warnings/unsafe_call_argument=1
-gdscript/warnings/return_value_discarded=1
 gdscript/warnings/missing_await=1
 
 [display]

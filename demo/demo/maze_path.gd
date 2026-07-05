@@ -155,7 +155,7 @@ func _get_seed() -> int:
 
 ## Clearance margin derived from the parent MazeGenerator's ball size /
 ## fill ratio.  Controls both shell proximity and self-repulsion.
-func _get_shell_margin() -> float:
+func _get_tube_margin() -> float:
 	var p = _get_parent_generator()
 	if p and p.ball_radius > 0 and p.ball_to_path_min_ratio > 0:
 		return p.ball_radius / p.ball_to_path_min_ratio
@@ -202,7 +202,7 @@ var _fixed_end: Vector3
 
 func _init_rope():
 	var start_time := Time.get_ticks_usec()
-	var margin = _get_shell_margin()
+	var margin = _get_tube_margin()
 	var outer = _get_outer_radius() - margin
 	_fixed_start = Vector3.FORWARD * -outer
 	_fixed_end = Vector3.FORWARD * outer
@@ -220,7 +220,7 @@ func _init_rope():
 
 func _relax():
 	var start_time := Time.get_ticks_usec()
-	var margin = _get_shell_margin()
+	var margin = _get_tube_margin()
 	var inner = _get_inner_radius() + margin
 	var outer = _get_outer_radius() - margin
 	var n = nodes.size()
@@ -228,7 +228,7 @@ func _relax():
 	nodes[0].pos = _fixed_start
 	nodes[n - 1].pos = _fixed_end
 
-	var spatial_hash = SpatialHash.new(margin)
+	var spatial_hash = SpatialHash.new(2 * margin)  # radius to diameter -- sep between curves
 	for _iter in range(relaxation_iters):
 		spatial_hash.clear()
 		for i in range(n):
@@ -289,10 +289,10 @@ func _relax():
 				var dist2 = delta.length_squared()
 				if dist2 < 0.0001:
 					continue
-				if dist2 > margin * margin:
+				if dist2 > 4 * margin * margin:
 					continue
 				var dist = sqrt(dist2)
-				var t = 1.0 - dist / margin
+				var t = 1.0 - dist / (2 * margin)
 				var push = delta / dist
 				push *= t * t * repulsion_strength * 0.5
 				nodes[i].pos -= push

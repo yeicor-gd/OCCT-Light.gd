@@ -72,10 +72,9 @@ static func _make_box_graph() -> Dictionary:
 # ---------------------------------------------------------------------------
 
 static func test_mesh_faces_null_graph() -> String:
-	var mesher = OclGodotMesher.new()
 	var graph = OclGraphHandle.new()
 	# Graph handle is null — should return empty ArrayMesh
-	var mesh = mesher.mesh_faces(graph)
+	var mesh = OclGodotMesher.mesh_faces(graph)
 	if mesh == null:
 		return "expected non-null ArrayMesh, got null"
 	if mesh.get_surface_count() != 0:
@@ -83,7 +82,6 @@ static func test_mesh_faces_null_graph() -> String:
 	return "OK"
 
 static func test_mesh_faces_reuse_existing() -> String:
-	var mesher = OclGodotMesher.new()
 	var graph = OclGraphHandle.new()
 	var existing = ArrayMesh.new()
 	# Add a dummy surface to verify it gets cleared
@@ -97,7 +95,7 @@ static func test_mesh_faces_reuse_existing() -> String:
 	if existing.get_surface_count() != 1:
 		return "expected 1 dummy surface before reuse"
 
-	var result = mesher.mesh_faces(graph, existing, null, [])
+	var result = OclGodotMesher.mesh_faces(graph, existing, null, [])
 	if result != existing:
 		return "expected same ArrayMesh object back"
 	# Should be cleared (no surfaces due to empty face_ids)
@@ -106,9 +104,8 @@ static func test_mesh_faces_reuse_existing() -> String:
 	return "OK"
 
 static func test_mesh_edges_null_graph() -> String:
-	var mesher = OclGodotMesher.new()
 	var graph = OclGraphHandle.new()
-	var mm = mesher.mesh_edges(graph)
+	var mm = OclGodotMesher.mesh_edges(graph)
 	if mm == null:
 		return "expected non-null MultiMesh, got null"
 	if mm.get_instance_count() != 0:
@@ -116,11 +113,10 @@ static func test_mesh_edges_null_graph() -> String:
 	return "OK"
 
 static func test_mesh_edges_reuse_existing() -> String:
-	var mesher = OclGodotMesher.new()
 	var graph = OclGraphHandle.new()
 	var mm = MultiMesh.new()
 	mm.set_instance_count(5)
-	var result = mesher.mesh_edges(graph, mm, null, [])
+	var result = OclGodotMesher.mesh_edges(graph, mm, null, [])
 	if result != mm:
 		return "expected same MultiMesh object back"
 	if result.get_instance_count() != 0:
@@ -128,9 +124,8 @@ static func test_mesh_edges_reuse_existing() -> String:
 	return "OK"
 
 static func test_mesh_vertices_null_graph() -> String:
-	var mesher = OclGodotMesher.new()
 	var graph = OclGraphHandle.new()
-	var mm = mesher.mesh_vertices(graph)
+	var mm = OclGodotMesher.mesh_vertices(graph)
 	if mm == null:
 		return "expected non-null MultiMesh, got null"
 	if mm.get_instance_count() != 0:
@@ -138,11 +133,10 @@ static func test_mesh_vertices_null_graph() -> String:
 	return "OK"
 
 static func test_mesh_vertices_reuse_existing() -> String:
-	var mesher = OclGodotMesher.new()
 	var graph = OclGraphHandle.new()
 	var mm = MultiMesh.new()
 	mm.set_instance_count(5)
-	var result = mesher.mesh_vertices(graph, mm, null, [])
+	var result = OclGodotMesher.mesh_vertices(graph, mm, null, [])
 	if result != mm:
 		return "expected same MultiMesh object back"
 	if result.get_instance_count() != 0:
@@ -160,7 +154,6 @@ static func test_mesh_faces_with_box() -> String:
 		return result.error
 
 	var graph: OclGraphHandle = result.graph
-	var mesher = OclGodotMesher.new()
 
 	# Test with all attributes enabled and explicit mesh options
 	var mesh_opts = OclMeshOptions.new()
@@ -174,7 +167,7 @@ static func test_mesh_faces_with_box() -> String:
 	if face_ids.size() == 0:
 		return "no faces found in box graph"
 
-	var mesh = mesher.mesh_faces(graph, null, mesh_opts,
+	var mesh = OclGodotMesher.mesh_faces(graph, null, mesh_opts,
 		PackedInt64Array(face_ids), true, true, true, true)
 	if mesh == null:
 		return "mesh_faces returned null"
@@ -210,7 +203,6 @@ static func test_mesh_faces_defaults_no_attributes() -> String:
 		return result.error
 
 	var graph: OclGraphHandle = result.graph
-	var mesher = OclGodotMesher.new()
 
 	var mesh_opts = OclMeshOptions.new()
 	mesh_opts.set_deflection(1.0)
@@ -224,7 +216,7 @@ static func test_mesh_faces_defaults_no_attributes() -> String:
 		return "no faces found in box graph"
 
 	# All attributes disabled by default for performance
-	var mesh = mesher.mesh_faces(graph, null, null, PackedInt64Array(face_ids))
+	var mesh = OclGodotMesher.mesh_faces(graph, null, null, PackedInt64Array(face_ids))
 	if mesh == null:
 		return "mesh_faces returned null"
 	if mesh.get_surface_count() == 0:
@@ -250,7 +242,6 @@ static func test_mesh_edges_with_box() -> String:
 		return result.error
 
 	var graph: OclGraphHandle = result.graph
-	var mesher = OclGodotMesher.new()
 
 	var mesh_opts = OclMeshOptions.new()
 	mesh_opts.set_deflection(1.0)
@@ -263,7 +254,7 @@ static func test_mesh_edges_with_box() -> String:
 	if edge_ids.size() == 0:
 		return "no edges found in box graph"
 
-	var mm = mesher.mesh_edges(graph, null, mesh_opts,
+	var mm = OclGodotMesher.mesh_edges(graph, null, mesh_opts,
 		PackedInt64Array(edge_ids), 0.5)
 	if mm == null:
 		return "mesh_edges returned null"
@@ -280,7 +271,6 @@ static func test_mesh_vertices_with_box() -> String:
 		return result.error
 
 	var graph: OclGraphHandle = result.graph
-	var mesher = OclGodotMesher.new()
 
 	var mesh_opts = OclMeshOptions.new()
 	mesh_opts.set_deflection(1.0)
@@ -293,7 +283,7 @@ static func test_mesh_vertices_with_box() -> String:
 	if vert_ids.size() == 0:
 		return "no vertices found in box graph"
 
-	var mm = mesher.mesh_vertices(graph, null, mesh_opts,
+	var mm = OclGodotMesher.mesh_vertices(graph, null, mesh_opts,
 		PackedInt64Array(vert_ids), 0.02)
 	if mm == null:
 		return "mesh_vertices returned null"
@@ -315,7 +305,6 @@ static func test_mesh_bbox_consistency() -> String:
 		return result.error
 
 	var graph: OclGraphHandle = result.graph
-	var mesher = OclGodotMesher.new()
 
 	var mesh_opts = OclMeshOptions.new()
 	mesh_opts.set_deflection(1.0)
@@ -330,7 +319,7 @@ static func test_mesh_bbox_consistency() -> String:
 	if edge_ids.size() == 0:
 		return "no edges found"
 
-	var edge_mm = mesher.mesh_edges(graph, null, mesh_opts,
+	var edge_mm = OclGodotMesher.mesh_edges(graph, null, mesh_opts,
 		PackedInt64Array(edge_ids), 0.01)
 	if edge_mm == null:
 		return "mesh_edges returned null"
@@ -340,7 +329,7 @@ static func test_mesh_bbox_consistency() -> String:
 	if vert_ids.size() == 0:
 		return "no vertices found"
 
-	var vert_mm = mesher.mesh_vertices(graph, null, mesh_opts,
+	var vert_mm = OclGodotMesher.mesh_vertices(graph, null, mesh_opts,
 		PackedInt64Array(vert_ids), 0.02)
 	if vert_mm == null:
 		return "mesh_vertices returned null"
@@ -359,7 +348,6 @@ static func test_mesh_faces_physics_body() -> String:
 		return result.error
 
 	var graph: OclGraphHandle = result.graph
-	var mesher = OclGodotMesher.new()
 
 	var mesh_opts = OclMeshOptions.new()
 	mesh_opts.set_deflection(1.0)
@@ -373,7 +361,7 @@ static func test_mesh_faces_physics_body() -> String:
 		return "no faces found"
 
 	var body = StaticBody3D.new()
-	var ret = mesher.mesh_faces(graph, body, mesh_opts,
+	var ret = OclGodotMesher.mesh_faces(graph, body, mesh_opts,
 		PackedInt64Array(face_ids), false, false, false, false)
 	if ret != null:
 		return "expected null return when passing PhysicsBody3D, got %s" % ret
@@ -400,7 +388,6 @@ static func test_mesh_edges_physics_body() -> String:
 		return result.error
 
 	var graph: OclGraphHandle = result.graph
-	var mesher = OclGodotMesher.new()
 
 	var mesh_opts = OclMeshOptions.new()
 	mesh_opts.set_deflection(1.0)
@@ -414,7 +401,7 @@ static func test_mesh_edges_physics_body() -> String:
 		return "no edges found"
 
 	var body = StaticBody3D.new()
-	var ret = mesher.mesh_edges(graph, body, mesh_opts,
+	var ret = OclGodotMesher.mesh_edges(graph, body, mesh_opts,
 		PackedInt64Array(edge_ids), 0.01)
 	if ret != null:
 		return "expected null return when passing PhysicsBody3D"
@@ -440,7 +427,6 @@ static func test_mesh_vertices_physics_body() -> String:
 		return result.error
 
 	var graph: OclGraphHandle = result.graph
-	var mesher = OclGodotMesher.new()
 
 	var mesh_opts = OclMeshOptions.new()
 	mesh_opts.set_deflection(1.0)
@@ -454,7 +440,7 @@ static func test_mesh_vertices_physics_body() -> String:
 		return "no vertices found"
 
 	var body = StaticBody3D.new()
-	var ret = mesher.mesh_vertices(graph, body, mesh_opts,
+	var ret = OclGodotMesher.mesh_vertices(graph, body, mesh_opts,
 		PackedInt64Array(vert_ids), 0.02)
 	if ret != null:
 		return "expected null return when passing PhysicsBody3D"
@@ -480,7 +466,6 @@ static func test_physics_body_reuse_clears_children() -> String:
 		return result.error
 
 	var graph: OclGraphHandle = result.graph
-	var mesher = OclGodotMesher.new()
 
 	var mesh_opts = OclMeshOptions.new()
 	mesh_opts.set_deflection(1.0)
@@ -495,13 +480,13 @@ static func test_physics_body_reuse_clears_children() -> String:
 
 	var body = StaticBody3D.new()
 	# First call adds collision children
-	mesher.mesh_edges(graph, body, mesh_opts, PackedInt64Array(edge_ids), 0.01)
+	OclGodotMesher.mesh_edges(graph, body, mesh_opts, PackedInt64Array(edge_ids), 0.01)
 	var first_count = body.get_child_count()
 	if first_count == 0:
 		return "expected children after first call"
 
 	# Second call with same body should clear previous children and re-add
-	mesher.mesh_edges(graph, body, mesh_opts, PackedInt64Array(edge_ids), 0.01)
+	OclGodotMesher.mesh_edges(graph, body, mesh_opts, PackedInt64Array(edge_ids), 0.01)
 	var second_count = body.get_child_count()
 	if second_count != first_count:
 		return "expected same number of children after reuse, got %d vs %d" % [second_count, first_count]
