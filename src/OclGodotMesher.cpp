@@ -560,8 +560,8 @@ Ref<ArrayMesh> OclGodotMesher::mesh_faces(
             for (int i = 0; i < static_cast<int>(fd.indices.size()); i += 3) {
                 int tri[3];
                 tri[0] = fd.indices[i];
-                tri[1] = fd.indices[i + 2];
-                tri[2] = fd.indices[i + 1];
+                tri[1] = fd.indices[i + 1];
+                tri[2] = fd.indices[i + 2];
                 for (int j = 0; j < 3; j++) {
                     int local_idx = tri[j];
                     const Vector3& pos = fd.verts[local_idx];
