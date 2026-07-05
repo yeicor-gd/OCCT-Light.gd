@@ -28,22 +28,10 @@ grow_amount = -0.703
 
 [sub_resource type="Curve3D" id="Curve3D_dar0o"]
 _data = {
-"points": PackedVector3Array(0.10008879, 0.16433814, 0.05454545, -0.10008879, -0.16433814, -0.05454545, 0, 0, 1.8333334, -0.053202637, 0.19278981, 0.1798141, 0.053202637, -0.19278981, -0.1798141, -0.50044394, -0.8216907, 1.5606061, -0.008873773, 0.044658232, 0.26267642, 0.008873773, -0.044658232, -0.26267642, 0.26601318, -0.963949, 0.9342629, 0.25982806, -0.14064391, 0.09181853, -0.25982806, 0.14064391, -0.09181853, -0.45607507, -1.0449818, 0.24722402, 0.13376439, -0.1726038, 0.15294275, -0.13376439, 0.1726038, -0.15294275, -1.0331272, -0.2607295, 0.47517025, -0.08777108, -0.17515731, 0.25621945, 0.08777108, 0.17515731, -0.25621945, -1.124897, -0.18196283, -0.51748973, -0.27058104, -0.2689746, 0.026889706, 0.27058104, 0.2689746, -0.026889706, -0.5942718, 0.61505705, -0.80592704, -0.21541917, -0.043421876, 0.1509358, 0.21541917, 0.043421876, -0.1509358, 0.22800812, 1.1629102, -0.65193826, 0.045601625, 0.23258205, 0.23627901, -0.045601625, -0.23258205, -0.23627901, 0.48282412, 0.83216643, -1.560606, 0.09656482, 0.16643329, 0.054545473, -0.09656482, -0.16643329, -0.054545473, 0, 0, -1.8333334),
-"tilts": PackedFloat32Array(-1.991826, -2.001701, -1.9685287, -1.5243455, -1.239025, -1.2825518, -1.2393126, -0.7455626, -0.18834408, -0.19141205)
+"points": PackedVector3Array(0.1392323, 0.17520037, 0.43272454, -0.1392323, -0.17520037, -0.43272454, 0, 0, 1.8333334, 0, 0, 0.73333335, 0, 0, -0.73333335, -0.69616145, -0.8760019, -0.33028927, -0.1392323, -0.17520037, 0.3006088, 0.1392323, 0.17520037, -0.3006088, 0, 0, -1.8333334),
+"tilts": PackedFloat32Array(-2.4117534, -2.4117534, -2.4117534)
 }
-point_count = 10
-
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_s1s6j"]
-
-[sub_resource type="CylinderMesh" id="CylinderMesh_onu7k"]
-material = SubResource("StandardMaterial3D_s1s6j")
-
-[sub_resource type="MultiMesh" id="MultiMesh_u10mr"]
-transform_format = 1
-instance_count = 1
-visible_instance_count = 1
-mesh = SubResource("CylinderMesh_onu7k")
-buffer = PackedFloat32Array(0, 0, 1, 0, 1, 2.1e-44, 1, 0, 0, 1, 1, 1)
+point_count = 3
 
 [node name="Node3D" type="Node3D" unique_id=1989707108]
 
@@ -71,12 +59,12 @@ script = ExtResource("2_j5lb4")
 [node name="MazePath" type="Path3D" parent="MazeGenerator" unique_id=544553542]
 curve = SubResource("Curve3D_dar0o")
 script = ExtResource("2_ytiva")
-node_count = 10
+node_count = 3
 segment_length = 1.0
 
 [node name="MazePathFollow" type="PathFollow3D" parent="MazeGenerator/MazePath" unique_id=435211787]
-transform = Transform3D(0.9007394, 0.1906082, 0.47154403, -0.4695438, 0.32902858, 0.9205378, 0.018113833, -0.9492742, 0.41375127, 0.40800765, 0.63959706, -1.6898447)
-progress = 8.578428
+transform = Transform3D(-0.79553413, -0.53650343, 0.37721977, 0.6321779, -0.6751528, 0.4746676, 1.776103e-05, 0.55035496, 0.9500285, -0.39807713, -0.500913, 0.8698476)
+progress = 1.1570094
 script = ExtResource("3_dar0o")
 play_in_editor = true
 speed = 1.0
@@ -86,6 +74,3 @@ speed = 1.0
 [node name="MazeOclManager" type="Node3D" parent="MazeGenerator" unique_id=1900646953]
 script = ExtResource("5_u10mr")
 path_node = NodePath("../MazePath")
-
-[node name="Curve" type="MultiMeshInstance3D" parent="MazeGenerator/MazeOclManager" unique_id=1862748333]
-multimesh = SubResource("MultiMesh_u10mr")
