@@ -63,8 +63,8 @@ node_count = 3
 segment_length = 1.0
 
 [node name="MazePathFollow" type="PathFollow3D" parent="MazeGenerator/MazePath" unique_id=435211787]
-transform = Transform3D(-0.7902268, -0.28856412, 0.59045565, 0.62798667, -0.36313584, 0.74298793, 1.4905401e-05, 0.90176463, 0.48814276, -0.2824167, -0.35537338, 0.58936685)
-progress = 0.5158361
+transform = Transform3D(-0.7930534, -0.31010374, -0.5907956, 0.6302324, -0.39024007, -0.7434157, -1.4671916e-05, -0.8881144, 0.5329478, -0.055673998, -0.070056275, -0.779743)
+progress = 2.833418
 script = ExtResource("3_dar0o")
 play_in_editor = true
 speed = 1.0

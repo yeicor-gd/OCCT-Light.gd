@@ -1,0 +1,4 @@
+/.godot/
+/addons/*/*
+!/addons/*/gdext.gdextension*
+/exports/

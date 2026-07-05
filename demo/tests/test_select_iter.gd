@@ -61,10 +61,11 @@ static func test_select_iter_basic() -> String:
 	if init_err != OK:
 		return "runtime_init failed: %d" % init_err
 
-	var graph: OclGraphHandle = OclTopo.graph_create()
-	if graph == null:
+	var graph := OclGraphHandle.new()
+	var create_err := OclTopo.graph_create(graph)
+	if create_err != OK or graph == null:
 		OclCore.runtime_shutdown()
-		return "graph_create returned null"
+		return "graph_create failed: err=%d" % create_err
 
 	var solid_id := _make_box(graph)
 	if solid_id < 0:
@@ -75,11 +76,12 @@ static func test_select_iter_basic() -> String:
 	var options := _make_select_options()
 	options.kind_mask = 1 << 1  # KIND_SOLID
 
-	var iter: OclSelectIterHandle = OclTopoBuild.select_iter_create(graph, options)
-	if iter == null:
+	var iter = OclSelectIterHandle.new()
+	var status = OclTopoBuild.select_iter_create(graph, options, iter)
+	if status != OK:
 		OclTopo.graph_free(graph)
 		OclCore.runtime_shutdown()
-		return "select_iter_create returned null"
+		return "select_iter_create failed: %d" % status
 
 	var results = _collect_select_iter(iter)
 	if typeof(results[0]) == TYPE_STRING:
@@ -104,15 +106,17 @@ static func test_select_iter_with_null_options() -> String:
 	if init_err != OK:
 		return "runtime_init failed: %d" % init_err
 
-	var graph: OclGraphHandle = OclTopo.graph_create()
-	if graph == null:
+	var graph := OclGraphHandle.new()
+	var create_err := OclTopo.graph_create(graph)
+	if create_err != OK or graph == null:
 		OclCore.runtime_shutdown()
-		return "graph_create returned null"
+		return "graph_create failed: err=%d" % create_err
 
-	var iter: OclSelectIterHandle = OclTopoBuild.select_iter_create(graph, null)
-
-	if iter != null:
-		OclTopoBuild.select_iter_free(iter)
+	var iter = OclSelectIterHandle.new()
+	var status = OclTopoBuild.select_iter_create(graph, null, iter)
+	if status != OK:
+		printerr("Expected failure with null options, got status=", status)
+	OclTopoBuild.select_iter_free(iter)
 
 	OclTopo.graph_free(graph)
 	OclCore.runtime_shutdown()
@@ -123,10 +127,11 @@ static func test_select_tagged_iter() -> String:
 	if init_err != OK:
 		return "runtime_init failed: %d" % init_err
 
-	var graph: OclGraphHandle = OclTopo.graph_create()
-	if graph == null:
+	var graph := OclGraphHandle.new()
+	var create_err := OclTopo.graph_create(graph)
+	if create_err != OK or graph == null:
 		OclCore.runtime_shutdown()
-		return "graph_create returned null"
+		return "graph_create failed: err=%d" % create_err
 
 	# Create a box
 	var solid_id := _make_box(graph)
@@ -157,11 +162,12 @@ static func test_select_tagged_iter() -> String:
 
 	# Select tagged nodes
 	var options := _make_select_options()
-	var iter: OclSelectIterHandle = OclTopoBuild.select_tagged_iter_create(graph, options, tag)
-	if iter == null:
+	var iter = OclSelectIterHandle.new()
+	status = OclTopoBuild.select_tagged_iter_create(graph, options, tag, iter)
+	if status != OK:
 		OclTopo.graph_free(graph)
 		OclCore.runtime_shutdown()
-		return "select_tagged_iter_create returned null"
+		return "select_tagged_iter_create failed: %d" % status
 
 	var results = _collect_select_iter(iter)
 	if typeof(results[0]) == TYPE_STRING:
@@ -186,10 +192,11 @@ static func test_select_group_iter() -> String:
 	if init_err != OK:
 		return "runtime_init failed: %d" % init_err
 
-	var graph: OclGraphHandle = OclTopo.graph_create()
-	if graph == null:
+	var graph := OclGraphHandle.new()
+	var create_err := OclTopo.graph_create(graph)
+	if create_err != OK or graph == null:
 		OclCore.runtime_shutdown()
-		return "graph_create returned null"
+		return "graph_create failed: err=%d" % create_err
 
 	# Create a box
 	var solid_id := _make_box(graph)
@@ -204,17 +211,18 @@ static func test_select_group_iter() -> String:
 	var group_options := _make_group_options()
 
 	# Create grouped iterator
-	var iter = OclTopoBuild.select_group_iter_create(graph, select_options, group_options)
-	if iter == null:
+	var iter = OclSelectGroupIterHandle.new()
+	var status = OclTopoBuild.select_group_iter_create(graph, select_options, group_options, iter)
+	if status != OK:
 		OclTopo.graph_free(graph)
 		OclCore.runtime_shutdown()
-		return "select_group_iter_create returned null"
+		return "select_group_iter_create failed: %d" % status
 
 	# Iterate groups
 	var found_solid := false
 	while true:
 		var out_view := OclSelectGroupView.new()
-		var status = OclTopoBuild.select_group_iter_next(iter, out_view)
+		status = OclTopoBuild.select_group_iter_next(iter, out_view)
 		if status == NOT_FOUND:
 			break
 		if status != OK:

@@ -10,34 +10,35 @@ class_name TestOclGodotMesher
 # ---------------------------------------------------------------------------
 
 static func _collect_node_kind_ids(graph, kind: int) -> Array:
-	var ids = []
-	var iter: OclNodeIterHandle
+	var ids := []
+	var out_iter := OclNodeIterHandle.new()
+	var status: int
 	match kind:
 		OclCore.KIND_SOLID:
-			iter = OclTopo.graph_solid_iter_create(graph)
+			status = OclTopo.graph_solid_iter_create(graph, out_iter)
 		OclCore.KIND_SHELL:
-			iter = OclTopo.graph_shell_iter_create(graph)
+			status = OclTopo.graph_shell_iter_create(graph, out_iter)
 		OclCore.KIND_FACE:
-			iter = OclTopo.graph_face_iter_create(graph)
+			status = OclTopo.graph_face_iter_create(graph, out_iter)
 		OclCore.KIND_WIRE:
-			iter = OclTopo.graph_wire_iter_create(graph)
+			status = OclTopo.graph_wire_iter_create(graph, out_iter)
 		OclCore.KIND_EDGE:
-			iter = OclTopo.graph_edge_iter_create(graph)
+			status = OclTopo.graph_edge_iter_create(graph, out_iter)
 		OclCore.KIND_VERTEX:
-			iter = OclTopo.graph_vertex_iter_create(graph)
+			status = OclTopo.graph_vertex_iter_create(graph, out_iter)
 		OclCore.KIND_COMPOUND:
-			iter = OclTopo.graph_compound_iter_create(graph)
+			status = OclTopo.graph_compound_iter_create(graph, out_iter)
 		OclCore.KIND_COMPSOLID:
-			iter = OclTopo.graph_compsolid_iter_create(graph)
+			status = OclTopo.graph_compsolid_iter_create(graph, out_iter)
 		OclCore.KIND_COEDGE:
-			iter = OclTopo.graph_coedge_iter_create(graph)
+			status = OclTopo.graph_coedge_iter_create(graph, out_iter)
 		_:
 			return []
-	if iter == null:
+	if status != 0 or out_iter == null:
 		return []
 	var out_id = OclNodeId.new()
 	while true:
-		var status = OclTopo.node_iter_next(iter, out_id)
+		status = OclTopo.node_iter_next(out_iter, out_id)
 		if status != 0:
 			break
 		ids.append(out_id.get_bits())
@@ -49,9 +50,10 @@ static func _make_box_graph() -> Dictionary:
 	if rt_status != 0 and rt_status != 2:
 		return {"error": "runtime_init failed: %d" % rt_status}
 
-	var graph = OclTopo.graph_create()
-	if graph == null:
-		return {"error": "graph_create returned null"}
+	var graph := OclGraphHandle.new()
+	var create_err := OclTopo.graph_create(graph)
+	if create_err != 0 or graph == null:
+		return {"error": "graph_create failed: err=%d" % create_err}
 
 	var info = OclPrimBoxInfo.new()
 	info.set_dx(10.0)

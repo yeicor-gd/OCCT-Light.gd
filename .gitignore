@@ -3,8 +3,6 @@
 /doc_classes/autowrapper/
 /demo/tests/autowrapper/
 
-
-
 # Build artifacts.
 /build/
 
@@ -17,9 +15,3 @@
 # VCPKG
 /vcpkg_ports/*/.last_build
 /vcpkg_installed/
-
-# Godot auto generated files
-/demo/.godot/
-/demo/addons/*/*
-!/demo/addons/*/gdext.gdextension*
-/demo/exports

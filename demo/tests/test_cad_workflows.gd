@@ -35,8 +35,9 @@ static func _make_box(dx: float = 10.0, dy: float = 10.0, dz: float = 10.0) -> D
 	if init_err != OK:
 		return {"error": "runtime_init failed: %s" % _status_str(init_err)}
 
-	var graph: OclGraphHandle = OclTopo.graph_create()
-	if graph == null:
+	var graph := OclGraphHandle.new()
+	var create_err := OclTopo.graph_create(graph)
+	if create_err != 0 or graph == null:
 		return {"error": "graph_create returned null"}
 
 	var info = OclPrimBoxInfo.new()
@@ -55,8 +56,9 @@ static func _make_two_overlapping_boxes() -> Dictionary:
 	if init_err != OK:
 		return {"error": "runtime_init failed: %s" % _status_str(init_err)}
 
-	var graph: OclGraphHandle = OclTopo.graph_create()
-	if graph == null:
+	var graph := OclGraphHandle.new()
+	var create_err := OclTopo.graph_create(graph)
+	if create_err != 0 or graph == null:
 		return {"error": "graph_create returned null"}
 	# Box 1 at origin
 	var info1 = OclPrimBoxInfo.new()
@@ -96,33 +98,34 @@ static func _make_two_overlapping_boxes() -> Dictionary:
 # Helper: collect node ids of a given kind from a graph
 static func _collect_ids(graph: OclGraphHandle, kind: int) -> Array:
 	var ids = []
-	var iter: OclNodeIterHandle
+	var out_iter := OclNodeIterHandle.new()
+	var status: int
 	match kind:
 		OclCore.KIND_SOLID:
-			iter = OclTopo.graph_solid_iter_create(graph)
+			status = OclTopo.graph_solid_iter_create(graph, out_iter)
 		OclCore.KIND_SHELL:
-			iter = OclTopo.graph_shell_iter_create(graph)
+			status = OclTopo.graph_shell_iter_create(graph, out_iter)
 		OclCore.KIND_FACE:
-			iter = OclTopo.graph_face_iter_create(graph)
+			status = OclTopo.graph_face_iter_create(graph, out_iter)
 		OclCore.KIND_WIRE:
-			iter = OclTopo.graph_wire_iter_create(graph)
+			status = OclTopo.graph_wire_iter_create(graph, out_iter)
 		OclCore.KIND_EDGE:
-			iter = OclTopo.graph_edge_iter_create(graph)
+			status = OclTopo.graph_edge_iter_create(graph, out_iter)
 		OclCore.KIND_VERTEX:
-			iter = OclTopo.graph_vertex_iter_create(graph)
+			status = OclTopo.graph_vertex_iter_create(graph, out_iter)
 		OclCore.KIND_COMPOUND:
-			iter = OclTopo.graph_compound_iter_create(graph)
+			status = OclTopo.graph_compound_iter_create(graph, out_iter)
 		OclCore.KIND_COMPSOLID:
-			iter = OclTopo.graph_compsolid_iter_create(graph)
+			status = OclTopo.graph_compsolid_iter_create(graph, out_iter)
 		OclCore.KIND_COEDGE:
-			iter = OclTopo.graph_coedge_iter_create(graph)
+			status = OclTopo.graph_coedge_iter_create(graph, out_iter)
 		_:
 			return []
-	if iter == null:
+	if status != 0 or out_iter == null:
 		return []
 	var out_id = OclNodeId.new()
 	while true:
-		var status = OclTopo.node_iter_next(iter, out_id)
+		status = OclTopo.node_iter_next(out_iter, out_id)
 		if status != 0:
 			break
 		ids.append(out_id.get_bits())
@@ -134,8 +137,9 @@ static func _make_box_full(dx: float = 10.0, dy: float = 20.0, dz: float = 30.0)
 	if init_err != OK:
 		return {"error": "runtime_init failed: %s" % _status_str(init_err)}
 
-	var graph: OclGraphHandle = OclTopo.graph_create()
-	if graph == null:
+	var graph := OclGraphHandle.new()
+	var create_err := OclTopo.graph_create(graph)
+	if create_err != 0 or graph == null:
 		return {"error": "graph_create returned null"}
 
 	var info = OclPrimBoxInfo.new()
@@ -208,8 +212,9 @@ static func test_make_sphere() -> String:
 	if init_err != OK:
 		return "runtime_init failed: %s" % _status_str(init_err)
 
-	var graph: OclGraphHandle = OclTopo.graph_create()
-	if graph == null:
+	var graph := OclGraphHandle.new()
+	var create_err := OclTopo.graph_create(graph)
+	if create_err != 0 or graph == null:
 		return "graph_create returned null"
 
 	var info = OclPrimSphereInfo.new()
@@ -242,8 +247,9 @@ static func test_make_cylinder() -> String:
 	if init_err != OK:
 		return "runtime_init failed: %s" % _status_str(init_err)
 
-	var graph: OclGraphHandle = OclTopo.graph_create()
-	if graph == null:
+	var graph := OclGraphHandle.new()
+	var create_err := OclTopo.graph_create(graph)
+	if create_err != 0 or graph == null:
 		return "graph_create returned null"
 
 	var info = OclPrimCylinderInfo.new()
@@ -272,8 +278,9 @@ static func test_make_cone() -> String:
 	if init_err != OK:
 		return "runtime_init failed: %s" % _status_str(init_err)
 
-	var graph: OclGraphHandle = OclTopo.graph_create()
-	if graph == null:
+	var graph := OclGraphHandle.new()
+	var create_err := OclTopo.graph_create(graph)
+	if create_err != 0 or graph == null:
 		return "graph_create returned null"
 
 	var info = OclPrimConeInfo.new()
@@ -298,8 +305,9 @@ static func test_make_torus() -> String:
 	if init_err != OK:
 		return "runtime_init failed: %s" % _status_str(init_err)
 
-	var graph: OclGraphHandle = OclTopo.graph_create()
-	if graph == null:
+	var graph := OclGraphHandle.new()
+	var create_err := OclTopo.graph_create(graph)
+	if create_err != 0 or graph == null:
 		return "graph_create returned null"
 
 	var info = OclPrimTorusInfo.new()
@@ -323,8 +331,9 @@ static func test_make_wedge() -> String:
 	if init_err != OK:
 		return "runtime_init failed: %s" % _status_str(init_err)
 
-	var graph: OclGraphHandle = OclTopo.graph_create()
-	if graph == null:
+	var graph := OclGraphHandle.new()
+	var create_err := OclTopo.graph_create(graph)
+	if create_err != 0 or graph == null:
 		return "graph_create returned null"
 
 	var info = OclPrimWedgeInfo.new()
@@ -1084,14 +1093,20 @@ static func test_graph_tag_operations() -> String:
 		return "graph_tag_has returned false (got %d)" % out_has.get_value()
 
 	# List tags
-	var tags = OclTopo.graph_tag_list(graph, root.get_bits())
-	if tags.size() != 1 or tags[0].get_tag() != tag:
-		return "Expected [%s] tags, got %s" % [tag, str(tags)]
+	var tags_buf := OclArrayData.new()
+	var tags_status = OclTopo.graph_tag_list(graph, root.get_bits(), tags_buf)
+	if tags_status != OK:
+		return "graph_tag_list failed: %s" % _status_str(tags_status)
+	if tags_buf.data.size() != 1 or tags_buf.data[0].get_tag() != tag:
+		return "Expected [%s] tags, got %s" % [tag, str(tags_buf.data)]
 
 	# Query nodes by tag
-	var tagged_nodes = OclTopo.graph_tag_nodes(graph, tag)
-	if tagged_nodes.size() != 1:
-		return "Expected 1 node with tag, got %d" % tagged_nodes.size()
+	var tagged_nodes_buf := OclArrayData.new()
+	var tn_status = OclTopo.graph_tag_nodes(graph, tag, tagged_nodes_buf)
+	if tn_status != OK:
+		return "graph_tag_nodes failed: %s" % _status_str(tn_status)
+	if tagged_nodes_buf.data.size() != 1:
+		return "Expected 1 node with tag, got %d" % tagged_nodes_buf.data.size()
 
 	# Remove tag
 	status = OclTopo.graph_tag_remove(graph, root.get_bits(), tag)
@@ -1125,15 +1140,22 @@ static func test_graph_name_operations() -> String:
 	if status != OK:
 		return "graph_name_set failed: %s" % _status_str(status)
 
-	# Get the name back (returns String directly)
-	var out_name = OclTopo.graph_name_get(graph, root.get_bits())
+	# Get the name back (uses out-param, returns status)
+	var out_name_buf := OclArrayData.new()
+	var ng_status = OclTopo.graph_name_get(graph, root.get_bits(), out_name_buf)
+	if ng_status != OK:
+		return "graph_name_get failed: %s" % _status_str(ng_status)
+	var out_name = out_name_buf.data[0]
 	if out_name != name:
 		return "Expected name '%s', got '%s'" % [name, out_name]
 
 	# Query name_nodes
-	var named_nodes = OclTopo.graph_name_nodes(graph)
-	if named_nodes.size() < 1:
-		return "Expected at least 1 named node, got %d" % named_nodes.size()
+	var named_nodes_buf := OclArrayData.new()
+	var nn_status = OclTopo.graph_name_nodes(graph, named_nodes_buf)
+	if nn_status != OK:
+		return "graph_name_nodes failed: %s" % _status_str(nn_status)
+	if named_nodes_buf.data.size() < 1:
+		return "Expected at least 1 named node, got %d" % named_nodes_buf.data.size()
 
 	return ""
 
@@ -1172,8 +1194,11 @@ static func test_graph_color_operations() -> String:
 		return "Color mismatch: (%f,%f,%f)" % [out_color.get_r(), out_color.get_g(), out_color.get_b()]
 
 	# Query color entries
-	var entries = OclTopo.graph_color_entries(graph)
-	if entries.size() < 1:
+	var entries_buf := OclArrayData.new()
+	var ce_status = OclTopo.graph_color_entries(graph, entries_buf)
+	if ce_status != OK:
+		return "graph_color_entries failed: %s" % _status_str(ce_status)
+	if entries_buf.data.size() < 1:
 		return "Expected at least 1 color entry"
 
 	# Unset color
@@ -1201,18 +1226,28 @@ static func test_graph_metadata_operations() -> String:
 		return "graph_node_metadata_set failed: %s" % _status_str(status)
 
 	# Get node metadata back
-	var val = OclTopo.graph_node_metadata_get(graph, root.get_bits(), "my_key")
+	var val_buf := OclArrayData.new()
+	var nmg_status = OclTopo.graph_node_metadata_get(graph, root.get_bits(), "my_key", val_buf)
+	if nmg_status != OK:
+		return "graph_node_metadata_get failed: %s" % _status_str(nmg_status)
+	var val = val_buf.data[0]
 	if val != "my_value":
 		return "Expected 'my_value', got '%s'" % val
 
 	# List node metadata keys
-	var keys = OclTopo.graph_node_metadata_keys(graph, root.get_bits())
-	if keys.size() < 1 or keys[0].get_key() != "my_key":
-		return "Expected keys containing 'my_key', got %s" % str(keys)
+	var keys_buf := OclArrayData.new()
+	var nk_status = OclTopo.graph_node_metadata_keys(graph, root.get_bits(), keys_buf)
+	if nk_status != OK:
+		return "graph_node_metadata_keys failed: %s" % _status_str(nk_status)
+	if keys_buf.data.size() < 1 or keys_buf.data[0].get_key() != "my_key":
+		return "Expected keys containing 'my_key', got %s" % str(keys_buf.data)
 
 	# Query metadata nodes
-	var meta_nodes = OclTopo.graph_node_metadata_nodes(graph)
-	if meta_nodes.size() < 1:
+	var meta_nodes_buf := OclArrayData.new()
+	var mn_status = OclTopo.graph_node_metadata_nodes(graph, meta_nodes_buf)
+	if mn_status != OK:
+		return "graph_node_metadata_nodes failed: %s" % _status_str(mn_status)
+	if meta_nodes_buf.data.size() < 1:
 		return "Expected at least 1 metadata node"
 
 	# Set graph-level metadata
@@ -1220,14 +1255,21 @@ static func test_graph_metadata_operations() -> String:
 	if status != OK:
 		return "graph_metadata_set failed: %s" % _status_str(status)
 
-	val = OclTopo.graph_metadata_get(graph, "graph_key")
+	val_buf = OclArrayData.new()
+	var mg_status = OclTopo.graph_metadata_get(graph, "graph_key", val_buf)
+	if mg_status != OK:
+		return "graph_metadata_get failed: %s" % _status_str(mg_status)
+	val = val_buf.data[0]
 	if val != "graph_value":
 		return "Expected 'graph_value', got '%s'" % val
 
 	# List graph metadata keys
-	var gkeys = OclTopo.graph_metadata_keys(graph)
-	if gkeys.size() < 1 or gkeys[0].get_key() != "graph_key":
-		return "Expected graph keys containing 'graph_key', got %s" % str(gkeys)
+	var gkeys_buf := OclArrayData.new()
+	var gk_status = OclTopo.graph_metadata_keys(graph, gkeys_buf)
+	if gk_status != OK:
+		return "graph_metadata_keys failed: %s" % _status_str(gk_status)
+	if gkeys_buf.data.size() < 1 or gkeys_buf.data[0].get_key() != "graph_key":
+		return "Expected graph keys containing 'graph_key', got %s" % str(gkeys_buf.data)
 
 	# Unset graph metadata
 	status = OclTopo.graph_metadata_unset(graph, "graph_key")
@@ -1266,15 +1308,22 @@ static func test_graph_material_set() -> String:
 	if status != OK:
 		return "graph_material_set failed: %s" % _status_str(status)
 
-	# Get material back (returns String + fills out_info)
+	# Get material back (uses out-param, returns status)
 	var out_info = OclMaterialInfo.new()
-	mat_name = OclTopo.graph_material_get(graph, root.get_bits(), out_info)
+	var mat_name_buf := OclArrayData.new()
+	var mg_status = OclTopo.graph_material_get(graph, root.get_bits(), out_info, mat_name_buf)
+	if mg_status != OK:
+		return "graph_material_get failed: %s" % _status_str(mg_status)
+	mat_name = mat_name_buf.data[0]
 	if mat_name != "Aluminium":
 		return "Expected material name 'Aluminium', got '%s'" % mat_name
 
 	# Query material nodes
-	var mat_nodes = OclTopo.graph_material_nodes(graph)
-	if mat_nodes.size() < 1:
+	var mat_nodes_buf := OclArrayData.new()
+	var mn_status = OclTopo.graph_material_nodes(graph, mat_nodes_buf)
+	if mn_status != OK:
+		return "graph_material_nodes failed: %s" % _status_str(mn_status)
+	if mat_nodes_buf.data.size() < 1:
 		return "Expected at least 1 material node"
 
 	# Unset material
@@ -1300,9 +1349,13 @@ static func test_graph_units() -> String:
 	if status != OK:
 		return "graph_units_set failed: %s" % _status_str(status)
 
-	# Get units back (returns name + fills out_length_unit_to_meter)
+	# Get units back (uses out-param, returns status)
 	var out_scale = OclDouble.new()
-	var unit_name = OclTopo.graph_units_get(graph, out_scale)
+	var unit_name_buf := OclArrayData.new()
+	var ug_status = OclTopo.graph_units_get(graph, out_scale, unit_name_buf)
+	if ug_status != OK:
+		return "graph_units_get failed: %s" % _status_str(ug_status)
+	var unit_name = unit_name_buf.data[0]
 	if unit_name != "mm":
 		return "Expected 'mm', got '%s'" % unit_name
 	if abs(out_scale.get_value() - 0.001) > 1e-9:
@@ -1424,7 +1477,7 @@ static func test_mass_properties_box() -> String:
 # Descendant / Adjacent query tests
 # ---------------------------------------------------------------------------
 
-static func test_descendant_queries() -> String:
+static func test_descendant_get() -> String:
 	var result = _make_box()
 	if result.has("error"):
 		return result.error
@@ -1433,30 +1486,48 @@ static func test_descendant_queries() -> String:
 	var root: OclNodeId = result.root
 
 	# Descendant edges from the root solid
-	var edges = OclTopoBuild.graph_descendant_edges_get(graph, root.get_bits())
-	if edges.size() != 12:
-		return "Expected 12 descendant edges, got %d" % edges.size()
+	var edge_buf := OclArrayData.new()
+	var edge_status = OclTopoBuild.graph_descendant_edges_get(graph, root.get_bits(), edge_buf)
+	if edge_status != OK:
+		return "graph_descendant_edges_get failed: %s" % _status_str(edge_status)
+	if edge_buf.size() != 12:
+		return "Expected 12 descendant edges, got %d" % edge_buf.size()
 
 	# Descendant faces from the root solid
-	var faces = OclTopoBuild.graph_descendant_faces_get(graph, root.get_bits())
-	if faces.size() != 6:
-		return "Expected 6 descendant faces, got %d" % faces.size()
+	var face_buf := OclArrayData.new()
+	var face_status = OclTopoBuild.graph_descendant_faces_get(graph, root.get_bits(), face_buf)
+	if face_status != OK:
+		return "graph_descendant_faces_get failed: %s" % _status_str(face_status)
+	if face_buf.size() != 6:
+		return "Expected 6 descendant faces, got %d" % face_buf.size()
 
 	# Descendant vertices from the root solid
-	var vertices = OclTopoBuild.graph_descendant_vertices_get(graph, root.get_bits())
-	if vertices.size() != 8:
-		return "Expected 8 descendant vertices, got %d" % vertices.size()
+	var vert_buf := OclArrayData.new()
+	var vert_status = OclTopoBuild.graph_descendant_vertices_get(graph, root.get_bits(), vert_buf)
+	if vert_status != OK:
+		return "graph_descendant_vertices_get failed: %s" % _status_str(vert_status)
+	if vert_buf.size() != 8:
+		return "Expected 8 descendant vertices, got %d" % vert_buf.size()
 
 	# Descendants with kind (get each kind separately)
-	var desc_faces = OclTopoBuild.graph_descendants_get(graph, root.get_bits(), OclCore.KIND_FACE)
-	var desc_edges = OclTopoBuild.graph_descendants_get(graph, root.get_bits(), OclCore.KIND_EDGE)
-	var desc_verts = OclTopoBuild.graph_descendants_get(graph, root.get_bits(), OclCore.KIND_VERTEX)
-	if desc_faces.size() != 6:
-		return "Expected 6 face descendants, got %d" % desc_faces.size()
-	if desc_edges.size() != 12:
-		return "Expected 12 edge descendants, got %d" % desc_edges.size()
-	if desc_verts.size() != 8:
-		return "Expected 8 vertex descendants, got %d" % desc_verts.size()
+	var desc_faces_buf := OclArrayData.new()
+	var df_status = OclTopoBuild.graph_descendants_get(graph, root.get_bits(), OclCore.KIND_FACE, desc_faces_buf)
+	if df_status != OK:
+		return "graph_descendants_get(faces) failed: %s" % _status_str(df_status)
+	var desc_edges_buf := OclArrayData.new()
+	var de_status = OclTopoBuild.graph_descendants_get(graph, root.get_bits(), OclCore.KIND_EDGE, desc_edges_buf)
+	if de_status != OK:
+		return "graph_descendants_get(edges) failed: %s" % _status_str(de_status)
+	var desc_verts_buf := OclArrayData.new()
+	var dv_status = OclTopoBuild.graph_descendants_get(graph, root.get_bits(), OclCore.KIND_VERTEX, desc_verts_buf)
+	if dv_status != OK:
+		return "graph_descendants_get(vertices) failed: %s" % _status_str(dv_status)
+	if desc_faces_buf.size() != 6:
+		return "Expected 6 face descendants, got %d" % desc_faces_buf.size()
+	if desc_edges_buf.size() != 12:
+		return "Expected 12 edge descendants, got %d" % desc_edges_buf.size()
+	if desc_verts_buf.size() != 8:
+		return "Expected 8 vertex descendants, got %d" % desc_verts_buf.size()
 
 	return ""
 
@@ -1472,8 +1543,11 @@ static func test_adjacent_queries() -> String:
 	if faces.size() < 1:
 		return "Expected at least 1 face"
 
-	var adj_faces = OclTopoBuild.graph_adjacent_faces_get(graph, faces[0])
-	if adj_faces.size() < 1:
+	var adj_faces_buf := OclArrayData.new()
+	var af_status = OclTopoBuild.graph_adjacent_faces_get(graph, faces[0], adj_faces_buf)
+	if af_status != OK:
+		return "graph_adjacent_faces_get failed: %s" % _status_str(af_status)
+	if adj_faces_buf.size() < 1:
 		return "Expected at least 1 adjacent face"
 
 	# Get an edge and query adjacent edges
@@ -1481,8 +1555,11 @@ static func test_adjacent_queries() -> String:
 	if edges.size() < 1:
 		return "Expected at least 1 edge"
 
-	var adj_edges = OclTopoBuild.graph_adjacent_edges_get(graph, edges[0])
-	if adj_edges.size() < 1:
+	var adj_edges_buf := OclArrayData.new()
+	var ae_status = OclTopoBuild.graph_adjacent_edges_get(graph, edges[0], adj_edges_buf)
+	if ae_status != OK:
+		return "graph_adjacent_edges_get failed: %s" % _status_str(ae_status)
+	if adj_edges_buf.size() < 1:
 		return "Expected at least 1 adjacent edge"
 
 	return ""
@@ -1498,10 +1575,11 @@ static func test_graph_clone() -> String:
 
 	var graph: OclGraphHandle = result.graph
 
-	# Clone the graph (returns OclGraphHandle directly)
-	var cloned: OclGraphHandle = OclTopoBuild.graph_clone(graph)
-	if cloned == null:
-		return "graph_clone returned null"
+	# Clone the graph (uses out-param, returns status)
+	var cloned = OclGraphHandle.new()
+	var status = OclTopoBuild.graph_clone(graph, cloned)
+	if status != OK:
+		return "graph_clone failed: %s" % _status_str(status)
 
 	# Both graphs should have the same counts
 	var out_solid_orig = OclSize.new()
@@ -1653,8 +1731,9 @@ static func test_error_handling() -> String:
 	OclCore.error_clear()
 
 	# Try an invalid operation to trigger an error
-	var graph: OclGraphHandle = OclTopo.graph_create()
-	if graph == null:
+	var graph := OclGraphHandle.new()
+	var create_err := OclTopo.graph_create(graph)
+	if create_err != 0 or graph == null:
 		return "graph_create returned null"
 
 	# Query kind on an invalid node ID
@@ -1748,15 +1827,16 @@ static func test_graph_history() -> String:
 		return "graph_uid_from_node_id failed: %s" % _status_str(status)
 
 	# Query history_modified
-	var modified = OclTopo.graph_history_modified(graph, out_uid.get_bits())
-	# This should return an array (possibly empty if no modification history)
-	if modified == null:
-		return "Expected non-null history_modified array"
+	var modified_buf := OclArrayData.new()
+	var mod_status = OclTopo.graph_history_modified(graph, out_uid.get_bits(), modified_buf)
+	if mod_status != OK:
+		return "graph_history_modified failed: %s" % _status_str(mod_status)
 
 	# Query history_generated
-	var generated = OclTopo.graph_history_generated(graph, out_uid.get_bits())
-	if generated == null:
-		return "Expected non-null history_generated array"
+	var generated_buf := OclArrayData.new()
+	var gen_status = OclTopo.graph_history_generated(graph, out_uid.get_bits(), generated_buf)
+	if gen_status != OK:
+		return "graph_history_generated failed: %s" % _status_str(gen_status)
 
 	return ""
 
@@ -2205,15 +2285,16 @@ static func test_select_iter_create() -> String:
 	# Set up a select for faces (kind_mask uses bit flags: 1 << kind)
 	sel_opts.kind_mask = 1 << OclCore.KIND_FACE
 
-	var iter = OclTopoBuild.select_iter_create(graph, sel_opts)
-	if iter == null:
-		return "select_iter_create returned null"
+	var iter = OclSelectIterHandle.new()
+	var status = OclTopoBuild.select_iter_create(graph, sel_opts, iter)
+	if status != OK:
+		return "select_iter_create failed: %s" % _status_str(status)
 
 	# Iterate
 	var out_node = OclNodeId.new()
 	var face_count = 0
 	while true:
-		var status = OclTopoBuild.select_iter_next(iter, out_node)
+		status = OclTopoBuild.select_iter_next(iter, out_node)
 		if status != 0:
 			break
 		face_count += 1
@@ -2236,13 +2317,17 @@ static func test_graph_uid_table() -> String:
 
 	var graph: OclGraphHandle = result.graph
 
-	var uid_table = OclTopo.graph_uid_table(graph)
-	if uid_table.size() < 1:
+	var uid_buf := OclArrayData.new()
+	var uid_status = OclTopo.graph_uid_table(graph, uid_buf)
+	if uid_status != OK:
+		return "graph_uid_table failed: %s" % _status_str(uid_status)
+	if uid_buf.size() < 1:
 		return "Expected non-empty UID table"
 
-	var ref_uid_table = OclTopo.graph_ref_uid_table(graph)
-	if ref_uid_table == null:
-		return "Expected non-null ref UID table"
+	var ref_uid_buf := OclArrayData.new()
+	var ref_status = OclTopo.graph_ref_uid_table(graph, ref_uid_buf)
+	if ref_status != OK:
+		return "graph_ref_uid_table failed: %s" % _status_str(ref_status)
 
 	return ""
 
@@ -2257,10 +2342,10 @@ static func test_graph_history_deleted_all() -> String:
 
 	var graph: OclGraphHandle = result.graph
 
-	var deleted = OclTopo.graph_history_deleted_all(graph)
-	# Should return an array (possibly empty if no delete history)
-	if deleted == null:
-		return "Expected non-null deleted_all array"
+	var deleted_buf := OclArrayData.new()
+	var del_status = OclTopo.graph_history_deleted_all(graph, deleted_buf)
+	if del_status != OK:
+		return "graph_history_deleted_all failed: %s" % _status_str(del_status)
 
 	return ""
 
