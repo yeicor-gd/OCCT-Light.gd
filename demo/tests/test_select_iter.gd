@@ -99,7 +99,7 @@ static func test_select_iter_basic() -> String:
 
 	OclTopo.graph_free(graph)
 	OclCore.runtime_shutdown()
-	return ""
+	return "OK"
 
 static func test_select_iter_with_null_options() -> String:
 	var init_err = _init_runtime()
@@ -120,7 +120,7 @@ static func test_select_iter_with_null_options() -> String:
 
 	OclTopo.graph_free(graph)
 	OclCore.runtime_shutdown()
-	return ""
+	return "OK"
 
 static func test_select_tagged_iter() -> String:
 	var init_err = _init_runtime()
@@ -185,7 +185,7 @@ static func test_select_tagged_iter() -> String:
 
 	OclTopo.graph_free(graph)
 	OclCore.runtime_shutdown()
-	return ""
+	return "OK"
 
 static func test_select_group_iter() -> String:
 	var init_err = _init_runtime()
@@ -241,4 +241,4 @@ static func test_select_group_iter() -> String:
 
 	OclTopo.graph_free(graph)
 	OclCore.runtime_shutdown()
-	return ""
+	return "OK"

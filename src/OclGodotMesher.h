@@ -42,7 +42,7 @@ public:
     /// @param include_uvs         Include UV coordinates if available.
     /// @param include_tangents    Compute tangent vectors (requires normals + UVs).
     /// @param include_feature_ids Encode face node IDs as vertex colors.
-    Ref<ArrayMesh> mesh_faces(
+    static Ref<ArrayMesh> mesh_faces(
         const Ref<OclGraphHandle>& graph,
         const Variant& existing = Variant(),
         const Ref<OclMeshOptions>& options = Ref<OclMeshOptions>(),
@@ -65,7 +65,7 @@ public:
     /// @param options    Meshing options (controls cylinder resolution via angle).
     /// @param edge_ids   Nil for all edges, or a PackedInt64Array of edge node IDs.
     /// @param radius     Tube radius.  <= 0 uses opts.deflection * 10.
-    Ref<MultiMesh> mesh_edges(
+    static Ref<MultiMesh> mesh_edges(
         const Ref<OclGraphHandle>& graph,
         const Variant& existing = Variant(),
         const Ref<OclMeshOptions>& options = Ref<OclMeshOptions>(),
@@ -84,7 +84,7 @@ public:
     /// @param options    Meshing options (controls sphere resolution via angle).
     /// @param vertex_ids Nil for all vertices, or a PackedInt64Array of vertex IDs.
     /// @param radius     Sphere radius.  <= 0 uses opts.deflection * 10.
-    Ref<MultiMesh> mesh_vertices(
+    static Ref<MultiMesh> mesh_vertices(
         const Ref<OclGraphHandle>& graph,
         const Variant& existing = Variant(),
         const Ref<OclMeshOptions>& options = Ref<OclMeshOptions>(),

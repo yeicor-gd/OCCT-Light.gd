@@ -121,9 +121,9 @@ struct PairHash {
 // ---------------------------------------------------------------------------
 
 void OclGodotMesher::_bind_methods() {
-    godot::ClassDB::bind_method(godot::D_METHOD("mesh_faces", "graph", "existing", "options", "face_ids", "include_normals", "include_uvs", "include_tangents", "include_feature_ids"), &OclGodotMesher::mesh_faces, DEFVAL(Variant()), DEFVAL(Ref<OclMeshOptions>()), DEFVAL(Variant()), DEFVAL(false), DEFVAL(false), DEFVAL(false), DEFVAL(false));
-    godot::ClassDB::bind_method(godot::D_METHOD("mesh_edges", "graph", "existing", "options", "edge_ids", "radius"), &OclGodotMesher::mesh_edges, DEFVAL(Variant()), DEFVAL(Ref<OclMeshOptions>()), DEFVAL(Variant()), DEFVAL(0.01));
-    godot::ClassDB::bind_method(godot::D_METHOD("mesh_vertices", "graph", "existing", "options", "vertex_ids", "radius"), &OclGodotMesher::mesh_vertices, DEFVAL(Variant()), DEFVAL(Ref<OclMeshOptions>()), DEFVAL(Variant()), DEFVAL(0.02));
+    godot::ClassDB::bind_static_method("OclGodotMesher", godot::D_METHOD("mesh_faces", "graph", "existing", "options", "face_ids", "include_normals", "include_uvs", "include_tangents", "include_feature_ids"), &OclGodotMesher::mesh_faces, DEFVAL(Variant()), DEFVAL(Ref<OclMeshOptions>()), DEFVAL(Variant()), DEFVAL(false), DEFVAL(false), DEFVAL(false), DEFVAL(false));
+    godot::ClassDB::bind_static_method("OclGodotMesher", godot::D_METHOD("mesh_edges", "graph", "existing", "options", "edge_ids", "radius"), &OclGodotMesher::mesh_edges, DEFVAL(Variant()), DEFVAL(Ref<OclMeshOptions>()), DEFVAL(Variant()), DEFVAL(0.01));
+    godot::ClassDB::bind_static_method("OclGodotMesher", godot::D_METHOD("mesh_vertices", "graph", "existing", "options", "vertex_ids", "radius"), &OclGodotMesher::mesh_vertices, DEFVAL(Variant()), DEFVAL(Ref<OclMeshOptions>()), DEFVAL(Variant()), DEFVAL(0.02));
 }
 
 // ---------------------------------------------------------------------------

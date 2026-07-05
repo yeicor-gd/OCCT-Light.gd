@@ -16,17 +16,14 @@ func p3_to_v3(p3: OclPoint3) -> Vector3:
 
 func _generate():
 	var path : Path3D = get_node(path_node)
-	print()
 	var ocl_graph := OclGraphHandle.new()
 	var ocl_status := OclTopo.graph_create(ocl_graph)
 	assert(ocl_status == OclCore.OK)
+	(func(): OclTopo.graph_free(ocl_graph)).call_deferred()
 	
-	var ocl_curve := OclCurveBezierCreateInfo.new()
-	ocl_curve.poles = range(path.curve.point_count).map(func(i: int): return v3_to_p3(path.curve.get_point_position(i)))
-	ocl_curve.pole_count = ocl_curve.poles.size()
-	print("POLES: ", ocl_curve.poles.map(func(v: OclPoint3): return p3_to_v3(v)))
+	var ocl_curve := OclCurveApproximatedInfo.new()
+	ocl_curve.points = range(path.curve.point_count).map(func(i: int): return v3_to_p3(path.curve.get_point_position(i)))
 	var ocl_rep_id := OclRepId.new()
-	ocl_status = OclCurves.create_bezier(ocl_graph, ocl_curve, ocl_rep_id) as OclCore.status
+	ocl_status = OclCurves.create_approximated(ocl_graph, ocl_curve, ocl_rep_id) as OclCore.status
 	assert(ocl_status == OclCore.OK)
-		
-	OclTopo.graph_free(ocl_graph)
+	

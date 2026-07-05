@@ -11,7 +11,7 @@
 	<tutorials>
 	</tutorials>
 	<methods>
-		<method name="mesh_faces">
+		<method name="mesh_faces" qualifier="static">
 			<return type="ArrayMesh" />
 			<argument index="0" name="graph" type="OclGraphHandle" />
 			<argument index="1" name="existing" type="Variant" />
@@ -33,7 +33,7 @@
 				- [code]include_feature_ids[/code]: Encode face node IDs as vertex colors (one colour per face).
 			</description>
 		</method>
-		<method name="mesh_edges">
+		<method name="mesh_edges" qualifier="static">
 			<return type="MultiMesh" />
 			<argument index="0" name="graph" type="OclGraphHandle" />
 			<argument index="1" name="existing" type="Variant" />
@@ -50,7 +50,7 @@
 				- [code]radius[/code]: Tube radius. Default [code]0.01[/code]. If [code]&lt;= 0[/code], uses [code]options.deflection * 10[/code]. The radius is automatically scaled by the graph's bounding box diagonal for consistent visual size across different models.
 			</description>
 		</method>
-		<method name="mesh_vertices">
+		<method name="mesh_vertices" qualifier="static">
 			<return type="MultiMesh" />
 			<argument index="0" name="graph" type="OclGraphHandle" />
 			<argument index="1" name="existing" type="Variant" />

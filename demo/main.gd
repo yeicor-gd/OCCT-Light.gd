@@ -14,12 +14,12 @@ func _ready():
 
 func _on_tests_button_pressed() -> void:
 	if tests_scene != null:
-		get_tree().change_scene_to_packed(tests_scene)
+		get_tree().change_scene_to_packed.call_deferred(tests_scene)
 	else:
 		push_error("Tests scene not set")
 
 func _on_demo_button_pressed() -> void:
 	if demo_scene != null:
-		get_tree().change_scene_to_packed(demo_scene)
+		get_tree().change_scene_to_packed.call_deferred(demo_scene)
 	else:
 		push_error("Demo scene not set")

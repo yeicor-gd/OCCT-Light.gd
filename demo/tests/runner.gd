@@ -16,6 +16,7 @@ var total_passed: int = 0
 var total_failed: int = 0
 var is_headless := false
 var tests_complete := false
+var bootstrap_error := false
 
 static var ctx := TestContext.new()
 
@@ -46,7 +47,7 @@ func _ready() -> void:
 
 	ctx.runner = self
 
-	# Set up a timeout failsafe in case tests get stuck
+	# Set up a timeout failsafe in case tests get stuck.
 	var timeout_ms := 60000
 	var timeout_str := OS.get_environment("GODOT_TEST_RUNNER_TIMEOUT")
 	if timeout_str != "":
@@ -57,12 +58,18 @@ func _ready() -> void:
 	log_info("Starting test session")
 	indent_level += 1
 
-	# Try to regenerate the test index on each run (only possible in editor/dev builds)
 	_try_regenerate_test_index()
 
 	var test_files := _get_test_files()
+	if bootstrap_error:
+		indent_level -= 1
+		tests_complete = true
+		_quit_tests_now(1)
+		return
+
 	if test_files.is_empty():
 		log_error("No test suites found")
+		indent_level -= 1
 		tests_complete = true
 		_quit_tests_now(1)
 		return
@@ -86,43 +93,47 @@ func _try_regenerate_test_index() -> void:
 	# Regenerate the test index from the filesystem so newly added test
 	# files are picked up automatically. The checked-in index.gd serves
 	# exported builds where DirAccess/FileAccess can't enumerate or write.
-	#
-	# In exported builds, DirAccess cannot enumerate .gd files, so this
-	# will silently find nothing and the bundled index.gd is used instead.
 
-	var test_files: Array[String] = []
-
-	# Scan hand-written tests in the tests directory
-	if DirAccess.dir_exists_absolute(TESTS_DIR):
-		var dir := DirAccess.open(TESTS_DIR)
-		if dir != null:
-			dir.list_dir_begin()
-			var fname := dir.get_next()
-			while fname != "":
-				if not dir.current_is_dir() and fname.begins_with("test_") and fname.ends_with(".gd"):
-					test_files.append("res://tests/" + fname)
-				fname = dir.get_next()
-			dir.list_dir_end()
-
-	# Scan auto-generated tests in the autowrapper subdirectory
-	if DirAccess.dir_exists_absolute(TESTS_AUTOWRAPPER_DIR):
-		var dir := DirAccess.open(TESTS_AUTOWRAPPER_DIR)
-		if dir != null:
-			dir.list_dir_begin()
-			var fname := dir.get_next()
-			while fname != "":
-				if not dir.current_is_dir() and fname.begins_with("test_") and fname.ends_with(".gd"):
-					test_files.append("res://tests/autowrapper/" + fname)
-				fname = dir.get_next()
-			dir.list_dir_end()
-
+	var test_files := _discover_test_files()
 	if test_files.is_empty():
 		# Cannot enumerate files (exported build) or no tests.
 		# The bundled index.gd handles this case.
 		return
 
-	test_files.sort()
 	_write_test_index(test_files)
+
+
+func _discover_test_files() -> Array[String]:
+	var seen: Dictionary = {}
+	var test_files: Array[String] = []
+
+	_collect_test_files(TESTS_DIR, "res://tests/", test_files, seen)
+	_collect_test_files(TESTS_AUTOWRAPPER_DIR, "res://tests/autowrapper/", test_files, seen)
+
+	test_files.sort()
+	return test_files
+
+
+func _collect_test_files(dir_path: String, resource_prefix: String, out_files: Array[String], seen: Dictionary) -> void:
+	var dir := DirAccess.open(dir_path)
+	if dir == null:
+		return
+
+	dir.list_dir_begin()
+	while true:
+		var fname := dir.get_next()
+		if fname == "":
+			break
+
+		if dir.current_is_dir():
+			continue
+
+		if fname.begins_with("test_") and fname.ends_with(".gd"):
+			var path := resource_prefix + fname
+			if not seen.has(path):
+				seen[path] = true
+				out_files.append(path)
+	dir.list_dir_end()
 
 
 func _write_test_index(test_files: Array[String]) -> void:
@@ -150,54 +161,48 @@ func _write_test_index(test_files: Array[String]) -> void:
 
 
 func _get_test_files() -> Array[String]:
-	# First, try to load the index file (works in both editor and exported builds)
-	var index = load(INDEX_FILE)
-	if index != null:
-		# Try to get SUITES constant from the loaded script
-		var suites: Array = []
-		if "SUITES" in index:
-			suites = index.SUITES
-		else:
-			# Try to get it as a constant
-			var constants = index.get_script_constant_map()
-			if "SUITES" in constants:
-				suites = constants["SUITES"]
+	var suites := _load_index_suites()
+	if bootstrap_error:
+		return []
 
-		if not suites.is_empty():
-			var files: Array[String] = []
-			for suite_path in suites:
+	if not suites.is_empty():
+		return suites
+
+	# Fallback: Try to discover test files dynamically (only works in editor).
+	return _discover_test_files()
+
+
+func _load_index_suites() -> Array[String]:
+	var suites: Array[String] = []
+
+	# If the index file isn't present as a script resource, fall back to scanning.
+	if not ResourceLoader.exists(INDEX_FILE, "Script"):
+		return suites
+
+	var index := ResourceLoader.load(INDEX_FILE, "Script", ResourceLoader.CACHE_MODE_IGNORE) as Script
+	if index == null:
+		bootstrap_error = true
+		log_error("Failed to load test index: %s" % INDEX_FILE)
+		return suites
+
+	# Only reload when source exists. Valid exported/tokenized scripts may not
+	# have source code even though they are fine to use.
+	if index.has_source_code():
+		var reload_error: int = index.reload()
+		if reload_error != OK:
+			bootstrap_error = true
+			log_error("Script error in %s (reload error %d)" % [INDEX_FILE, reload_error])
+			return suites
+
+	var constants := index.get_script_constant_map()
+	if constants.has("SUITES"):
+		var raw_suites = constants["SUITES"]
+		if raw_suites is Array:
+			for suite_path in raw_suites:
 				if suite_path is String:
-					files.append(suite_path)
-			if not files.is_empty():
-				return files
+					suites.append(suite_path)
 
-	# Fallback: Try to discover test files dynamically (only works in editor)
-	var test_files: Array[String] = []
-
-	# Scan hand-written tests in the tests directory
-	var dir := DirAccess.open(TESTS_DIR)
-	if dir != null:
-		dir.list_dir_begin()
-		var fname := dir.get_next()
-		while fname != "":
-			if not dir.current_is_dir() and fname.begins_with("test_") and fname.ends_with(".gd"):
-				test_files.append("res://tests/" + fname)
-			fname = dir.get_next()
-		dir.list_dir_end()
-
-	# Scan auto-generated tests in the autowrapper subdirectory
-	var dir2 := DirAccess.open(TESTS_AUTOWRAPPER_DIR)
-	if dir2 != null:
-		dir2.list_dir_begin()
-		var fname2 := dir2.get_next()
-		while fname2 != "":
-			if not dir2.current_is_dir() and fname2.begins_with("test_") and fname2.ends_with(".gd"):
-				test_files.append("res://tests/autowrapper/" + fname2)
-			fname2 = dir2.get_next()
-		dir2.list_dir_end()
-
-	test_files.sort()
-	return test_files
+	return suites
 
 
 func _on_timeout() -> void:
@@ -216,23 +221,19 @@ func _run_suite(path: String) -> void:
 		total_failed += 1
 		return
 
+	if script is Script and script.has_source_code():
+		var reload_error: int = script.reload()
+		if reload_error != OK:
+			log_error("Script error in %s (reload error %d)" % [path, reload_error])
+			total_failed += 1
+			return
+
 	var methods: Array[String] = []
 	for m in script.get_script_method_list():
-		if m["name"].begins_with("test_"):
-			methods.append(m["name"])
+		if m.has("name") and String(m["name"]).begins_with("test_"):
+			methods.append(String(m["name"]))
 
 	methods.sort()
-
-	# Detect parse errors by comparing source-declared vs. loaded test methods.
-	# Godot 4's load() may return a non-null GDScript even when some function
-	# bodies have parse errors — those methods simply don't appear in
-	# get_script_method_list(). We catch that here so broken functions don't
-	# silently vanish from test results.
-	var expected_count := _count_test_methods_in_source(path)
-	if expected_count >= 0 and methods.size() < expected_count:
-		log_error("Parse errors in %s: expected %d test methods but loaded %d" % [path, expected_count, methods.size()])
-		total_failed += 1
-		return
 
 	if methods.is_empty():
 		return
@@ -261,8 +262,10 @@ func _run_suite(path: String) -> void:
 
 			var stack = get_stack()
 			for frame in stack:
-				if frame is Dictionary and frame.get("source", "").begins_with("res://tests"):
+				if frame is Dictionary and String(frame.get("source", "")).begins_with("res://tests"):
 					log_debug("  at %s:%d" % [frame.get("source", "?"), frame.get("line", 0)])
+
+		ctx.current_test = ""
 
 	var suite_duration_ms := (Time.get_ticks_usec() - suite_start) / 1000.0
 
@@ -274,41 +277,36 @@ func _run_suite(path: String) -> void:
 	total_failed += suite_failed
 
 
-func _count_test_methods_in_source(path: String) -> int:
-	var file := FileAccess.open(path, FileAccess.READ)
-	if file == null:
-		return -1  # Cannot determine (e.g. exported binary)
-	var source := file.get_as_text()
-	var count := 0
-	for line in source.split("\n"):
-		if line.strip_edges().begins_with("static func test_"):
-			count += 1
-	return count
-
-
 func _run_test(script: Object, method: String) -> String:
 	if not script.has_method(method):
 		return "Method not found"
 
 	var result = script.call(method)
 
-	if result == null:
-		return ""
+	match typeof(result):
+		TYPE_STRING:
+			if result == "OK":
+				return ""
+			elif result == "":
+				return "Test returned empty string. Return \"OK\" for success."
+			else:
+				return result
 
-	if typeof(result) != TYPE_STRING:
-		return "Invalid return type: expected String"
-
-	return result
+		_:
+			return "Invalid return type: expected \"OK\" or error String"
 
 
 func log_success(message: String) -> void:
 	_log(message, COLOR_SUCCESS)
 
+
 func log_error(message: String) -> void:
 	_log(message, COLOR_ERROR)
 
+
 func log_info(message: String) -> void:
 	_log(message, COLOR_INFO)
+
 
 func log_debug(message: String) -> void:
 	_log(message, COLOR_DEBUG)
@@ -322,22 +320,18 @@ func _log(message: String, color: String) -> void:
 
 	if not is_headless and log_label:
 		log_label.text += ("\n" if log_label.text != "" else "") + formatted
-
-		var sc := log_label.get_parent()
-		if sc is ScrollContainer:
-			# WARNING: Using await here only for GUI updates to avoid Godot engine bugs
-			# on Windows unrelated to this GDExtension. All other code is kept sequential
-			# to prevent Windows-specific event loop issues that cause test runner hangs.
-			await get_tree().process_frame
-			sc.scroll_vertical = int(sc.get_v_scroll_bar().max_value)
+		call_deferred("_scroll_log_to_bottom")
 
 
-# WARNING: This function is kept completely sequential (no async/await) to avoid
-# Windows-only bugs in Godot's event loop and process frame handling that are
-# unrelated to this GDExtension. Any await statements outside of _log() will cause
-# the test runner to hang indefinitely on Windows, even though the same code works
-# on Linux and macOS. The shutdown must be immediate and synchronous.
-#
+func _scroll_log_to_bottom() -> void:
+	if is_headless or not log_label:
+		return
+
+	var sc := log_label.get_parent()
+	if sc is ScrollContainer:
+		sc.scroll_vertical = int(sc.get_v_scroll_bar().max_value)
+
+
 # Only auto-quits when running in headless or GODOT_TEST_RUNNER mode.
 # In game mode (desktop/mobile), stays open so the user can see results
 # regardless of pass/fail.

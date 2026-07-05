@@ -205,7 +205,7 @@ static func test_make_box_and_count_topology() -> String:
 	if shells.size() != 1:
 		return "Expected 1 shell, got %d" % shells.size()
 
-	return ""
+	return "OK"
 
 static func test_make_sphere() -> String:
 	var init_err = _init_runtime()
@@ -240,7 +240,7 @@ static func test_make_sphere() -> String:
 	if faces.size() < 1:
 		return "Expected at least 1 face for sphere, got %d" % faces.size()
 
-	return ""
+	return "OK"
 
 static func test_make_cylinder() -> String:
 	var init_err = _init_runtime()
@@ -271,7 +271,7 @@ static func test_make_cylinder() -> String:
 	if faces.size() != 3:
 		return "Expected 3 faces for cylinder, got %d" % faces.size()
 
-	return ""
+	return "OK"
 
 static func test_make_cone() -> String:
 	var init_err = _init_runtime()
@@ -298,7 +298,7 @@ static func test_make_cone() -> String:
 	if solids.size() != 1:
 		return "Expected 1 solid for cone, got %d" % solids.size()
 
-	return ""
+	return "OK"
 
 static func test_make_torus() -> String:
 	var init_err = _init_runtime()
@@ -324,7 +324,7 @@ static func test_make_torus() -> String:
 	if solids.size() != 1:
 		return "Expected 1 solid for torus, got %d" % solids.size()
 
-	return ""
+	return "OK"
 
 static func test_make_wedge() -> String:
 	var init_err = _init_runtime()
@@ -351,7 +351,7 @@ static func test_make_wedge() -> String:
 	if solids.size() != 1:
 		return "Expected 1 solid for wedge, got %d" % solids.size()
 
-	return ""
+	return "OK"
 
 # ---------------------------------------------------------------------------
 # Boolean operation tests
@@ -380,7 +380,7 @@ static func test_boolean_fuse_two_boxes() -> String:
 	if solids.size() < 1:
 		return "Expected at least 1 solid after fuse, got %d" % solids.size()
 
-	return ""
+	return "OK"
 
 static func test_boolean_cut_two_boxes() -> String:
 	var result = _make_two_overlapping_boxes()
@@ -400,7 +400,7 @@ static func test_boolean_cut_two_boxes() -> String:
 	if status != OK:
 			return "cut failed: %s" % _status_str(status)
 
-	return ""
+	return "OK"
 
 static func test_boolean_common_two_boxes() -> String:
 	var result = _make_two_overlapping_boxes()
@@ -420,7 +420,7 @@ static func test_boolean_common_two_boxes() -> String:
 	if status != OK:
 			return "common failed: %s" % _status_str(status)
 
-	return ""
+	return "OK"
 
 static func test_boolean_section_two_boxes() -> String:
 	var result = _make_two_overlapping_boxes()
@@ -440,7 +440,7 @@ static func test_boolean_section_two_boxes() -> String:
 	if status != OK:
 			return "section failed: %s" % _status_str(status)
 
-	return ""
+	return "OK"
 
 # ---------------------------------------------------------------------------
 # Graph count tests (using OclSize out-param)
@@ -495,7 +495,7 @@ static func test_graph_node_count() -> String:
 	if out_wire.get_value() < 6:
 		return "Expected at least 6 wires, got %d" % out_wire.get_value()
 
-	return ""
+	return "OK"
 
 # ---------------------------------------------------------------------------
 # Graph node kind query tests
@@ -516,7 +516,7 @@ static func test_graph_node_kind() -> String:
 	if out_kind.get_value() != OclCore.KIND_SOLID:
 		return "Expected SOLID kind, got %s" % _kind_str(out_kind.get_value())
 
-	return ""
+	return "OK"
 
 # ---------------------------------------------------------------------------
 # Vertex point query tests
@@ -545,7 +545,7 @@ static func test_vertex_point_query() -> String:
 	if (x != 0.0 and x != 10.0) or (y != 0.0 and y != 10.0) or (z != 0.0 and z != 10.0):
 		return "Unexpected vertex coordinates: (%f, %f, %f)" % [x, y, z]
 
-	return ""
+	return "OK"
 
 static func test_vertex_tolerance() -> String:
 	var result = _make_box()
@@ -564,7 +564,7 @@ static func test_vertex_tolerance() -> String:
 	if out_tol.get_value() < 0.0:
 		return "Expected non-negative tolerance, got %f" % out_tol.get_value()
 
-	return ""
+	return "OK"
 
 static func test_vertex_edge_count() -> String:
 	var result = _make_box()
@@ -584,7 +584,7 @@ static func test_vertex_edge_count() -> String:
 	if out_count.get_value() != 3:
 		return "Expected vertex to belong to 3 edges, got %d" % out_count.get_value()
 
-	return ""
+	return "OK"
 
 # ---------------------------------------------------------------------------
 # Edge topology tests
@@ -609,7 +609,7 @@ static func test_edge_face_count() -> String:
 	if out_count.get_value() != 2:
 		return "Expected edge adjacent to 2 faces, got %d" % out_count.get_value()
 
-	return ""
+	return "OK"
 
 static func test_edge_range() -> String:
 	var result = _make_box()
@@ -630,7 +630,7 @@ static func test_edge_range() -> String:
 	if out_last.get_value() <= out_first.get_value():
 		return "expected last > first, got %f <= %f" % [out_first.get_value(), out_last.get_value()]
 
-	return ""
+	return "OK"
 
 static func test_edge_tolerance() -> String:
 	var result = _make_box()
@@ -650,7 +650,7 @@ static func test_edge_tolerance() -> String:
 	if out_tol.get_value() < 0.0:
 		return "Expected non-negative tolerance, got %f" % out_tol.get_value()
 
-	return ""
+	return "OK"
 
 static func test_edge_has_curve() -> String:
 	var result = _make_box()
@@ -669,7 +669,7 @@ static func test_edge_has_curve() -> String:
 	if out_has.get_value() != 1:
 		return "Expected edge to have curve"
 
-	return ""
+	return "OK"
 
 static func test_edge_curve_kind() -> String:
 	var result = _make_box()
@@ -689,7 +689,7 @@ static func test_edge_curve_kind() -> String:
 	if out_kind.get_value() < 0:
 		return "Expected positive curve kind, got %d" % out_kind.get_value()
 
-	return ""
+	return "OK"
 
 static func test_edge_curve_kind_get_via_build() -> String:
 	# Uses graph_edge_curve_kind_get from OclTopoBuild
@@ -709,7 +709,7 @@ static func test_edge_curve_kind_get_via_build() -> String:
 	if out_kind.get_value() < 0:
 		return "Expected positive curve kind, got %d" % out_kind.get_value()
 
-	return ""
+	return "OK"
 
 static func test_edge_eval() -> String:
 	var result = _make_box()
@@ -733,7 +733,7 @@ static func test_edge_eval() -> String:
 	if status != OK:
 		return "topo_edge_eval failed: %s" % _status_str(status)
 
-	return ""
+	return "OK"
 
 static func test_edge_start_end_vertex() -> String:
 	var result = _make_box()
@@ -754,7 +754,7 @@ static func test_edge_start_end_vertex() -> String:
 	if out_sv.get_bits() == out_ev.get_bits():
 		return "Expected start and end vertices to differ"
 
-	return ""
+	return "OK"
 
 static func test_edge_vertex_count() -> String:
 	var result = _make_box()
@@ -774,7 +774,7 @@ static func test_edge_vertex_count() -> String:
 	if out_count.get_value() != 2:
 		return "Expected edge to have 2 vertices, got %d" % out_count.get_value()
 
-	return ""
+	return "OK"
 
 # ---------------------------------------------------------------------------
 # Wire topology tests
@@ -798,7 +798,7 @@ static func test_wire_is_closed() -> String:
 	if out_closed.get_value() != 1:
 		return "Expected wire to be closed"
 
-	return ""
+	return "OK"
 
 static func test_wire_edge_count() -> String:
 	var result = _make_box()
@@ -818,7 +818,7 @@ static func test_wire_edge_count() -> String:
 	if out_count.get_value() != 4:
 		return "Expected wire to have 4 edges, got %d" % out_count.get_value()
 
-	return ""
+	return "OK"
 
 static func test_wire_coedge_count() -> String:
 	var result = _make_box()
@@ -837,7 +837,7 @@ static func test_wire_coedge_count() -> String:
 	if out_count.get_value() != 4:
 		return "Expected wire to have 4 coedges, got %d" % out_count.get_value()
 
-	return ""
+	return "OK"
 
 static func test_wire_face_of() -> String:
 	var result = _make_box()
@@ -856,7 +856,7 @@ static func test_wire_face_of() -> String:
 	if out_face.get_bits() == 0:
 		return "Expected wire to have a valid face"
 
-	return ""
+	return "OK"
 
 static func test_wire_is_outer() -> String:
 	var result = _make_box()
@@ -876,7 +876,7 @@ static func test_wire_is_outer() -> String:
 	if out_outer.get_value() != 1:
 		return "Expected wire to be outer"
 
-	return ""
+	return "OK"
 
 # ---------------------------------------------------------------------------
 # Shell topology tests
@@ -900,7 +900,7 @@ static func test_shell_is_closed() -> String:
 	if out_closed.get_value() != 1:
 		return "Expected shell to be closed"
 
-	return ""
+	return "OK"
 
 static func test_shell_face_count() -> String:
 	var result = _make_box()
@@ -919,7 +919,7 @@ static func test_shell_face_count() -> String:
 	if out_count.get_value() != 6:
 		return "Expected shell to have 6 faces, got %d" % out_count.get_value()
 
-	return ""
+	return "OK"
 
 # ---------------------------------------------------------------------------
 # Face topology tests
@@ -943,7 +943,7 @@ static func test_face_wire_count() -> String:
 	if out_count.get_value() != 1:
 		return "Expected face to have 1 wire, got %d" % out_count.get_value()
 
-	return ""
+	return "OK"
 
 static func test_face_outer_wire() -> String:
 	var result = _make_box()
@@ -962,7 +962,7 @@ static func test_face_outer_wire() -> String:
 	if out_wire.get_bits() == 0:
 		return "Expected face to have a valid outer wire"
 
-	return ""
+	return "OK"
 
 static func test_face_uv_bounds() -> String:
 	var result = _make_box()
@@ -984,7 +984,7 @@ static func test_face_uv_bounds() -> String:
 	if out_umax.get_value() <= out_umin.get_value():
 		return "Expected umax > umin"
 
-	return ""
+	return "OK"
 
 static func test_face_surface_kind() -> String:
 	var result = _make_box()
@@ -1003,7 +1003,7 @@ static func test_face_surface_kind() -> String:
 	if out_kind.get_value() < 0:
 		return "Expected positive surface kind, got %d" % out_kind.get_value()
 
-	return ""
+	return "OK"
 
 static func test_face_surface_kind_get_via_build() -> String:
 	var result = _make_box()
@@ -1022,7 +1022,7 @@ static func test_face_surface_kind_get_via_build() -> String:
 	if out_kind.get_value() < 0:
 		return "Expected positive surface kind, got %d" % out_kind.get_value()
 
-	return ""
+	return "OK"
 
 static func test_face_uv_bounds_get_via_build() -> String:
 	var result = _make_box()
@@ -1041,7 +1041,7 @@ static func test_face_uv_bounds_get_via_build() -> String:
 	if out_uv.get_u_max() <= out_uv.get_u_min():
 		return "Expected uv umax > umin"
 
-	return ""
+	return "OK"
 
 # ---------------------------------------------------------------------------
 # Solid topology tests
@@ -1064,7 +1064,7 @@ static func test_solid_shell_count() -> String:
 	if out_count.get_value() != 1:
 		return "Expected solid to have 1 shell, got %d" % out_count.get_value()
 
-	return ""
+	return "OK"
 
 # ---------------------------------------------------------------------------
 # Tag operation tests
@@ -1093,7 +1093,7 @@ static func test_graph_tag_operations() -> String:
 		return "graph_tag_has returned false (got %d)" % out_has.get_value()
 
 	# List tags
-	var tags_buf := OclArrayData.new()
+	var tags_buf := OclTagViewArray.new()
 	var tags_status = OclTopo.graph_tag_list(graph, root.get_bits(), tags_buf)
 	if tags_status != OK:
 		return "graph_tag_list failed: %s" % _status_str(tags_status)
@@ -1101,7 +1101,7 @@ static func test_graph_tag_operations() -> String:
 		return "Expected [%s] tags, got %s" % [tag, str(tags_buf.data)]
 
 	# Query nodes by tag
-	var tagged_nodes_buf := OclArrayData.new()
+	var tagged_nodes_buf := OclNodeIdArray.new()
 	var tn_status = OclTopo.graph_tag_nodes(graph, tag, tagged_nodes_buf)
 	if tn_status != OK:
 		return "graph_tag_nodes failed: %s" % _status_str(tn_status)
@@ -1120,7 +1120,7 @@ static func test_graph_tag_operations() -> String:
 	if out_has.get_value() != 0:
 		return "graph_tag_has should return 0 after remove, got %d" % out_has.get_value()
 
-	return ""
+	return "OK"
 
 # ---------------------------------------------------------------------------
 # Name operation tests
@@ -1141,23 +1141,23 @@ static func test_graph_name_operations() -> String:
 		return "graph_name_set failed: %s" % _status_str(status)
 
 	# Get the name back (uses out-param, returns status)
-	var out_name_buf := OclArrayData.new()
+	var out_name_buf := OclString.new()
 	var ng_status = OclTopo.graph_name_get(graph, root.get_bits(), out_name_buf)
 	if ng_status != OK:
 		return "graph_name_get failed: %s" % _status_str(ng_status)
-	var out_name = out_name_buf.data[0]
+	var out_name = out_name_buf.value
 	if out_name != name:
 		return "Expected name '%s', got '%s'" % [name, out_name]
 
 	# Query name_nodes
-	var named_nodes_buf := OclArrayData.new()
+	var named_nodes_buf := OclNodeIdArray.new()
 	var nn_status = OclTopo.graph_name_nodes(graph, named_nodes_buf)
 	if nn_status != OK:
 		return "graph_name_nodes failed: %s" % _status_str(nn_status)
 	if named_nodes_buf.data.size() < 1:
 		return "Expected at least 1 named node, got %d" % named_nodes_buf.data.size()
 
-	return ""
+	return "OK"
 
 # ---------------------------------------------------------------------------
 # Color operation tests
@@ -1194,7 +1194,7 @@ static func test_graph_color_operations() -> String:
 		return "Color mismatch: (%f,%f,%f)" % [out_color.get_r(), out_color.get_g(), out_color.get_b()]
 
 	# Query color entries
-	var entries_buf := OclArrayData.new()
+	var entries_buf := OclColorRgbaArray.new()
 	var ce_status = OclTopo.graph_color_entries(graph, entries_buf)
 	if ce_status != OK:
 		return "graph_color_entries failed: %s" % _status_str(ce_status)
@@ -1206,7 +1206,7 @@ static func test_graph_color_operations() -> String:
 	if status != OK:
 		return "graph_color_unset failed: %s" % _status_str(status)
 
-	return ""
+	return "OK"
 
 # ---------------------------------------------------------------------------
 # Metadata operation tests
@@ -1226,16 +1226,16 @@ static func test_graph_metadata_operations() -> String:
 		return "graph_node_metadata_set failed: %s" % _status_str(status)
 
 	# Get node metadata back
-	var val_buf := OclArrayData.new()
+	var val_buf := OclString.new()
 	var nmg_status = OclTopo.graph_node_metadata_get(graph, root.get_bits(), "my_key", val_buf)
 	if nmg_status != OK:
 		return "graph_node_metadata_get failed: %s" % _status_str(nmg_status)
-	var val = val_buf.data[0]
+	var val = val_buf.value
 	if val != "my_value":
 		return "Expected 'my_value', got '%s'" % val
 
 	# List node metadata keys
-	var keys_buf := OclArrayData.new()
+	var keys_buf := OclMetadataKeyViewArray.new()
 	var nk_status = OclTopo.graph_node_metadata_keys(graph, root.get_bits(), keys_buf)
 	if nk_status != OK:
 		return "graph_node_metadata_keys failed: %s" % _status_str(nk_status)
@@ -1243,7 +1243,7 @@ static func test_graph_metadata_operations() -> String:
 		return "Expected keys containing 'my_key', got %s" % str(keys_buf.data)
 
 	# Query metadata nodes
-	var meta_nodes_buf := OclArrayData.new()
+	var meta_nodes_buf := OclNodeIdArray.new()
 	var mn_status = OclTopo.graph_node_metadata_nodes(graph, meta_nodes_buf)
 	if mn_status != OK:
 		return "graph_node_metadata_nodes failed: %s" % _status_str(mn_status)
@@ -1255,16 +1255,16 @@ static func test_graph_metadata_operations() -> String:
 	if status != OK:
 		return "graph_metadata_set failed: %s" % _status_str(status)
 
-	val_buf = OclArrayData.new()
+	val_buf = OclString.new()
 	var mg_status = OclTopo.graph_metadata_get(graph, "graph_key", val_buf)
 	if mg_status != OK:
 		return "graph_metadata_get failed: %s" % _status_str(mg_status)
-	val = val_buf.data[0]
+	val = val_buf.value
 	if val != "graph_value":
 		return "Expected 'graph_value', got '%s'" % val
 
 	# List graph metadata keys
-	var gkeys_buf := OclArrayData.new()
+	var gkeys_buf := OclMetadataKeyViewArray.new()
 	var gk_status = OclTopo.graph_metadata_keys(graph, gkeys_buf)
 	if gk_status != OK:
 		return "graph_metadata_keys failed: %s" % _status_str(gk_status)
@@ -1281,7 +1281,7 @@ static func test_graph_metadata_operations() -> String:
 	if status != OK:
 		return "graph_node_metadata_unset failed: %s" % _status_str(status)
 
-	return ""
+	return "OK"
 
 # ---------------------------------------------------------------------------
 # Material operation tests
@@ -1310,16 +1310,16 @@ static func test_graph_material_set() -> String:
 
 	# Get material back (uses out-param, returns status)
 	var out_info = OclMaterialInfo.new()
-	var mat_name_buf := OclArrayData.new()
+	var mat_name_buf := OclString.new()
 	var mg_status = OclTopo.graph_material_get(graph, root.get_bits(), out_info, mat_name_buf)
 	if mg_status != OK:
 		return "graph_material_get failed: %s" % _status_str(mg_status)
-	mat_name = mat_name_buf.data[0]
+	mat_name = mat_name_buf.value
 	if mat_name != "Aluminium":
 		return "Expected material name 'Aluminium', got '%s'" % mat_name
 
 	# Query material nodes
-	var mat_nodes_buf := OclArrayData.new()
+	var mat_nodes_buf := OclNodeIdArray.new()
 	var mn_status = OclTopo.graph_material_nodes(graph, mat_nodes_buf)
 	if mn_status != OK:
 		return "graph_material_nodes failed: %s" % _status_str(mn_status)
@@ -1331,7 +1331,7 @@ static func test_graph_material_set() -> String:
 	if status != OK:
 		return "graph_material_unset failed: %s" % _status_str(status)
 
-	return ""
+	return "OK"
 
 # ---------------------------------------------------------------------------
 # Units tests
@@ -1351,17 +1351,17 @@ static func test_graph_units() -> String:
 
 	# Get units back (uses out-param, returns status)
 	var out_scale = OclDouble.new()
-	var unit_name_buf := OclArrayData.new()
+	var unit_name_buf := OclString.new()
 	var ug_status = OclTopo.graph_units_get(graph, out_scale, unit_name_buf)
 	if ug_status != OK:
 		return "graph_units_get failed: %s" % _status_str(ug_status)
-	var unit_name = unit_name_buf.data[0]
+	var unit_name = unit_name_buf.value
 	if unit_name != "mm":
 		return "Expected 'mm', got '%s'" % unit_name
 	if abs(out_scale.get_value() - 0.001) > 1e-9:
 		return "Expected scale 0.001, got %f" % out_scale.get_value()
 
-	return ""
+	return "OK"
 
 # ---------------------------------------------------------------------------
 # Bounding box tests
@@ -1398,7 +1398,7 @@ static func test_bounding_box_box() -> String:
 	if abs(bmin.get_z() - 0.0) > tol:
 		return "Expected z_min=0.0, got %f" % bmin.get_z()
 
-	return ""
+	return "OK"
 
 static func test_obb_box() -> String:
 	var result = _make_box(10.0, 20.0, 30.0)
@@ -1431,7 +1431,7 @@ static func test_obb_box() -> String:
 	if abs(obb.get_z_half_size() - 15.0) > tol:
 		return "Expected z_half_size=15.0, got %f" % obb.get_z_half_size()
 
-	return ""
+	return "OK"
 
 # ---------------------------------------------------------------------------
 # Mass properties tests
@@ -1471,7 +1471,7 @@ static func test_mass_properties_box() -> String:
 	if abs(com.get_z() - 15.0) > tol:
 		return "Expected COM_z ~15.0, got %f" % com.get_z()
 
-	return ""
+	return "OK"
 
 # ---------------------------------------------------------------------------
 # Descendant / Adjacent query tests
@@ -1486,50 +1486,50 @@ static func test_descendant_get() -> String:
 	var root: OclNodeId = result.root
 
 	# Descendant edges from the root solid
-	var edge_buf := OclArrayData.new()
+	var edge_buf := OclNodeIdArray.new()
 	var edge_status = OclTopoBuild.graph_descendant_edges_get(graph, root.get_bits(), edge_buf)
 	if edge_status != OK:
 		return "graph_descendant_edges_get failed: %s" % _status_str(edge_status)
-	if edge_buf.size() != 12:
-		return "Expected 12 descendant edges, got %d" % edge_buf.size()
+	if edge_buf.data.size() != 12:
+		return "Expected 12 descendant edges, got %d" % edge_buf.data.size()
 
 	# Descendant faces from the root solid
-	var face_buf := OclArrayData.new()
+	var face_buf := OclNodeIdArray.new()
 	var face_status = OclTopoBuild.graph_descendant_faces_get(graph, root.get_bits(), face_buf)
 	if face_status != OK:
 		return "graph_descendant_faces_get failed: %s" % _status_str(face_status)
-	if face_buf.size() != 6:
-		return "Expected 6 descendant faces, got %d" % face_buf.size()
+	if face_buf.data.size() != 6:
+		return "Expected 6 descendant faces, got %d" % face_buf.data.size()
 
 	# Descendant vertices from the root solid
-	var vert_buf := OclArrayData.new()
+	var vert_buf := OclNodeIdArray.new()
 	var vert_status = OclTopoBuild.graph_descendant_vertices_get(graph, root.get_bits(), vert_buf)
 	if vert_status != OK:
 		return "graph_descendant_vertices_get failed: %s" % _status_str(vert_status)
-	if vert_buf.size() != 8:
-		return "Expected 8 descendant vertices, got %d" % vert_buf.size()
+	if vert_buf.data.size() != 8:
+		return "Expected 8 descendant vertices, got %d" % vert_buf.data.size()
 
 	# Descendants with kind (get each kind separately)
-	var desc_faces_buf := OclArrayData.new()
+	var desc_faces_buf := OclNodeIdArray.new()
 	var df_status = OclTopoBuild.graph_descendants_get(graph, root.get_bits(), OclCore.KIND_FACE, desc_faces_buf)
 	if df_status != OK:
 		return "graph_descendants_get(faces) failed: %s" % _status_str(df_status)
-	var desc_edges_buf := OclArrayData.new()
+	var desc_edges_buf := OclNodeIdArray.new()
 	var de_status = OclTopoBuild.graph_descendants_get(graph, root.get_bits(), OclCore.KIND_EDGE, desc_edges_buf)
 	if de_status != OK:
 		return "graph_descendants_get(edges) failed: %s" % _status_str(de_status)
-	var desc_verts_buf := OclArrayData.new()
+	var desc_verts_buf := OclNodeIdArray.new()
 	var dv_status = OclTopoBuild.graph_descendants_get(graph, root.get_bits(), OclCore.KIND_VERTEX, desc_verts_buf)
 	if dv_status != OK:
 		return "graph_descendants_get(vertices) failed: %s" % _status_str(dv_status)
-	if desc_faces_buf.size() != 6:
-		return "Expected 6 face descendants, got %d" % desc_faces_buf.size()
-	if desc_edges_buf.size() != 12:
-		return "Expected 12 edge descendants, got %d" % desc_edges_buf.size()
-	if desc_verts_buf.size() != 8:
-		return "Expected 8 vertex descendants, got %d" % desc_verts_buf.size()
+	if desc_faces_buf.data.size() != 6:
+		return "Expected 6 face descendants, got %d" % desc_faces_buf.data.size()
+	if desc_edges_buf.data.size() != 12:
+		return "Expected 12 edge descendants, got %d" % desc_edges_buf.data.size()
+	if desc_verts_buf.data.size() != 8:
+		return "Expected 8 vertex descendants, got %d" % desc_verts_buf.data.size()
 
-	return ""
+	return "OK"
 
 static func test_adjacent_queries() -> String:
 	var result = _make_box()
@@ -1543,11 +1543,11 @@ static func test_adjacent_queries() -> String:
 	if faces.size() < 1:
 		return "Expected at least 1 face"
 
-	var adj_faces_buf := OclArrayData.new()
+	var adj_faces_buf := OclNodeIdArray.new()
 	var af_status = OclTopoBuild.graph_adjacent_faces_get(graph, faces[0], adj_faces_buf)
 	if af_status != OK:
 		return "graph_adjacent_faces_get failed: %s" % _status_str(af_status)
-	if adj_faces_buf.size() < 1:
+	if adj_faces_buf.data.size() < 1:
 		return "Expected at least 1 adjacent face"
 
 	# Get an edge and query adjacent edges
@@ -1555,14 +1555,14 @@ static func test_adjacent_queries() -> String:
 	if edges.size() < 1:
 		return "Expected at least 1 edge"
 
-	var adj_edges_buf := OclArrayData.new()
+	var adj_edges_buf := OclNodeIdArray.new()
 	var ae_status = OclTopoBuild.graph_adjacent_edges_get(graph, edges[0], adj_edges_buf)
 	if ae_status != OK:
 		return "graph_adjacent_edges_get failed: %s" % _status_str(ae_status)
-	if adj_edges_buf.size() < 1:
+	if adj_edges_buf.data.size() < 1:
 		return "Expected at least 1 adjacent edge"
 
-	return ""
+	return "OK"
 
 # ---------------------------------------------------------------------------
 # Graph clone and compact tests
@@ -1594,7 +1594,7 @@ static func test_graph_clone() -> String:
 	if orig_faces.size() != cloned_faces.size():
 		return "Cloned graph has %d faces, expected %d" % [cloned_faces.size(), orig_faces.size()]
 
-	return ""
+	return "OK"
 
 static func test_graph_compact() -> String:
 	var result = _make_box(10.0, 10.0, 10.0)
@@ -1607,7 +1607,7 @@ static func test_graph_compact() -> String:
 	if status != OK:
 		return "graph_compact failed: %s" % _status_str(status)
 
-	return ""
+	return "OK"
 
 # ---------------------------------------------------------------------------
 # Edge split tests
@@ -1639,7 +1639,7 @@ static func test_edge_split() -> String:
 	if out_e1.get_bits() == 0 or out_e2.get_bits() == 0:
 		return "Expected valid split edge IDs"
 
-	return ""
+	return "OK"
 
 # ---------------------------------------------------------------------------
 # Batch operation tests
@@ -1662,7 +1662,7 @@ static func test_batch_operations() -> String:
 	if status != OK:
 		return "batch_commit failed: %s" % _status_str(status)
 
-	return ""
+	return "OK"
 
 # ---------------------------------------------------------------------------
 # Remove operation tests
@@ -1680,7 +1680,7 @@ static func test_topo_remove() -> String:
 	if status != OK:
 		return "topo_remove failed: %s" % _status_str(status)
 
-	return ""
+	return "OK"
 
 static func test_topo_remove_subgraph() -> String:
 	var result = _make_two_overlapping_boxes()
@@ -1694,7 +1694,7 @@ static func test_topo_remove_subgraph() -> String:
 	if status != OK:
 		return "topo_remove_subgraph failed: %s" % _status_str(status)
 
-	return ""
+	return "OK"
 
 # ---------------------------------------------------------------------------
 # Measurement tests
@@ -1720,7 +1720,7 @@ static func test_graph_measure() -> String:
 	if out_dist.get_value() <= 0.0:
 		return "Expected positive distance, got %f" % out_dist.get_value()
 
-	return ""
+	return "OK"
 
 # ---------------------------------------------------------------------------
 # Error handling tests
@@ -1750,7 +1750,7 @@ static func test_error_handling() -> String:
 	if err.get_status() == 0:
 		return "Expected non-zero error status"
 
-	return ""
+	return "OK"
 
 # ---------------------------------------------------------------------------
 # For-each / Callback tests
@@ -1776,7 +1776,7 @@ static func test_graph_for_each() -> String:
 	if visited.size() < 1:
 		return "Expected at least 1 solid visited"
 
-	return ""
+	return "OK"
 
 # ---------------------------------------------------------------------------
 # UID/NodeID round-trip tests
@@ -1806,7 +1806,7 @@ static func test_uid_roundtrip() -> String:
 	if out_node.get_bits() != root.get_bits():
 		return "UID round-trip mismatch: %d != %d" % [out_node.get_bits(), root.get_bits()]
 
-	return ""
+	return "OK"
 
 # ---------------------------------------------------------------------------
 # History tests
@@ -1827,18 +1827,18 @@ static func test_graph_history() -> String:
 		return "graph_uid_from_node_id failed: %s" % _status_str(status)
 
 	# Query history_modified
-	var modified_buf := OclArrayData.new()
+	var modified_buf := OclUidArray.new()
 	var mod_status = OclTopo.graph_history_modified(graph, out_uid.get_bits(), modified_buf)
 	if mod_status != OK:
 		return "graph_history_modified failed: %s" % _status_str(mod_status)
 
 	# Query history_generated
-	var generated_buf := OclArrayData.new()
+	var generated_buf := OclUidArray.new()
 	var gen_status = OclTopo.graph_history_generated(graph, out_uid.get_bits(), generated_buf)
 	if gen_status != OK:
 		return "graph_history_generated failed: %s" % _status_str(gen_status)
 
-	return ""
+	return "OK"
 
 # ---------------------------------------------------------------------------
 # Coedge tests
@@ -1896,7 +1896,7 @@ static func test_coedge_queries() -> String:
 	if status != OK:
 		return "topo_coedge_range failed: %s" % _status_str(status)
 
-	return ""
+	return "OK"
 
 # ---------------------------------------------------------------------------
 # Runtime info tests
@@ -1919,7 +1919,7 @@ static func test_runtime_version() -> String:
 	if occt_ver == "":
 		return "Expected non-empty OCCT version string"
 
-	return ""
+	return "OK"
 
 # ---------------------------------------------------------------------------
 # Mesh generation tests
@@ -1940,7 +1940,7 @@ static func test_mesh_generate() -> String:
 	if status != OK:
 		return "mesh generate failed: %s" % _status_str(status)
 
-	return ""
+	return "OK"
 
 static func test_mesh_faces_on_box() -> String:
 	var result = _make_box(10.0, 10.0, 10.0)
@@ -1969,7 +1969,7 @@ static func test_mesh_faces_on_box() -> String:
 	if mesh.get_surface_count() == 0:
 		return "expected at least 1 surface, got 0"
 
-	return ""
+	return "OK"
 
 # ---------------------------------------------------------------------------
 # Edge is_degenerated / is_manifold / is_boundary tests
@@ -2001,7 +2001,7 @@ static func test_edge_boolean_queries() -> String:
 	if st != OK:
 		return "topo_edge_is_boundary failed: %s" % _status_str(st)
 
-	return ""
+	return "OK"
 
 # ---------------------------------------------------------------------------
 # Vertex parameter tests
@@ -2026,7 +2026,7 @@ static func test_vertex_parameter_on_edge() -> String:
 	if status != OK:
 		return "topo_vertex_parameter failed: %s" % _status_str(status)
 
-	return ""
+	return "OK"
 
 # ---------------------------------------------------------------------------
 # Face has_surface / has_triangulation / natural_restriction tests
@@ -2060,7 +2060,7 @@ static func test_face_boolean_queries() -> String:
 	if st != OK:
 		return "topo_face_has_triangulation failed: %s" % _status_str(st)
 
-	return ""
+	return "OK"
 
 # ---------------------------------------------------------------------------
 # Edge same_parameter / same_range tests
@@ -2085,7 +2085,7 @@ static func test_edge_same_parameter_and_range() -> String:
 	if st != OK:
 		return "topo_edge_same_range failed: %s" % _status_str(st)
 
-	return ""
+	return "OK"
 
 # ---------------------------------------------------------------------------
 # Wire distinct_edge_count test
@@ -2108,7 +2108,7 @@ static func test_wire_distinct_edge_count() -> String:
 	if out_count.get_value() != 4:
 		return "Expected wire to have 4 distinct edges, got %d" % out_count.get_value()
 
-	return ""
+	return "OK"
 
 # ---------------------------------------------------------------------------
 # TopoEdgeView / FaceView / etc. initialization tests
@@ -2129,7 +2129,7 @@ static func test_edge_view() -> String:
 	if status != OK:
 		return "topo_edge_view failed: %s" % _status_str(status)
 
-	return ""
+	return "OK"
 
 static func test_vertex_view() -> String:
 	var result = _make_box()
@@ -2146,7 +2146,7 @@ static func test_vertex_view() -> String:
 	if status != OK:
 		return "topo_vertex_view failed: %s" % _status_str(status)
 
-	return ""
+	return "OK"
 
 static func test_face_view() -> String:
 	var result = _make_box()
@@ -2163,7 +2163,7 @@ static func test_face_view() -> String:
 	if status != OK:
 		return "topo_face_view failed: %s" % _status_str(status)
 
-	return ""
+	return "OK"
 
 static func test_wire_view() -> String:
 	var result = _make_box()
@@ -2180,7 +2180,7 @@ static func test_wire_view() -> String:
 	if status != OK:
 		return "topo_wire_view failed: %s" % _status_str(status)
 
-	return ""
+	return "OK"
 
 static func test_shell_view() -> String:
 	var result = _make_box()
@@ -2197,7 +2197,7 @@ static func test_shell_view() -> String:
 	if status != OK:
 		return "topo_shell_view failed: %s" % _status_str(status)
 
-	return ""
+	return "OK"
 
 static func test_solid_view() -> String:
 	var result = _make_box()
@@ -2214,7 +2214,7 @@ static func test_solid_view() -> String:
 	if status != OK:
 		return "topo_solid_view failed: %s" % _status_str(status)
 
-	return ""
+	return "OK"
 
 static func test_compound_view() -> String:
 	var result = _make_box()
@@ -2229,7 +2229,7 @@ static func test_compound_view() -> String:
 	if status != NOT_FOUND:
 		return "Expected NOT_FOUND for invalid compound, got %s" % _status_str(status)
 
-	return ""
+	return "OK"
 
 
 # ---------------------------------------------------------------------------
@@ -2267,7 +2267,7 @@ static func test_ref_uid_roundtrip() -> String:
 	if out_uid2.get_bits() != out_uid.get_bits():
 		return "UID byte round-trip mismatch: %d != %d" % [out_uid2.get_bits(), out_uid.get_bits()]
 
-	return ""
+	return "OK"
 
 # ---------------------------------------------------------------------------
 # Select / filter tests
@@ -2304,7 +2304,7 @@ static func test_select_iter_create() -> String:
 	if face_count != 6:
 		return "Expected 6 selected faces, got %d" % face_count
 
-	return ""
+	return "OK"
 
 # ---------------------------------------------------------------------------
 # Graph UID table tests
@@ -2317,19 +2317,19 @@ static func test_graph_uid_table() -> String:
 
 	var graph: OclGraphHandle = result.graph
 
-	var uid_buf := OclArrayData.new()
+	var uid_buf := OclNodeIdArray.new()
 	var uid_status = OclTopo.graph_uid_table(graph, uid_buf)
 	if uid_status != OK:
 		return "graph_uid_table failed: %s" % _status_str(uid_status)
-	if uid_buf.size() < 1:
+	if uid_buf.data.size() < 1:
 		return "Expected non-empty UID table"
 
-	var ref_uid_buf := OclArrayData.new()
+	var ref_uid_buf := OclRefIdArray.new()
 	var ref_status = OclTopo.graph_ref_uid_table(graph, ref_uid_buf)
 	if ref_status != OK:
 		return "graph_ref_uid_table failed: %s" % _status_str(ref_status)
 
-	return ""
+	return "OK"
 
 # ---------------------------------------------------------------------------
 # Graph history deleted_all test
@@ -2342,12 +2342,12 @@ static func test_graph_history_deleted_all() -> String:
 
 	var graph: OclGraphHandle = result.graph
 
-	var deleted_buf := OclArrayData.new()
+	var deleted_buf := OclUidArray.new()
 	var del_status = OclTopo.graph_history_deleted_all(graph, deleted_buf)
 	if del_status != OK:
 		return "graph_history_deleted_all failed: %s" % _status_str(del_status)
 
-	return ""
+	return "OK"
 
 # ---------------------------------------------------------------------------
 # Compound child count test (empty)
@@ -2364,7 +2364,7 @@ static func test_compound_child_count_empty() -> String:
 	if compounds.size() != 0:
 		return "Expected 0 compounds in box graph, got %d" % compounds.size()
 
-	return ""
+	return "OK"
 
 # ---------------------------------------------------------------------------
 # Main entry point for external invocation

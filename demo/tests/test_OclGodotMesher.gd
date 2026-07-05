@@ -80,7 +80,7 @@ static func test_mesh_faces_null_graph() -> String:
 		return "expected non-null ArrayMesh, got null"
 	if mesh.get_surface_count() != 0:
 		return "expected 0 surfaces for null graph, got %d" % mesh.get_surface_count()
-	return ""
+	return "OK"
 
 static func test_mesh_faces_reuse_existing() -> String:
 	var mesher = OclGodotMesher.new()
@@ -103,7 +103,7 @@ static func test_mesh_faces_reuse_existing() -> String:
 	# Should be cleared (no surfaces due to empty face_ids)
 	if result.get_surface_count() != 0:
 		return "expected 0 surfaces after clear with no ids, got %d" % result.get_surface_count()
-	return ""
+	return "OK"
 
 static func test_mesh_edges_null_graph() -> String:
 	var mesher = OclGodotMesher.new()
@@ -113,7 +113,7 @@ static func test_mesh_edges_null_graph() -> String:
 		return "expected non-null MultiMesh, got null"
 	if mm.get_instance_count() != 0:
 		return "expected 0 instances for null graph, got %d" % mm.get_instance_count()
-	return ""
+	return "OK"
 
 static func test_mesh_edges_reuse_existing() -> String:
 	var mesher = OclGodotMesher.new()
@@ -125,7 +125,7 @@ static func test_mesh_edges_reuse_existing() -> String:
 		return "expected same MultiMesh object back"
 	if result.get_instance_count() != 0:
 		return "expected 0 instances after clear"
-	return ""
+	return "OK"
 
 static func test_mesh_vertices_null_graph() -> String:
 	var mesher = OclGodotMesher.new()
@@ -135,7 +135,7 @@ static func test_mesh_vertices_null_graph() -> String:
 		return "expected non-null MultiMesh, got null"
 	if mm.get_instance_count() != 0:
 		return "expected 0 instances for null graph, got %d" % mm.get_instance_count()
-	return ""
+	return "OK"
 
 static func test_mesh_vertices_reuse_existing() -> String:
 	var mesher = OclGodotMesher.new()
@@ -147,7 +147,7 @@ static func test_mesh_vertices_reuse_existing() -> String:
 		return "expected same MultiMesh object back"
 	if result.get_instance_count() != 0:
 		return "expected 0 instances after clear"
-	return ""
+	return "OK"
 
 # ---------------------------------------------------------------------------
 # Mesh batch methods — integration tests
@@ -202,7 +202,7 @@ static func test_mesh_faces_with_box() -> String:
 	if not has_colors:
 		return "expected feature ID colors (include_feature_ids=true)"
 
-	return ""
+	return "OK"
 
 static func test_mesh_faces_defaults_no_attributes() -> String:
 	var result = _make_box_graph()
@@ -242,7 +242,7 @@ static func test_mesh_faces_defaults_no_attributes() -> String:
 	if has_tangents:
 		return "expected NO tangents by default"
 
-	return ""
+	return "OK"
 
 static func test_mesh_edges_with_box() -> String:
 	var result = _make_box_graph()
@@ -272,7 +272,7 @@ static func test_mesh_edges_with_box() -> String:
 	if mm.get_mesh() == null:
 		return "expected a base cylinder mesh"
 
-	return ""
+	return "OK"
 
 static func test_mesh_vertices_with_box() -> String:
 	var result = _make_box_graph()
@@ -302,7 +302,7 @@ static func test_mesh_vertices_with_box() -> String:
 	if mm.get_mesh() == null:
 		return "expected a base sphere mesh"
 
-	return ""
+	return "OK"
 
 # ---------------------------------------------------------------------------
 # Bounding-box consistency: mesh_edges and mesh_vertices should use the
@@ -347,7 +347,7 @@ static func test_mesh_bbox_consistency() -> String:
 	if vert_mm.get_instance_count() == 0:
 		return "expected vertex instances"
 
-	return ""
+	return "OK"
 
 # ---------------------------------------------------------------------------
 # PhysicsBody3D collision shape tests
@@ -392,7 +392,7 @@ static func test_mesh_faces_physics_body() -> String:
 	if not (shape is ConcavePolygonShape3D):
 		return "expected ConcavePolygonShape3D for faces, got %s" % shape.get_class()
 	body.free()
-	return ""
+	return "OK"
 
 static func test_mesh_edges_physics_body() -> String:
 	var result = _make_box_graph()
@@ -432,7 +432,7 @@ static func test_mesh_edges_physics_body() -> String:
 	if not (shape is CapsuleShape3D):
 		return "expected CapsuleShape3D for edges, got %s" % shape.get_class()
 	body.free()
-	return ""
+	return "OK"
 
 static func test_mesh_vertices_physics_body() -> String:
 	var result = _make_box_graph()
@@ -472,7 +472,7 @@ static func test_mesh_vertices_physics_body() -> String:
 	if not (shape is SphereShape3D):
 		return "expected SphereShape3D for vertices, got %s" % shape.get_class()
 	body.free()
-	return ""
+	return "OK"
 
 static func test_physics_body_reuse_clears_children() -> String:
 	var result = _make_box_graph()
@@ -507,4 +507,4 @@ static func test_physics_body_reuse_clears_children() -> String:
 		return "expected same number of children after reuse, got %d vs %d" % [second_count, first_count]
 
 	body.free()
-	return ""
+	return "OK"
