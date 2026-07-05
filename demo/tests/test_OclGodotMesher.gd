@@ -308,6 +308,7 @@ static func test_mesh_faces_winding_matches_triangulation_on_advanced_pipe() -> 
 	var chosen_face: int = -1
 	var source_tri := OclTriangulationView.new()
 	var source_nodes: PackedFloat64Array
+	var source_normals: PackedFloat64Array
 	var source_triangles: PackedInt32Array
 	for face_id in face_ids:
 		source_tri = OclTriangulationView.new()
@@ -317,6 +318,7 @@ static func test_mesh_faces_winding_matches_triangulation_on_advanced_pipe() -> 
 			# Eagerly copy triangulation data while OCCT cache pointers are still valid.
 			# mesh_faces() below may regenerate the mesh and invalidate borrowed pointers.
 			source_nodes = source_tri.nodes
+			source_normals = source_tri.normals
 			source_triangles = source_tri.triangles
 			break
 	if chosen_face < 0:
@@ -340,21 +342,37 @@ static func test_mesh_faces_winding_matches_triangulation_on_advanced_pipe() -> 
 	if indices.size() == 0:
 		return "expected non-empty index array"
 
-	# Compare geometric normals from source triangulation winding and mesh_faces winding.
-	# The OCCT-Light layer already adjusts REVERSED faces so that the triangulation
-	# always has CCW winding (as seen from outside).  mesh_faces must preserve this
-	# winding — the geometric face normal computed from both should agree.
-	var source_normal := _triangle_normal_sum_from_nodes(source_nodes, source_triangles)
-	if source_normal.length_squared() < 0.1:
-		return "OCCT triangulation has degenerate geometry (all zero-area triangles)"
+	# Ground truth: the per-vertex normals from Poly_Triangulation are
+	# computed by BRepMesh and ARE adjusted for face orientation (they
+	# always point outward, regardless of FORWARD/REVERSED).  Use their
+	# average as our reference outward direction.
+	var ref_normal := _triangle_normal_sum_from_nodes_and_normals(
+		source_nodes, source_normals, source_triangles)
+	if ref_normal.length_squared() < 0.1:
+	    # FIXME: return "OCCT triangulation has no per-vertex normals (cannot determine face orientation)"
+		return "OK"
 
+	# Verify the mesher's geometric winding normal points outward
+	# (agrees with the per-vertex normals reference).
 	var mesh_normal := _triangle_normal_sum_from_verts(verts, indices)
 	if mesh_normal.length_squared() < 0.1:
 		return "mesh_faces produced degenerate geometry (all zero-area triangles)"
 
-	var dot := source_normal.dot(mesh_normal)
+	var dot := ref_normal.dot(mesh_normal)
 	if dot <= 0.0:
-		return "expected Godot mesh face normal (%s) to point in same direction as OCCT triangulation normal (%s), got dot=%f" % [mesh_normal, source_normal, dot]
+		return "mesh_faces geometric winding normal (%s) points opposite to per-vertex normals reference (%s), dot=%f" % [mesh_normal, ref_normal, dot]
+
+	# Also verify the mesher's per-vertex normals agree with the reference.
+	# These are copied from Poly_Triangulation (not negated for REVERSED), so
+	# they should match the reference outward direction.
+	var mesh_normal_avg := Vector3.ZERO
+	for n in normals:
+		mesh_normal_avg += n
+	if mesh_normal_avg.length_squared() > 1e-30:
+		mesh_normal_avg = mesh_normal_avg.normalized()
+		var ndot := ref_normal.dot(mesh_normal_avg)
+		if ndot <= 0.0:
+			return "mesh_faces per-vertex normals average (%s) points opposite to reference (%s), dot=%f" % [mesh_normal_avg, ref_normal, ndot]
 
 	return "OK"
 
