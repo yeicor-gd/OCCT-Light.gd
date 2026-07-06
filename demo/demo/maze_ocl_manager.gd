@@ -56,20 +56,86 @@ func _generate():
 	status = OclPrimSweep.pipe(graph, sweep_info, sweep_id) as OclCore.status
 	assert(status == OclCore.OK, "Got status " + str(OclCore.status_to_string(status)))
 	
+	# FIXME: Don't know how to remove things from the graph 
 	#status = OclTopo.topo_remove_occurrence(graph, spline_wire_id.bits)
 	#assert(status == OclCore.OK, "Got status " + str(OclCore.status_to_string(status)))
 	#status = OclTopo.topo_remove_occurrence(graph, plane_face_id.bits)
 	#assert(status == OclCore.OK, "Got status " + str(OclCore.status_to_string(status)))
 	
+	print("[OclManager] Generated solid in ", (Time.get_ticks_usec() - start_time) / 1000.0, " ms")
+	start_time = Time.get_ticks_usec()
+	
 	var vertices_mesh := OclGodotMesher.mesh_vertices(graph, $Vertices, null, null, 0.002)
 	$Vertices.multimesh = vertices_mesh
-	print("Generated ", vertices_mesh.instance_count, " vertices in ", (Time.get_ticks_usec() - start_time) / 1000.0, " ms")
+	print("[OclManager] Meshed ", vertices_mesh.instance_count, " vertices in ", (Time.get_ticks_usec() - start_time) / 1000.0, " ms")
+	start_time = Time.get_ticks_usec()
 	
 	var edges_mesh := OclGodotMesher.mesh_edges(graph, $Edges, null, null, 0.001)
 	$Edges.multimesh = edges_mesh
-	print("Generated ", edges_mesh.instance_count, " edge segments in ", (Time.get_ticks_usec() - start_time) / 1000.0, " ms")
+	print("[OclManager] Meshed ", edges_mesh.instance_count, " edge segments in ", (Time.get_ticks_usec() - start_time) / 1000.0, " ms")
+	start_time = Time.get_ticks_usec()
 	
-	var faces_mesh := OclGodotMesher.mesh_faces(graph, $Faces, null, null, true, true, true, true)
+	# FIXME: SOME FACES ARE SWAPPED (LOOKING INSIDE THE MODEL)
+	#var faces_mesh := OclGodotMesher.mesh_faces(graph, $Faces, null, null, true, true, true, true)
+	#$Faces.mesh = faces_mesh
+	#print("Generated ", faces_mesh.get_faces().size(), " face segments in ", (Time.get_ticks_usec() - start_time) / 1000.0, " ms")
+	# WORKAROUND FOR NOW:
+	var stl_bytes := OclByteArray.new()
+	status = OclDe.write_memory(graph, sweep_id.bits, "stl", stl_bytes)
+	assert(status == OclCore.OK, "Got status " + str(OclCore.status_to_string(status)))
+	print("[OclManager] Meshed ", stl_bytes.value.size(), "B for faces to memory in ", (Time.get_ticks_usec() - start_time) / 1000.0, " ms")
+	start_time = Time.get_ticks_usec()
+	var faces_mesh = StlImporter.LoadFromBytes(stl_bytes.value)
+	assert(!StlImporter.IsError(faces_mesh), "StlImporter failed with result " + str(faces_mesh))
+	var mesh: ArrayMesh = faces_mesh
 	$Faces.mesh = faces_mesh
-	print("Generated ", faces_mesh.get_faces().size(), " face segments in ", (Time.get_ticks_usec() - start_time) / 1000.0, " ms")
-	
+	print("[OclManager] Read ", faces_mesh.get_faces().size(), " faces (from GDScript) in ", (Time.get_ticks_usec() - start_time) / 1000.0, " ms")
+	start_time = Time.get_ticks_usec()
+
+func array_mesh_from_binary_stl(bytes: PackedByteArray) -> ArrayMesh:
+	var stream := StreamPeerBuffer.new()
+	stream.data_array = bytes
+	stream.big_endian = false
+
+	# Skip 80-byte header
+	stream.seek(80)
+
+	var triangle_count = stream.get_u32()
+
+	var vertices = PackedVector3Array()
+	var normals = PackedVector3Array()
+
+	vertices.resize(triangle_count * 3)
+	normals.resize(triangle_count * 3)
+
+	var vi = 0
+
+	for i in triangle_count:
+		# Face normal
+		var normal = Vector3(
+			stream.get_float(),
+			stream.get_float(),
+			stream.get_float()
+		)
+
+		for j in 3:
+			vertices[vi] = Vector3(
+				stream.get_float(),
+				stream.get_float(),
+				stream.get_float()
+			)
+			normals[vi] = normal
+			vi += 1
+
+		# Attribute byte count (usually zero)
+		stream.get_u16()
+
+	var arrays = []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = vertices
+	arrays[Mesh.ARRAY_NORMAL] = normals
+
+	var mesh = ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+
+	return mesh

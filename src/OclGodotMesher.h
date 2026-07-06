@@ -9,10 +9,11 @@
 //   UV parameter space, which for a REVERSED face produces CW winding in
 //   3D (geometric cross product points inward).  However the per-vertex
 //   normals ARE already adjusted for face orientation (outward-pointing).
-//   This mesher detects REVERSED by comparing the geometric winding normal
-//   against the per-vertex normals (or surface evaluation as fallback),
-//   then flips triangle indices to restore CCW/outward winding WITHOUT
-//   negating the already-correct per-vertex normals.
+//   This mesher detects REVERSED using geometric inference: the winding
+//   normal from the raw triangulation indices is compared against per-vertex
+//   normals (which are always outward-pointing).  If they point opposite,
+//   the indices are flipped to restore CCW/outward winding WITHOUT negating
+//   already-correct per-vertex normals.
 // ---------------------------------------------------------------------------
 
 #ifndef OCLGODOTMESHER_H
@@ -21,6 +22,7 @@
 #include <godot_cpp/classes/array_mesh.hpp>
 #include <godot_cpp/classes/multi_mesh.hpp>
 #include <godot_cpp/classes/ref.hpp>
+#include <godot_cpp/classes/resource.hpp>
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
 #include <cstdint>
@@ -30,8 +32,8 @@
 
 using namespace godot;
 
-class OclGodotMesher : public godot::RefCounted {
-    GDCLASS(OclGodotMesher, godot::RefCounted)
+class OclGodotMesher : public godot::Resource {
+    GDCLASS(OclGodotMesher, godot::Resource)
 protected:
     static void _bind_methods();
 public:

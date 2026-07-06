@@ -22,10 +22,14 @@
 //   1. Flip triangle indices (swap 1↔2) → restores CCW/outward winding.
 //   2. Keep per-vertex normals as-is — they are already outward-pointing.
 //
-// Detection: compare the geometric winding normal against the average of
-// the per-vertex normals (reliable, always available when mesh data is
-// present).  Fall back to surface evaluation (occtl_topo_face_eval_d1)
-// when per-vertex normals are absent.
+// Detection (geometric inference only):
+//   Face definition nodes in OCCT-Light always carry TopAbs_FORWARD
+//   orientation; the REVERSED flag lives in parent (shell→face) references
+//   which the C API does not expose directly.  Therefore we use geometric
+//   comparison:
+//   1. Compute geometric winding normal from raw triangulation indices.
+//   2. Compare against per-vertex normals (already outward-pointing).
+//   3. Fall back to evaluating dS/du × dS/dv at UV centre.
 // ---------------------------------------------------------------------------
 
 #include "OclGodotMesher.h"
@@ -57,10 +61,9 @@
 
 #include <cmath>
 #include <cstring>
-#include <unordered_map>
-#include <vector>
 
 #include "occtl/occtl_mesh.h"
+
 #include "occtl/occtl_topo_relation.h"
 
 using namespace godot;
@@ -300,8 +303,8 @@ static Ref<ArrayMesh> _make_sphere_mesh(int slices) {
     for (int i = 0; i < slices; i++) {
         int const next = (i + 1) % slices;
         indices.push_back(top_idx);
-        indices.push_back(1 + next);
         indices.push_back(1 + i);
+        indices.push_back(1 + next);
     }
     // Body
     for (int j = 0; j < stacks - 2; j++) {
@@ -312,11 +315,11 @@ static Ref<ArrayMesh> _make_sphere_mesh(int slices) {
             int const c    = 1 + (j + 1) * slices + i;
             int const d    = 1 + (j + 1) * slices + next;
             indices.push_back(a);
-            indices.push_back(b);
             indices.push_back(c);
+            indices.push_back(b);
             indices.push_back(d);
-            indices.push_back(c);
             indices.push_back(b);
+            indices.push_back(c);
         }
     }
     // Bottom cap
@@ -324,8 +327,8 @@ static Ref<ArrayMesh> _make_sphere_mesh(int slices) {
     for (int i = 0; i < slices; i++) {
         int const next = (i + 1) % slices;
         indices.push_back(bottom_idx);
-        indices.push_back(last_ring_start + i);
         indices.push_back(last_ring_start + next);
+        indices.push_back(last_ring_start + i);
     }
 
     Array arrays;
@@ -338,22 +341,32 @@ static Ref<ArrayMesh> _make_sphere_mesh(int slices) {
     return mesh;
 }
 
-// ===========================================================================
-// REVERSED-face detection
-// ===========================================================================
-
+/// FIXME: Not actually working!
+///
 /// Returns true when the face's triangulation has CW winding in 3D (i.e. the
 /// geometric normal from e1×e2 points inward), which occurs for faces whose
 /// TopAbs_Orientation is REVERSED.
 ///
-/// Detection strategy (in order of reliability):
-///   1. Compare geometric winding normal against per-vertex normals from
-///      Poly_Triangulation (these are adjusted for face orientation and
-///      always point outward).
-///   2. Fall back to evaluating dS/du × dS/dv at the UV centre of the face
-///      via occtl_topo_face_eval_d1.
-static bool _is_face_reversed(occtl_graph_t*          graph,
-                              occtl_node_id_t          fid,
+/// Detection strategy:
+///   The OCCT-Light graph stores face definition nodes (surface + wires)
+///   always with TopAbs_FORWARD orientation — the REVERSED flag only appears
+///   in parent references (shell→face).  Since the C API doesn't expose the
+///   accumulated orientation through the reference chain, we use geometric
+///   inference instead:
+///
+///   1. Compute geometric winding normal from the raw triangulation indices.
+///      BRepMesh stores indices CCW in UV space.  For a FORWARD face this
+///      produces CCW/outward winding in 3D; for a REVERSED face, CW/inward.
+///
+///   2. Compare against per-vertex normals from Poly_Triangulation.  These
+///      ARE adjusted for face orientation and always point outward, so a
+///      negative dot product → CW winding → REVERSED face.
+///
+///   3. Fall back to evaluating dS/du × dS/dv at UV centre via
+///      occtl_topo_face_eval_d1 (raw surface normal, NOT adjusted for
+///      orientation).
+static bool _is_face_reversed(occtl_graph_t*            graph,
+                              occtl_node_id_t            fid,
                               std::vector<Vector3> const& verts,
                               std::vector<int>    const& indices,
                               std::vector<Vector3> const& normals_c)
@@ -380,7 +393,7 @@ static bool _is_face_reversed(occtl_graph_t*          graph,
         geo_n.Normalize();
     }
 
-    // --- 2. Reference from per-vertex normals (most reliable) ---
+    // --- 2. Compare with per-vertex normals (already outward-pointing) ---
     if (!normals_c.empty()) {
         gp_Vec ref(0, 0, 0);
         for (auto const& vn : normals_c)
@@ -561,9 +574,12 @@ Ref<ArrayMesh> OclGodotMesher::mesh_faces(
         //
         // Correction: flip indices 1↔2 to restore CCW/outward winding.
         // Per-vertex normals are NOT negated — they are already correct.
-        if (_is_face_reversed(graph->_handle, fid,
-                              fd.verts, fd.indices, fd.normals_c))
-        {
+        bool const reversed = _is_face_reversed(graph->_handle, fid,
+                                                fd.verts, fd.indices, fd.normals_c);
+        UtilityFunctions::print(
+            "Face #" + itos(static_cast<int64_t>(fid.bits))
+            + " -> _is_face_reversed=" + String(reversed ? "true" : "false"));
+        if (reversed) {
             for (size_t i = 0; i < nt; i++)
                 std::swap(fd.indices[3 * i + 1], fd.indices[3 * i + 2]);
         }
