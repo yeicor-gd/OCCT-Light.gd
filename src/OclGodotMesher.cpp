@@ -744,7 +744,7 @@ Ref<ArrayMesh> OclGodotMesher::mesh_faces(
         // ----- Tangents -----------------------------------------------
         if (include_tangents && include_normals && include_uvs) {
             out_tangents.resize(out_verts.size() * 4);
-            std::fill(out_tangents.begin(), out_tangents.end(), 0.0f);
+            out_tangents.fill(0.0f);
             std::vector<int> tangent_count(out_verts.size(), 0);
 
             for (size_t ti = 0; ti < face_data.size(); ti++) {
