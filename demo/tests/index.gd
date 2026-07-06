@@ -32,7 +32,7 @@ const SUITES := [
 	"res://tests/autowrapper/test_OclTopoBuild.gd",
 	"res://tests/autowrapper/test_OclTopoRelation.gd",
 	"res://tests/autowrapper/test_OclTopoTypes.gd",
-	"res://tests/test_OclGodotMesher.gd",
+	"res://tests/test_OclMeshToGodot.gd",
 	"res://tests/test_cad_workflows.gd",
 	"res://tests/test_select_iter.gd",
 ]

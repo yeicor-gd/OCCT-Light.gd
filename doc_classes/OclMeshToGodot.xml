@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="OclMeshToGodot" inherits="RefCounted" version="4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/godotengine/godot/master/doc/class.xsd">
+	<brief_description>Meshing utility for OCCT graph handles.</brief_description>
+	<description>
+		Converts OCCT topological entities into Godot meshes and collision shapes. All methods return [OclCore.status] and take an [OclGraphHandle] as the first argument.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="mesh_faces" qualifier="static">
+			<return type="int" />
+			<argument index="0" name="graph" type="OclGraphHandle" />
+			<argument index="1" name="existing" type="ArrayMesh" />
+			<argument index="2" name="options" type="OclMeshOptions" />
+			<argument index="3" name="face_ids" type="Variant" />
+			<argument index="4" name="include_uvs" type="bool" />
+			<argument index="5" name="include_tangents" type="bool" />
+			<argument index="6" name="include_feature_ids" type="bool" />
+			<description>
+				Triangulate faces into an [ArrayMesh].
+			</description>
+		</method>
+		<method name="mesh_edges" qualifier="static">
+			<return type="int" />
+			<argument index="0" name="graph" type="OclGraphHandle" />
+			<argument index="1" name="existing" type="MultiMesh" />
+			<argument index="2" name="options" type="OclMeshOptions" />
+			<argument index="3" name="edge_ids" type="Variant" />
+			<argument index="4" name="radius" type="float" />
+			<description>
+				Build edge tube instances as a [MultiMesh].
+			</description>
+		</method>
+		<method name="mesh_vertices" qualifier="static">
+			<return type="int" />
+			<argument index="0" name="graph" type="OclGraphHandle" />
+			<argument index="1" name="existing" type="MultiMesh" />
+			<argument index="2" name="options" type="OclMeshOptions" />
+			<argument index="3" name="vertex_ids" type="Variant" />
+			<argument index="4" name="radius" type="float" />
+			<description>
+				Build vertex sphere instances as a [MultiMesh].
+			</description>
+		</method>
+		<method name="mesh_faces_collision" qualifier="static">
+			<return type="int" />
+			<argument index="0" name="graph" type="OclGraphHandle" />
+			<argument index="1" name="body" type="PhysicsBody3D" />
+			<argument index="2" name="options" type="OclMeshOptions" />
+			<argument index="3" name="face_ids" type="Variant" />
+			<description>
+				Add face collision shapes to a [PhysicsBody3D].
+			</description>
+		</method>
+		<method name="mesh_edges_collision" qualifier="static">
+			<return type="int" />
+			<argument index="0" name="graph" type="OclGraphHandle" />
+			<argument index="1" name="body" type="PhysicsBody3D" />
+			<argument index="2" name="options" type="OclMeshOptions" />
+			<argument index="3" name="edge_ids" type="Variant" />
+			<argument index="4" name="radius" type="float" />
+			<description>
+				Add edge collision shapes to a [PhysicsBody3D].
+			</description>
+		</method>
+		<method name="mesh_vertices_collision" qualifier="static">
+			<return type="int" />
+			<argument index="0" name="graph" type="OclGraphHandle" />
+			<argument index="1" name="body" type="PhysicsBody3D" />
+			<argument index="2" name="options" type="OclMeshOptions" />
+			<argument index="3" name="vertex_ids" type="Variant" />
+			<argument index="4" name="radius" type="float" />
+			<description>
+				Add vertex collision shapes to a [PhysicsBody3D].
+			</description>
+		</method>
+	</methods>
+</class>

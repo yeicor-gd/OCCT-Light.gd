@@ -76,7 +76,7 @@ class RopeNode:
 	func _init(p: Vector3):
 		pos = p
 
-var nodes = []
+var nodes: Array[RopeNode] = []
 var _parent_generator = null
 var _rng = RandomNumberGenerator.new()
 
@@ -176,26 +176,35 @@ func _ready():
 
 func _reset():
 	nodes.clear()
-	_update_curve()
+	var curve_data := _precompute_curve_data()
+	_apply_curve_data(curve_data)
 	curve.clear_points()
 
 func _step(n: int):
-	if nodes.is_empty():
-		_rng.seed = _get_seed()
-		_init_rope()
-	else:
-		var _old_iterations := relaxation_iters
-		relaxation_iters = n
-		_relax()
-		relaxation_iters = _old_iterations
-	_update_curve()
+	var self_task: Array[int] = [-1]
+	self_task[0] = WorkerThreadPool.add_task(func():
+		if nodes.is_empty():
+			_rng.seed = _get_seed()
+			_init_rope()
+		else:
+			var _old_iterations := relaxation_iters
+			relaxation_iters = n
+			_relax()
+			relaxation_iters = _old_iterations
+		var curve_data := _precompute_curve_data()
+		_apply_curve_data.call_deferred(curve_data)
+		WorkerThreadPool.wait_for_task_completion.call_deferred(self_task[0]))
 
 func _generate():
 	_reset()
-	_rng.seed = _get_seed()
-	_init_rope()
-	_relax()
-	_update_curve()
+	var self_task: Array[int] = [-1]
+	self_task[0] = WorkerThreadPool.add_task(func():
+		_rng.seed = _get_seed()
+		_init_rope()
+		_relax()
+		var curve_data := _precompute_curve_data()
+		_apply_curve_data.call_deferred(curve_data)
+		WorkerThreadPool.wait_for_task_completion.call_deferred(self_task[0]))
 
 var _fixed_start: Vector3
 var _fixed_end: Vector3
@@ -307,39 +316,82 @@ func _relax():
 # -----------------------------------------------------------------------------
 # Curve — smooth Catmull-Rom-like interpolation with radial tilt
 # -----------------------------------------------------------------------------
+class CurvePointData:
+	var position: Vector3
+	var in_handle: Vector3
+	var out_handle: Vector3
+	var tilt: float
 
-func _update_curve():
+
+func _precompute_curve_data() -> Array[CurvePointData]:
+	var start_time := Time.get_ticks_usec()
+	var n := nodes.size()
+
+	var positions := PackedVector3Array()
+	positions.resize(n)
+
+	for i in n:
+		positions[i] = nodes[i].pos
+
+	var data: Array[CurvePointData] = []
+	data.resize(n)
+
+	for i in range(n):
+		var pos := positions[i]
+
+		var prev := positions[max(i - 1, 0)]
+		var next := positions[min(i + 1, n - 1)]
+
+		var tangent := (next - prev).normalized()
+
+		# Pick a stable reference up.
+		var world_up := Vector3.UP
+		if abs(tangent.dot(world_up)) > 0.98:
+			world_up = Vector3.RIGHT
+
+		var right := tangent.cross(world_up).normalized()
+		var up := right.cross(tangent).normalized()
+
+		# Desired radial up.
+		var desired_up := pos - tangent * pos.dot(tangent)
+
+		if desired_up.length_squared() > 1e-10:
+			desired_up = desired_up.normalized()
+		else:
+			desired_up = up
+
+		# Closed-form tilt.
+		var tilt := atan2(
+			right.dot(desired_up),
+			up.dot(desired_up)
+		)
+
+		var d := CurvePointData.new()
+		d.position = pos
+
+		var handle := (next - prev) / sharpness
+		d.in_handle = -handle
+		d.out_handle = handle
+		d.tilt = tilt
+
+		data[i] = d
+
+	var relax_time = (Time.get_ticks_usec() - start_time) / 1000.0
+	print("MazePath::_precompute_curve_data took ", relax_time, " ms to compute ", n, " positions")
+	return data
+
+
+func _apply_curve_data(data: Array[CurvePointData]) -> void:
 	var start_time := Time.get_ticks_usec()
 	curve.clear_points()
-	var n = nodes.size()
-	if n < 2:
-		return
-	curve.point_count = 0
-	for i in range(n):
-		var pos = nodes[i].pos
-		curve.add_point(pos)
-		var prev_pos = pos if i == 0 else nodes[i - 1].pos
-		var next_pos = pos if i == n - 1 else nodes[i + 1].pos
-		curve.set_point_out(i, (next_pos - prev_pos) / sharpness)
-		curve.set_point_in(i, (prev_pos - next_pos) / sharpness)
-	print("MazePath::_update_curve took ", (Time.get_ticks_usec() - start_time) / 1000.0, " ms to build ", n, " nodes")
-	start_time = Time.get_ticks_usec()
-	# Now fix the up vectors to actually point away from the origin by modifying tilt
-	for i in range(n):
-		var pos = nodes[i].pos
-		var offset := curve.get_closest_offset(pos)
-		var tangent := curve.sample_baked_with_rotation(offset).basis.z.normalized()
-		var desired_up: Vector3 = (pos - tangent * pos.dot(tangent)).normalized()
-		var lo := -PI
-		var hi := PI
-		for j in 16:
-			var mid := (lo + hi) * 0.5
-			curve.set_point_tilt(i, mid)
-			var up := curve.sample_baked_with_rotation(offset, false, true).basis.y
-			var err := tangent.dot(up.cross(desired_up))
-			if err > 0.0:
-				hi = mid
-			else:
-				lo = mid
-		curve.set_point_tilt(i, (lo + hi) * 0.5)
-	print("MazePath::_update_curve took ", (Time.get_ticks_usec() - start_time) / 1000.0, " ms to update up vectors")
+	
+	for d in data: # Setting point_count first causes false errors: The target vector can't be zero.
+		curve.add_point(d.position)
+
+	for i in range(data.size()):
+		curve.set_point_in(i, data[i].in_handle)
+		curve.set_point_out(i, data[i].out_handle)
+		curve.set_point_tilt(i, data[i].tilt)
+		
+	var relax_time = (Time.get_ticks_usec() - start_time) / 1000.0
+	print("MazePath::_apply_curve_data took ", relax_time, " ms to compute ", data.size(), " positions")

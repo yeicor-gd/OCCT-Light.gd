@@ -1,0 +1,1508 @@
+// ---------------------------------------------------------------------------
+// Hand-written source for OclMeshToGodot meshing methods.
+//
+// Bridges OCCT-Light graph handles (OclGraphHandle / occtl_graph_t) with
+// Godot rendering (ArrayMesh, MultiMesh) and physics (PhysicsBody3D +
+// CollisionShape3D).
+//
+// REVERSED face handling
+// ----------------------
+// BRepMesh_IncrementalMesh (OpenCASCADE) triangulates each face and stores
+// triangle indices with CCW winding in UV parameter space.  For a REVERSED
+// face the UV->3D mapping flips, so the 3D winding becomes CW and the
+// geometric cross product e1xe2 points INWARD (opposite to the face's
+// outward direction).
+//
+// However the per-vertex normals stored in Poly_Triangulation ARE computed
+// with the face orientation taken into account - BRepMesh negates the
+// surface normal (dS/du x dS/dv) for REVERSED faces so that the stored
+// normals point OUTWARD.
+//
+// Therefore the correction for a REVERSED face is:
+//   1. Flip triangle indices (swap 1<->2) -> restores CCW/outward winding.
+//   2. Keep per-vertex normals as-is - they are already outward-pointing.
+//
+// Detection uses per-vertex normals (always outward-pointing) compared
+// against the geometric winding normal from the raw indices.  A dot
+// product < 0 indicates a REVERSED face.  If per-vertex normals are
+// unavailable, the raw surface normal (dS/du x dS/dv at UV centre) is
+// used instead.
+// ---------------------------------------------------------------------------
+
+#include "OclMeshToGodot.h"
+
+#include <godot_cpp/classes/array_mesh.hpp>
+#include <godot_cpp/classes/multi_mesh.hpp>
+
+#include <godot_cpp/classes/physics_body3d.hpp>
+#include <godot_cpp/classes/collision_shape3d.hpp>
+#include <godot_cpp/classes/concave_polygon_shape3d.hpp>
+#include <godot_cpp/classes/capsule_shape3d.hpp>
+#include <godot_cpp/classes/sphere_shape3d.hpp>
+#include <godot_cpp/classes/node3d.hpp>
+
+#include <godot_cpp/variant/packed_int64_array.hpp>
+#include <godot_cpp/variant/packed_vector3_array.hpp>
+#include <godot_cpp/variant/packed_float32_array.hpp>
+#include <godot_cpp/variant/packed_int32_array.hpp>
+#include <godot_cpp/variant/packed_color_array.hpp>
+#include <godot_cpp/variant/dictionary.hpp>
+#include <godot_cpp/variant/vector3.hpp>
+#include <godot_cpp/variant/transform3d.hpp>
+#include <godot_cpp/variant/basis.hpp>
+#include <godot_cpp/variant/utility_functions.hpp>
+
+#include <gp_Pnt.hxx>
+#include <gp_Vec.hxx>
+#include <gp_Dir.hxx>
+
+#include <cmath>
+#include <cstring>
+#include <unordered_map>
+#include <vector>
+#include <utility>
+
+#include "occtl/occtl_mesh.h"
+#include "occtl/occtl_topo_relation.h"
+
+using namespace godot;
+
+// ===========================================================================
+// Internal helpers (all file-static, never published)
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// Graph helpers
+// ---------------------------------------------------------------------------
+
+/// Helper macro: try to get a representative node from an iterator.
+/// Sets @p ref_node to the first element if the iterator yields at least one.
+#define OCCTL_TRY_ITER(call_expr) \
+    do { \
+        if (ref_node.bits != 0) break; \
+        occtl_node_iter_t* _it = nullptr; \
+        if ((call_expr) == OCCTL_OK && _it) { \
+            occtl_node_id_t _tmp; \
+            if (occtl_node_iter_next(_it, &_tmp) == OCCTL_OK) { \
+                ref_node = _tmp; \
+            } \
+            occtl_node_iter_free(_it); \
+        } \
+    } while (0)
+
+/// Graph-wide bounding-box diagonal.  Used to scale edge/vertex radii
+/// proportionally to the model.  Returns 1.0 when the graph is empty.
+static double _get_graph_bbox_diag(occtl_graph_t* graph) {
+    occtl_node_id_t ref_node{};
+    occtl_node_id_t const dummy{};
+    ref_node = dummy;
+
+    OCCTL_TRY_ITER(occtl_graph_compound_iter_create(graph, &_it));
+    OCCTL_TRY_ITER(occtl_graph_compsolid_iter_create(graph, &_it));
+    OCCTL_TRY_ITER(occtl_graph_solid_iter_create(graph, &_it));
+    OCCTL_TRY_ITER(occtl_graph_shell_iter_create(graph, &_it));
+    OCCTL_TRY_ITER(occtl_graph_face_iter_create(graph, &_it));
+    OCCTL_TRY_ITER(occtl_graph_wire_iter_create(graph, &_it));
+    OCCTL_TRY_ITER(occtl_graph_edge_iter_create(graph, &_it));
+    OCCTL_TRY_ITER(occtl_graph_vertex_iter_create(graph, &_it));
+    OCCTL_TRY_ITER(occtl_graph_coedge_iter_create(graph, &_it));
+
+    if (ref_node.bits == 0) return 1.0;
+
+    occtl_select_bbox_t c_bbox;
+    if (occtl_graph_bbox_get(graph, ref_node, &c_bbox) != OCCTL_OK) return 1.0;
+
+    gp_Pnt const bmin(c_bbox.min.x, c_bbox.min.y, c_bbox.min.z);
+    gp_Pnt const bmax(c_bbox.max.x, c_bbox.max.y, c_bbox.max.z);
+    double const diag = bmin.Distance(bmax);
+    return (diag < 1e-15) ? 1.0 : diag;
+}
+
+/// Remove every child CollisionShape3D previously created by a meshing call
+/// on @p body (identified by a name starting with "_occtl_").
+static void _clear_physics_children(PhysicsBody3D* body) {
+    if (!body) return;
+    std::vector<CollisionShape3D*> to_remove;
+    to_remove.reserve(static_cast<size_t>(body->get_child_count()));
+    for (int i = 0; i < body->get_child_count(); i++) {
+        auto* cs = Object::cast_to<CollisionShape3D>(body->get_child(i));
+        if (cs && String(cs->get_name()).begins_with("_occtl_")) {
+            to_remove.push_back(cs);
+        }
+    }
+    for (auto* cs : to_remove) {
+        body->remove_child(cs);
+        cs->queue_free();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Node ID resolution
+// ---------------------------------------------------------------------------
+
+using iter_create_fn = occtl_status_t (*)(const occtl_graph_t*, occtl_node_iter_t**);
+
+/// Collect all nodes of a given kind (face, edge, vertex, …) into a vector.
+static std::vector<occtl_node_id_t> _collect_all_nodes(
+    occtl_graph_t* graph, iter_create_fn create_iter)
+{
+    std::vector<occtl_node_id_t> ids;
+    occtl_node_iter_t* iter = nullptr;
+    occtl_status_t st = create_iter(graph, &iter);
+    if (st != OCCTL_OK || !iter) return ids;
+    occtl_node_id_t nid;
+    while (occtl_node_iter_next(iter, &nid) == OCCTL_OK)
+        ids.push_back(nid);
+    occtl_node_iter_free(iter);
+    return ids;
+}
+
+/// Parse a Variant (nil or PackedInt64Array) into a vector of node IDs.
+/// For faces, negative values are treated as absolute (backward-compatible).
+static std::vector<occtl_node_id_t> _parse_face_ids(const Variant& ids) {
+    std::vector<occtl_node_id_t> ids_vec;
+    if (ids.get_type() == Variant::PACKED_INT64_ARRAY) {
+        PackedInt64Array arr = ids;
+        ids_vec.reserve(static_cast<size_t>(arr.size()));
+        for (int i = 0; i < arr.size(); i++) {
+            occtl_node_id_t nid;
+            nid.bits = static_cast<uint64_t>(arr[i] < 0 ? -arr[i] : arr[i]);
+            ids_vec.push_back(nid);
+        }
+    }
+    return ids_vec;
+}
+
+/// Parse Variant into edge/vertex IDs (direct bits, no absolute-value).
+static std::vector<occtl_node_id_t> _parse_simple_ids(const Variant& ids) {
+    std::vector<occtl_node_id_t> ids_vec;
+    if (ids.get_type() == Variant::PACKED_INT64_ARRAY) {
+        PackedInt64Array arr = ids;
+        ids_vec.reserve(static_cast<size_t>(arr.size()));
+        for (int64_t id : arr) {
+            occtl_node_id_t nid;
+            nid.bits = static_cast<uint64_t>(id);
+            ids_vec.push_back(nid);
+        }
+    }
+    return ids_vec;
+}
+
+/// Resolve face IDs: parse explicit list or iterate all faces.
+static std::vector<occtl_node_id_t> _resolve_face_ids(
+    occtl_graph_t* graph, const Variant& face_ids)
+{
+    std::vector<occtl_node_id_t> ids = _parse_face_ids(face_ids);
+    if (!ids.empty()) return ids;
+    if (face_ids.get_type() == Variant::NIL)
+        return _collect_all_nodes(graph, occtl_graph_face_iter_create);
+    return ids;  // invalid type — return empty
+}
+
+/// Resolve edge IDs: parse explicit list or iterate all edges.
+static std::vector<occtl_node_id_t> _resolve_edge_ids(
+    occtl_graph_t* graph, const Variant& edge_ids)
+{
+    std::vector<occtl_node_id_t> ids = _parse_simple_ids(edge_ids);
+    if (!ids.empty()) return ids;
+    if (edge_ids.get_type() == Variant::NIL)
+        return _collect_all_nodes(graph, occtl_graph_edge_iter_create);
+    return ids;
+}
+
+/// Resolve vertex IDs: parse explicit list or iterate all vertices.
+static std::vector<occtl_node_id_t> _resolve_vertex_ids(
+    occtl_graph_t* graph, const Variant& vertex_ids)
+{
+    std::vector<occtl_node_id_t> ids = _parse_simple_ids(vertex_ids);
+    if (!ids.empty()) return ids;
+    if (vertex_ids.get_type() == Variant::NIL)
+        return _collect_all_nodes(graph, occtl_graph_vertex_iter_create);
+    return ids;
+}
+
+// ---------------------------------------------------------------------------
+// Mesh generation helpers (pure geometry, no OCCT dependency)
+// ---------------------------------------------------------------------------
+
+/// Ensure the graph has a triangulation matching the given deflection/angle.
+/// Check if at least one face in @p ids_vec has cached triangulation data.
+static bool _graph_has_mesh(occtl_graph_t* graph,
+    const std::vector<occtl_node_id_t>& ids_vec)
+{
+    for (auto fid : ids_vec) {
+        uint32_t count = 0;
+        if (occtl_mesh_face_triangulation_count(graph, fid, &count) == OCCTL_OK
+            && count > 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/// Ensure mesh is generated for the graph.
+///
+/// Only calls occtl_mesh_generate when the graph does not yet have
+/// cached mesh data for the requested faces.  This avoids unnecessary
+/// cache invalidation inside occtl_mesh_generate which can cause
+/// BRepMesh to skip normal computation on repeat calls.
+static occtl_status_t _ensure_mesh_generated(
+    occtl_graph_t* graph,
+    const std::vector<occtl_node_id_t>& ids_vec,
+    double deflection, double angle)
+{
+    if (_graph_has_mesh(graph, ids_vec)) {
+        return OCCTL_OK;
+    }
+
+    occtl_mesh_options_t opts = OCCTL_MESH_OPTIONS_INIT;
+    opts.deflection = deflection;
+    opts.angle = angle;
+    opts.clean_model = 1;
+
+    // Collect root product nodes so BRepMesh works on the correct
+    // top-level shapes.
+    std::vector<occtl_node_id_t> root_ids;
+    occtl_node_iter_t* iter = nullptr;
+    if (occtl_graph_root_product_iter_create(graph, &iter) == OCCTL_OK && iter) {
+        occtl_node_id_t nid;
+        while (occtl_node_iter_next(iter, &nid) == OCCTL_OK)
+            root_ids.push_back(nid);
+        occtl_node_iter_free(iter);
+    }
+
+    if (!root_ids.empty()) {
+        return occtl_mesh_generate(
+            graph, root_ids.data(), root_ids.size(), &opts);
+    }
+    return occtl_mesh_generate(graph, nullptr, 0, &opts);
+}
+
+/// Number of radial slices for a cylinder/sphere from the mesh angle limit.
+static inline int _slices_from_angle(double angle) {
+    double const safe = std::max(angle, 0.001);
+    return std::max(4, static_cast<int>(std::round(Math_PI / safe)) + 2);
+}
+
+// ---------------------------------------------------------------------------
+// Low-resolution unit cylinder mesh (Y-up, radius 1, height 1)
+// ---------------------------------------------------------------------------
+static Ref<ArrayMesh> _make_cylinder_mesh(int slices) {
+    Ref<ArrayMesh> mesh;
+    mesh.instantiate();
+
+    PackedVector3Array verts;
+    PackedInt32Array    indices;
+    PackedVector3Array normals;
+
+    double const radius      = 1.0;
+    double const half_height = 0.5;
+
+    // Bottom cap centre
+    int const center_bottom = verts.size();
+    verts.push_back(Vector3(0, -half_height, 0));
+    normals.push_back(Vector3(0, -1, 0));
+
+    // Top cap centre
+    int const center_top = verts.size();
+    verts.push_back(Vector3(0, half_height, 0));
+    normals.push_back(Vector3(0, 1, 0));
+
+    // Side vertices: bottom ring, then top ring
+    int const ring_bottom_start = verts.size();
+    for (int i = 0; i < slices; i++) {
+        double const a = 2.0 * Math_PI * i / slices;
+        double const x = radius * std::cos(a);
+        double const z = radius * std::sin(a);
+        verts.push_back(Vector3(x, -half_height, z));
+        normals.push_back(Vector3(x, 0, z).normalized());
+    }
+    int const ring_top_start = verts.size();
+    for (int i = 0; i < slices; i++) {
+        double const a = 2.0 * Math_PI * i / slices;
+        double const x = radius * std::cos(a);
+        double const z = radius * std::sin(a);
+        verts.push_back(Vector3(x, half_height, z));
+        normals.push_back(Vector3(x, 0, z).normalized());
+    }
+
+    // Bottom cap (fan)
+    for (int i = 0; i < slices; i++) {
+        int const next = (i + 1) % slices;
+        indices.push_back(center_bottom);
+        indices.push_back(ring_bottom_start + next);
+        indices.push_back(ring_bottom_start + i);
+    }
+    // Top cap (fan)
+    for (int i = 0; i < slices; i++) {
+        int const next = (i + 1) % slices;
+        indices.push_back(center_top);
+        indices.push_back(ring_top_start + i);
+        indices.push_back(ring_top_start + next);
+    }
+    // Side quads → two triangles each
+    for (int i = 0; i < slices; i++) {
+        int const next = (i + 1) % slices;
+        int const b0   = ring_bottom_start + i;
+        int const b1   = ring_bottom_start + next;
+        int const t0   = ring_top_start + i;
+        int const t1   = ring_top_start + next;
+        indices.push_back(b0);
+        indices.push_back(b1);
+        indices.push_back(t0);
+        indices.push_back(t1);
+        indices.push_back(t0);
+        indices.push_back(b1);
+    }
+
+    Array arrays;
+    arrays.resize(Mesh::ARRAY_MAX);
+    arrays[Mesh::ARRAY_VERTEX] = verts;
+    arrays[Mesh::ARRAY_NORMAL] = normals;
+    arrays[Mesh::ARRAY_INDEX]  = indices;
+
+    mesh->add_surface_from_arrays(Mesh::PRIMITIVE_TRIANGLES, arrays);
+    return mesh;
+}
+
+// ---------------------------------------------------------------------------
+// Low-resolution unit sphere mesh (centred at origin, radius 1)
+// ---------------------------------------------------------------------------
+static Ref<ArrayMesh> _make_sphere_mesh(int slices) {
+    Ref<ArrayMesh> mesh;
+    mesh.instantiate();
+
+    int stacks = std::max(3, slices / 2);
+    if (slices < 4) slices = 4;
+
+    PackedVector3Array verts;
+    PackedInt32Array    indices;
+    PackedVector3Array normals;
+
+    // Top pole
+    int const top_idx = verts.size();
+    verts.push_back(Vector3(0, 1, 0));
+    normals.push_back(Vector3(0, 1, 0));
+
+    // Intermediate rings
+    for (int j = 1; j < stacks; j++) {
+        double const phi = Math_PI * j / stacks;
+        for (int i = 0; i < slices; i++) {
+            double const theta = 2.0 * Math_PI * i / slices;
+            double const x     = std::sin(phi) * std::cos(theta);
+            double const y     = std::cos(phi);
+            double const z     = std::sin(phi) * std::sin(theta);
+            verts.push_back(Vector3(x, y, z));
+            normals.push_back(Vector3(x, y, z));
+        }
+    }
+
+    // Bottom pole
+    int const bottom_idx = verts.size();
+    verts.push_back(Vector3(0, -1, 0));
+    normals.push_back(Vector3(0, -1, 0));
+
+    // Top cap
+    for (int i = 0; i < slices; i++) {
+        int const next = (i + 1) % slices;
+        indices.push_back(top_idx);
+        indices.push_back(1 + i);
+        indices.push_back(1 + next);
+    }
+    // Body
+    for (int j = 0; j < stacks - 2; j++) {
+        for (int i = 0; i < slices; i++) {
+            int const next = (i + 1) % slices;
+            int const a    = 1 + j * slices + i;
+            int const b    = 1 + j * slices + next;
+            int const c    = 1 + (j + 1) * slices + i;
+            int const d    = 1 + (j + 1) * slices + next;
+            indices.push_back(a);
+            indices.push_back(c);
+            indices.push_back(b);
+            indices.push_back(d);
+            indices.push_back(b);
+            indices.push_back(c);
+        }
+    }
+    // Bottom cap
+    int const last_ring_start = 1 + (stacks - 2) * slices;
+    for (int i = 0; i < slices; i++) {
+        int const next = (i + 1) % slices;
+        indices.push_back(bottom_idx);
+        indices.push_back(last_ring_start + next);
+        indices.push_back(last_ring_start + i);
+    }
+
+    Array arrays;
+    arrays.resize(Mesh::ARRAY_MAX);
+    arrays[Mesh::ARRAY_VERTEX] = verts;
+    arrays[Mesh::ARRAY_NORMAL] = normals;
+    arrays[Mesh::ARRAY_INDEX]  = indices;
+
+    mesh->add_surface_from_arrays(Mesh::PRIMITIVE_TRIANGLES, arrays);
+    return mesh;
+}
+
+/// Returns true when the face's triangulation has CW winding in 3D
+/// (REVERSED face &mdash; needs index flipping).  Uses per-vertex normals
+/// from BRepMesh which are the only reliable indicator &mdash; they always
+/// point outward regardless of face orientation.
+///
+/// The detection is based on comparing the average per-vertex normal
+/// (always outward) with the geometric normal from raw winding:
+///   - geo_n opposing normals  &rarr; raw winding is INWARD  &rarr; needs flip
+///   - geo_n agreeing with normals  &rarr; raw winding is OUTWARD &rarr; no flip
+static bool _is_face_reversed(gp_Vec const&              geo_n,
+                              std::vector<Vector3> const& normals_c)
+{
+    gp_Vec ref(0, 0, 0);
+    for (auto const& vn : normals_c)
+        ref += gp_Vec(vn.x, vn.y, vn.z);
+    double const rlen = ref.Magnitude();
+    if (rlen > 1e-30) {
+        ref.Normalize();
+        return ref.Dot(geo_n) < 0;
+    }
+    return false;
+}
+
+
+// ===========================================================================
+// Shared face data structures and helpers
+// ===========================================================================
+
+
+/// Per-face triangulation data used by both ArrayMesh and collision paths.
+struct TriFaceData {
+    occtl_node_id_t    face_id;
+    std::vector<Vector3> verts;      // local vertices
+    std::vector<Vector2> uvs;        // local UVs (may be empty)
+    std::vector<Vector3> normals_c;  // per-vertex normals (may be empty)
+    std::vector<int>     indices;    // 0-based, 3 per triangle
+    Vector3              face_normal; // geometric outward normal, computed from geo_n
+};
+
+/// Collect triangulation data for every face in @p ids_vec.
+static std::vector<TriFaceData> _collect_face_data(
+    occtl_graph_t* graph,
+    const std::vector<occtl_node_id_t>& ids_vec,
+    bool include_uvs,
+    int& out_total_verts,
+    int& out_total_tris)
+{
+    std::vector<TriFaceData> face_data;
+    face_data.reserve(ids_vec.size());
+    out_total_verts = 0;
+    out_total_tris  = 0;
+
+    // Compute graph centroid from ALL faces for the centroid fallback.
+    // Must be done before individual face processing so the result is
+    // independent of which faces the caller requested.
+    gp_XYZ graph_centroid(0, 0, 0);
+    int    centroid_count = 0;
+    {
+        std::vector<occtl_node_id_t> all_faces =
+            _collect_all_nodes(graph, occtl_graph_face_iter_create);
+        for (auto fid : all_faces) {
+            occtl_triangulation_view_t tv;
+            if (occtl_mesh_face_triangulation(graph, fid, &tv) != OCCTL_OK)
+                continue;
+            for (size_t i = 0; i < tv.node_count; i++) {
+                graph_centroid += gp_XYZ(tv.nodes[3 * i],
+                                         tv.nodes[3 * i + 1],
+                                         tv.nodes[3 * i + 2]);
+                centroid_count++;
+            }
+        }
+        if (centroid_count > 0)
+            graph_centroid /= static_cast<double>(centroid_count);
+    }
+
+    for (auto fid : ids_vec) {
+        occtl_triangulation_view_t tv;
+        occtl_status_t st = occtl_mesh_face_triangulation(
+            graph, fid, &tv);
+        if (st != OCCTL_OK) continue;
+
+        size_t const nv = tv.node_count;
+        size_t const nt = tv.triangle_count;
+        if (nv == 0 || nt == 0) continue;
+
+        TriFaceData fd;
+        fd.face_id = fid;
+
+        // Vertices
+        fd.verts.reserve(nv);
+        for (size_t i = 0; i < nv; i++)
+            fd.verts.emplace_back(tv.nodes[3 * i],
+                                  tv.nodes[3 * i + 1],
+                                  tv.nodes[3 * i + 2]);
+
+        // Triangles (clamp out-of-range indices)
+        fd.indices.reserve(3 * nt);
+        for (size_t i = 0; i < 3 * nt; i++) {
+            uint32_t idx = tv.triangles[i];
+            if (idx >= nv) idx = 0;
+            fd.indices.push_back(static_cast<int>(idx));
+        }
+
+        // UVs
+        if (tv.uvs && include_uvs) {
+            fd.uvs.reserve(nv);
+            for (size_t i = 0; i < nv; i++)
+                fd.uvs.emplace_back(tv.uvs[2 * i], tv.uvs[2 * i + 1]);
+        }
+
+        // Per-vertex normals — prefer BRepMesh outward-pointing normals.
+        if (tv.normals) {
+            fd.normals_c.reserve(nv);
+            for (size_t i = 0; i < nv; i++)
+                fd.normals_c.emplace_back(tv.normals[3 * i],
+                                          tv.normals[3 * i + 1],
+                                          tv.normals[3 * i + 2]);
+        }
+
+        // ----- Compute geometric normal from raw winding (single pass) ----
+        //
+        // BRepMesh stores triangle indices CCW in UV parameter space.
+        // For a REVERSED face this produces CW winding in 3D (geometric
+        // cross product points inward).  Per-vertex normals from BRepMesh
+        // always point outward (adjusted for face orientation).
+        gp_Vec geo_n(0, 0, 0);
+        for (size_t i = 0; i < nt; i++) {
+            int const i0 = fd.indices[3 * i];
+            int const i1 = fd.indices[3 * i + 1];
+            int const i2 = fd.indices[3 * i + 2];
+            gp_Vec const e1(
+                gp_Pnt(fd.verts[i1].x, fd.verts[i1].y, fd.verts[i1].z),
+                gp_Pnt(fd.verts[i0].x, fd.verts[i0].y, fd.verts[i0].z));
+            gp_Vec const e2(
+                gp_Pnt(fd.verts[i2].x, fd.verts[i2].y, fd.verts[i2].z),
+                gp_Pnt(fd.verts[i0].x, fd.verts[i0].y, fd.verts[i0].z));
+            gp_Vec const n = e1.Crossed(e2);
+            double const len = n.Magnitude();
+            if (len > 1e-30) geo_n += n.Normalized();
+        }
+        double const glen = geo_n.Magnitude();
+        gp_Vec const geo_n_norm = (glen > 1e-30)
+            ? geo_n.Normalized()
+            : gp_Vec(0, 0, 1);
+
+        // ----- REVERSED-face correction -----
+        // When BRepMesh provides per-vertex normals (always outward),
+        // compare them with the raw geometric normal to detect reversal.
+        // When normals are unavailable, we compute smooth per-vertex
+        // normals from the triangulation geometry.  Since these follow
+        // the winding order they always agree with geo_n, so reversal
+        // detection is lost — the mesh remains watertight and renderable
+        // but reversed faces may have inward-pointing normals.
+        bool reversed = false;
+        if (fd.normals_c.empty()) {
+            // Compute smooth per-vertex normals from raw winding.
+            fd.normals_c.assign(nv, Vector3(0, 0, 0));
+            std::vector<int> ncount(nv, 0);
+            for (size_t i = 0; i < nt; i++) {
+                int const i0 = fd.indices[3 * i];
+                int const i1 = fd.indices[3 * i + 1];
+                int const i2 = fd.indices[3 * i + 2];
+                gp_Vec const e1(
+                    gp_Pnt(fd.verts[i1].x, fd.verts[i1].y, fd.verts[i1].z),
+                    gp_Pnt(fd.verts[i0].x, fd.verts[i0].y, fd.verts[i0].z));
+                gp_Vec const e2(
+                    gp_Pnt(fd.verts[i2].x, fd.verts[i2].y, fd.verts[i2].z),
+                    gp_Pnt(fd.verts[i0].x, fd.verts[i0].y, fd.verts[i0].z));
+                gp_Vec n = e1.Crossed(e2);
+                double const len = n.Magnitude();
+                if (len > 1e-30) n.Normalize();
+                for (int vi : {i0, i1, i2}) {
+                    fd.normals_c[vi].x += static_cast<float>(n.X());
+                    fd.normals_c[vi].y += static_cast<float>(n.Y());
+                    fd.normals_c[vi].z += static_cast<float>(n.Z());
+                    ncount[vi]++;
+                }
+            }
+            for (size_t vi = 0; vi < nv; vi++) {
+                if (ncount[vi] > 0) {
+                    double const inv = 1.0 / static_cast<double>(ncount[vi]);
+                    fd.normals_c[vi] *= static_cast<float>(inv);
+                    double mag = fd.normals_c[vi].length();
+                    if (mag > 1e-30)
+                        fd.normals_c[vi] /= static_cast<float>(mag);
+                }
+            }
+            // Without BRepMesh outward normals, fall back to centroid
+            // heuristic: if geo_n points toward the graph centroid, the
+            // raw winding is inward — REVERSED, needs a flip.
+            if (centroid_count > 0) {
+                gp_XYZ face_center(0, 0, 0);
+                for (auto const& v : fd.verts)
+                    face_center += gp_XYZ(v.x, v.y, v.z);
+                face_center /= static_cast<double>(fd.verts.size());
+                gp_Vec to_center(graph_centroid, face_center);
+                double const tc_len = to_center.Magnitude();
+                if (tc_len > 1e-30) {
+                    gp_Vec const tc_norm = to_center.Normalized();
+                    reversed = geo_n_norm.Dot(tc_norm) < 0;
+                }
+            }
+        } else {
+            reversed = _is_face_reversed(geo_n_norm, fd.normals_c);
+        }
+
+        if (reversed) {
+            for (size_t i = 0; i < nt; i++)
+                std::swap(fd.indices[3 * i + 1], fd.indices[3 * i + 2]);
+        }
+
+        // Unconditionally swap indices 1 and 2 — all raw triangles are
+        // wound CW (backward for Godot); Godot expects CCW (outward).
+        for (size_t i = 0; i < nt; i++)
+            std::swap(fd.indices[3 * i + 1], fd.indices[3 * i + 2]);
+
+        // Face normal = geometric normal oriented outward
+        fd.face_normal = reversed
+            ? Vector3(-geo_n_norm.X(), -geo_n_norm.Y(), -geo_n_norm.Z())
+            : Vector3( geo_n_norm.X(),  geo_n_norm.Y(),  geo_n_norm.Z());
+
+        out_total_verts += static_cast<int>(nv);
+        out_total_tris  += static_cast<int>(nt);
+        face_data.push_back(std::move(fd));
+    }
+
+    return face_data;
+}
+
+/// Assemble a Godot Mesh::Array from the per-face triangulation data.
+/// Handles both the simple (deduplicated, no attrs) and attribute paths.
+static Array _assemble_mesh_arrays(
+    const std::vector<TriFaceData>& face_data,
+    int total_verts,
+    int total_tris,
+    bool include_uvs,
+    bool include_tangents,
+    bool include_feature_ids)
+{
+    PackedVector3Array out_verts;
+    PackedInt32Array   out_indices;
+    PackedVector3Array out_normals;
+    PackedVector2Array out_uvs;
+    PackedColorArray   out_colors;
+    PackedFloat32Array out_tangents;
+    bool have_uvs      = false;
+    bool have_tangents = false;
+    bool have_colors   = false;
+
+    // Normals are always present (required for correct face orientation),
+    // so we must always use the attribute (per-vertex) path.
+    bool const have_attrs = true;
+
+    if (!have_attrs) {
+        // ----- Simple path: deduplicate by position --------------------
+        std::unordered_map<uint64_t, int> pos_map;
+        auto pos_hash = [](Vector3 const& v) -> uint64_t {
+            uint64_t hx, hy, hz;
+            memcpy(&hx, &v.x, sizeof(v.x)); hx >>= 4;
+            memcpy(&hy, &v.y, sizeof(v.y)); hy >>= 4;
+            memcpy(&hz, &v.z, sizeof(v.z)); hz >>= 4;
+            return hx ^ (hy << 20) ^ (hz << 40);
+        };
+
+        for (const auto& fd : face_data) {
+            for (size_t i = 0; i < fd.indices.size(); i += 3) {
+                int tri[3] = { fd.indices[i], fd.indices[i + 1],
+                               fd.indices[i + 2] };
+                for (int j = 0; j < 3; j++) {
+                    int const local_idx = tri[j];
+                    Vector3 const& pos = fd.verts[local_idx];
+                    uint64_t const key = pos_hash(pos);
+                    auto it = pos_map.find(key);
+                    if (it != pos_map.end() &&
+                        (out_verts[it->second] - pos).length_squared() < 1e-20)
+                    {
+                        out_indices.push_back(it->second);
+                        continue;
+                    }
+                    int const new_idx = out_verts.size();
+                    out_verts.push_back(pos);
+                    out_indices.push_back(new_idx);
+                    pos_map[key] = new_idx;
+                }
+            }
+        }
+    } else {
+        // ----- Attribute path: keep per-face vertices separate ---------
+        int const estimated_verts = total_verts;
+        int const estimated_tris  = total_tris;
+        out_verts.resize(estimated_verts);
+        out_indices.resize(3 * estimated_tris);
+
+        // Map each face's local vertex index → global output index
+        std::vector<std::vector<int>> face_vert_map(face_data.size());
+
+        int voff = 0, ioff = 0;
+        for (size_t fi = 0; fi < face_data.size(); fi++) {
+            auto const& fd     = face_data[fi];
+            face_vert_map[fi].resize(fd.verts.size(), -1);
+
+            for (size_t i = 0; i < fd.verts.size(); i++) {
+                out_verts[voff] = fd.verts[i];
+                face_vert_map[fi][i] = voff++;
+            }
+            for (size_t i = 0; i < fd.indices.size(); i += 3) {
+                out_indices[ioff++] = face_vert_map[fi][fd.indices[i]];
+                out_indices[ioff++] = face_vert_map[fi][fd.indices[i + 1]];
+                out_indices[ioff++] = face_vert_map[fi][fd.indices[i + 2]];
+            }
+        }
+        out_verts.resize(voff);
+        out_indices.resize(ioff);
+
+        // ----- Normals ------------------------------------------------
+        //
+        // Per-vertex normals from Poly_Triangulation (always outward-
+        // pointing and smooth).  _collect_face_data guarantees these
+        // are present for every face.
+        out_normals.resize(out_verts.size());
+        for (size_t fi = 0; fi < face_data.size(); fi++) {
+            auto const& fd = face_data[fi];
+            for (size_t vi = 0; vi < fd.verts.size(); vi++) {
+                int const gv = face_vert_map[fi][vi];
+                if (vi < fd.normals_c.size()) {
+                    out_normals[gv] = fd.normals_c[vi];
+                } else {
+                    out_normals[gv] = fd.face_normal;
+                }
+            }
+        }
+
+        // ----- UVs ----------------------------------------------------
+        if (include_uvs) {
+            out_uvs.resize(out_verts.size());
+            for (size_t fi = 0; fi < face_data.size(); fi++) {
+                auto const& fd = face_data[fi];
+                if (fd.uvs.empty()) continue;
+                have_uvs = true;
+                for (size_t vi = 0; vi < fd.verts.size(); vi++) {
+                    int const gv = face_vert_map[fi][vi];
+                    if (vi < fd.uvs.size())
+                        out_uvs[gv] = fd.uvs[vi];
+                }
+            }
+        }
+
+        // ----- Tangents -----------------------------------------------
+        if (include_tangents && have_uvs) {
+            out_tangents.resize(out_verts.size() * 4);
+            out_tangents.fill(0.0f);
+            std::vector<int> tangent_count(out_verts.size(), 0);
+
+            for (size_t ti = 0; ti < face_data.size(); ti++) {
+                auto const& fd = face_data[ti];
+                if (fd.uvs.empty()) continue;
+                for (size_t j = 0; j < fd.indices.size() / 3; j++) {
+                    int const i0 = face_vert_map[ti][fd.indices[3 * j]];
+                    int const i1 = face_vert_map[ti][fd.indices[3 * j + 1]];
+                    int const i2 = face_vert_map[ti][fd.indices[3 * j + 2]];
+
+                    Vector3 const e1 = out_verts[i1] - out_verts[i0];
+                    Vector3 const e2 = out_verts[i2] - out_verts[i0];
+                    Vector2 const duv1 = out_uvs[i1] - out_uvs[i0];
+                    Vector2 const duv2 = out_uvs[i2] - out_uvs[i0];
+
+                    double const r = 1.0 / (duv1.x * duv2.y
+                                          - duv2.x * duv1.y + 1e-20);
+                    Vector3 const tangent =
+                        (e1 * duv2.y - e2 * duv1.y) * r;
+
+                    for (int vi : {i0, i1, i2}) {
+                        int const base = vi * 4;
+                        out_tangents[base]     += static_cast<float>(tangent.x);
+                        out_tangents[base + 1] += static_cast<float>(tangent.y);
+                        out_tangents[base + 2] += static_cast<float>(tangent.z);
+                        tangent_count[vi]++;
+                    }
+                }
+            }
+
+            // Orthogonalize and normalize
+            for (int i = 0; i < out_verts.size(); i++) {
+                if (tangent_count[i] == 0) continue;
+                int const base = i * 4;
+                Vector3 t(out_tangents[base],
+                          out_tangents[base + 1],
+                          out_tangents[base + 2]);
+                t /= static_cast<double>(tangent_count[i]);
+
+                Vector3 const& n = out_normals[i];
+                t = (t - n * n.dot(t)).normalized();
+
+                out_tangents[base]     = static_cast<float>(t.x);
+                out_tangents[base + 1] = static_cast<float>(t.y);
+                out_tangents[base + 2] = static_cast<float>(t.z);
+
+                Vector3 const bitangent = n.cross(t.normalized());
+                Vector3 const accum(out_tangents[base],
+                                    out_tangents[base + 1],
+                                    out_tangents[base + 2]);
+                out_tangents[base + 3] =
+                    (bitangent.dot(accum) >= 0) ? 1.0f : -1.0f;
+            }
+            have_tangents = true;
+        }
+
+        // ----- Feature-ID colours --------------------------------------
+        if (include_feature_ids) {
+            out_colors.resize(out_verts.size());
+            for (size_t fi = 0; fi < face_data.size(); fi++) {
+                auto const& fd   = face_data[fi];
+                uint64_t const b = fd.face_id.bits;
+                Color const color(
+                    ((b * 1234567u) & 0xFF) / 255.0f,
+                    ((b * 7654321u) & 0xFF) / 255.0f,
+                    ((b * 3456789u) & 0xFF) / 255.0f,
+                    1.0f);
+                for (size_t vi = 0; vi < fd.verts.size(); vi++) {
+                    int const gv = face_vert_map[fi][vi];
+                    out_colors[gv] = color;
+                }
+            }
+            have_colors = true;
+        }
+    }
+
+    // ----- Build surface arrays -----------------------------------------
+    Array arrays;
+    arrays.resize(Mesh::ARRAY_MAX);
+    arrays[Mesh::ARRAY_VERTEX] = out_verts;
+    arrays[Mesh::ARRAY_INDEX]  = out_indices;
+
+    if (!out_normals.is_empty())
+        arrays[Mesh::ARRAY_NORMAL] = out_normals;
+    if (have_uvs)
+        arrays[Mesh::ARRAY_TEX_UV] = out_uvs;
+    if (have_tangents)
+        arrays[Mesh::ARRAY_TANGENT] = out_tangents;
+    if (have_colors)
+        arrays[Mesh::ARRAY_COLOR] = out_colors;
+
+    return arrays;
+}
+
+/// Create one ConcavePolygonShape3D child per face on @p body.
+static void _add_face_collisions(PhysicsBody3D* body,
+    const std::vector<TriFaceData>& face_data)
+{
+    for (const auto& fd : face_data) {
+        PackedVector3Array tri_verts;
+        tri_verts.resize(fd.indices.size());
+        for (size_t i = 0; i < fd.indices.size(); i++)
+            tri_verts[i] = fd.verts[fd.indices[i]];
+
+        Ref<ConcavePolygonShape3D> shape;
+        shape.instantiate();
+        shape->set_faces(tri_verts);
+
+        CollisionShape3D* cs = memnew(CollisionShape3D);
+        cs->set_shape(shape);
+        cs->set_name(String("_occtl_face_")
+                     + String::num_uint64(fd.face_id.bits));
+
+        Dictionary meta;
+        meta["feature_id"] = static_cast<int64_t>(fd.face_id.bits);
+        cs->set_meta("occtl", meta);
+
+        body->add_child(cs, true);
+        cs->set_owner(
+            body->get_owner() ? body->get_owner() : body);
+    }
+}
+
+// ===========================================================================
+// Edge segment data
+// ===========================================================================
+
+/// A single edge segment (pair of consecutive polygon-on-tri nodes).
+struct EdgeSegment {
+    gp_Pnt p0, p1;
+    occtl_node_id_t eid;
+    uint64_t seg_idx;   // per-edge segment index
+};
+
+/// Collect edge segments from polygon-on-triangulation data.
+/// @note The graph must be meshed before calling this function.
+static std::vector<EdgeSegment> _collect_edge_segments(
+    occtl_graph_t* graph,
+    const std::vector<occtl_node_id_t>& edge_ids)
+{
+    std::vector<EdgeSegment> segments;
+    segments.reserve(edge_ids.size());
+
+    // Build edge -> (coedge, face) lookup from ALL coedges
+    std::unordered_map<uint64_t,
+        std::pair<occtl_node_id_t, occtl_node_id_t>> edge_coedge_map;
+    {
+        occtl_node_iter_t* coedge_iter = nullptr;
+        occtl_status_t st = occtl_graph_coedge_iter_create(
+            graph, &coedge_iter);
+        if (st == OCCTL_OK && coedge_iter) {
+            occtl_node_id_t cid;
+            while (occtl_node_iter_next(coedge_iter, &cid) == OCCTL_OK) {
+                occtl_node_id_t edge_of{};
+                occtl_node_id_t face_of{};
+                occtl_topo_coedge_edge_of(graph, cid, &edge_of);
+                occtl_topo_coedge_face_of(graph, cid, &face_of);
+                if (edge_of.bits != 0 && face_of.bits != 0)
+                    edge_coedge_map.emplace(edge_of.bits,
+                        std::make_pair(cid, face_of));
+            }
+            occtl_node_iter_free(coedge_iter);
+        }
+    }
+
+    for (auto eid : edge_ids) {
+        auto it = edge_coedge_map.find(eid.bits);
+        if (it != edge_coedge_map.end()) {
+            // Edge has an adjacent face — use coedge polygon-on-triangulation
+            // for segments aligned with the triangulated surface.
+            auto [coedge_id, face_id] = it->second;
+
+            occtl_polygon_on_tri_view_t potv;
+            if (occtl_mesh_coedge_polygon_on_tri(graph, coedge_id, &potv)
+                    == OCCTL_OK && potv.node_count >= 2) {
+                occtl_triangulation_view_t tv;
+                if (occtl_mesh_face_triangulation(graph, face_id, &tv)
+                        == OCCTL_OK && tv.node_count > 0) {
+                    for (size_t i = 0; i + 1 < potv.node_count; i++) {
+                        uint32_t idx0 = potv.node_indices[i];
+                        uint32_t idx1 = potv.node_indices[i + 1];
+                        if (idx0 >= tv.node_count || idx1 >= tv.node_count)
+                            continue;
+
+                        EdgeSegment seg;
+                        seg.p0 = gp_Pnt(tv.nodes[3 * idx0],
+                                        tv.nodes[3 * idx0 + 1],
+                                        tv.nodes[3 * idx0 + 2]);
+                        seg.p1 = gp_Pnt(tv.nodes[3 * idx1],
+                                        tv.nodes[3 * idx1 + 1],
+                                        tv.nodes[3 * idx1 + 2]);
+                        seg.eid = eid;
+                        seg.seg_idx = static_cast<uint64_t>(i);
+                        segments.push_back(std::move(seg));
+                    }
+                    continue; // handled via coedge polygon-on-tri
+                }
+            }
+        }
+
+        // Edge has no adjacent face (wire edge, free edge, open shell), or
+        // the coedge-based polygon-on-tri failed — fall back to the edge's
+        // own 3D polyline (available for every meshed edge).
+        occtl_polygon3d_view_t pv;
+        if (occtl_mesh_edge_polygon3d(graph, eid, &pv) != OCCTL_OK
+                || pv.node_count < 2)
+            continue;
+
+        for (size_t i = 0; i + 1 < pv.node_count; i++) {
+            EdgeSegment seg;
+            seg.p0 = gp_Pnt(pv.nodes[3 * i],
+                            pv.nodes[3 * i + 1],
+                            pv.nodes[3 * i + 2]);
+            seg.p1 = gp_Pnt(pv.nodes[3 * (i + 1)],
+                            pv.nodes[3 * (i + 1) + 1],
+                            pv.nodes[3 * (i + 1) + 2]);
+            seg.eid = eid;
+            seg.seg_idx = static_cast<uint64_t>(i);
+            segments.push_back(std::move(seg));
+        }
+    }
+
+    return segments;
+}
+
+// ===========================================================================
+// Vertex position data
+// ===========================================================================
+
+struct VertexPos {
+    occtl_node_id_t vid;
+    gp_Pnt pos;
+};
+
+/// Collect 3D positions for each vertex ID.
+static std::vector<VertexPos> _collect_vertex_positions(
+    occtl_graph_t* graph,
+    const std::vector<occtl_node_id_t>& vertex_ids)
+{
+    std::vector<VertexPos> vertices;
+    vertices.reserve(vertex_ids.size());
+
+    for (auto vid : vertex_ids) {
+        occtl_point3_t pt;
+        occtl_status_t st = occtl_topo_vertex_point(graph, vid, &pt);
+        if (st != OCCTL_OK) continue;
+
+        VertexPos vp;
+        vp.vid = vid;
+        vp.pos = gp_Pnt(pt.x, pt.y, pt.z);
+        vertices.push_back(vp);
+    }
+
+    return vertices;
+}
+
+// ===========================================================================
+// Shared helper: build orientation Basis + mid-point for an edge segment
+// ===========================================================================
+
+/// Build an orientation Basis + translation for a segment from p0→p1.
+/// The Y axis follows the segment direction. Handles the pole-zero case
+/// where the segment aligns with the global Y axis.
+static inline Basis _segment_basis(gp_Vec const& dir) {
+    gp_Vec up(0, 1, 0);
+    if (std::abs(dir.Y()) > 0.9)
+        up = gp_Vec(1, 0, 0);
+    gp_Vec const x_axis = up.Crossed(dir).Normalized();
+    gp_Vec const z_axis = x_axis.Crossed(dir).Normalized();
+    return Basis(Vector3(x_axis.X(), x_axis.Y(), x_axis.Z()),
+                 Vector3(dir.X(), dir.Y(), dir.Z()),
+                 Vector3(z_axis.X(), z_axis.Y(), z_axis.Z()));
+}
+
+// ===========================================================================
+// _bind_methods
+// ===========================================================================
+
+void OclMeshToGodot::_bind_methods() {
+    // --- ArrayMesh/MultiMesh methods ---
+    godot::ClassDB::bind_static_method("OclMeshToGodot",
+        godot::D_METHOD("mesh_faces", "graph", "existing", "options", "face_ids",
+                        "include_uvs", "include_tangents",
+                        "include_feature_ids"),
+        &OclMeshToGodot::mesh_faces,
+        DEFVAL(Ref<ArrayMesh>()), DEFVAL(Ref<OclMeshOptions>()), DEFVAL(Variant()),
+        DEFVAL(false), DEFVAL(false), DEFVAL(false));
+
+    godot::ClassDB::bind_static_method("OclMeshToGodot",
+        godot::D_METHOD("mesh_edges", "graph", "existing", "options", "edge_ids",
+                        "radius"),
+        &OclMeshToGodot::mesh_edges,
+        DEFVAL(Ref<MultiMesh>()), DEFVAL(Ref<OclMeshOptions>()), DEFVAL(Variant()),
+        DEFVAL(0.001));
+
+    godot::ClassDB::bind_static_method("OclMeshToGodot",
+        godot::D_METHOD("mesh_vertices", "graph", "existing", "options",
+                        "vertex_ids", "radius"),
+        &OclMeshToGodot::mesh_vertices,
+        DEFVAL(Ref<MultiMesh>()), DEFVAL(Ref<OclMeshOptions>()), DEFVAL(Variant()),
+        DEFVAL(0.002));
+
+    // --- Collision methods ---
+    godot::ClassDB::bind_static_method("OclMeshToGodot",
+        godot::D_METHOD("mesh_faces_collision", "graph", "body", "options",
+                        "face_ids"),
+        &OclMeshToGodot::mesh_faces_collision,
+        DEFVAL(Ref<OclMeshOptions>()), DEFVAL(Variant()));
+
+    godot::ClassDB::bind_static_method("OclMeshToGodot",
+        godot::D_METHOD("mesh_edges_collision", "graph", "body", "options",
+                        "edge_ids", "radius"),
+        &OclMeshToGodot::mesh_edges_collision,
+        DEFVAL(Ref<OclMeshOptions>()), DEFVAL(Variant()), DEFVAL(0.001));
+
+    godot::ClassDB::bind_static_method("OclMeshToGodot",
+        godot::D_METHOD("mesh_vertices_collision", "graph", "body", "options",
+                        "vertex_ids", "radius"),
+        &OclMeshToGodot::mesh_vertices_collision,
+        DEFVAL(Ref<OclMeshOptions>()), DEFVAL(Variant()), DEFVAL(0.002));
+}
+
+// ===========================================================================
+// mesh_faces  —  ArrayMesh rendering path
+// ===========================================================================
+
+int OclMeshToGodot::mesh_faces(
+    const Ref<OclGraphHandle>& graph,
+    const Ref<ArrayMesh>&      existing,
+    const Ref<OclMeshOptions>& options,
+    const Variant&             face_ids,
+    bool                       include_uvs,
+    bool                       include_tangents,
+    bool                       include_feature_ids)
+{
+    if (graph.is_null() || !graph->_handle) return OCCTL_INVALID_ARGUMENT;
+    if (existing.is_null()) return OCCTL_INVALID_ARGUMENT;
+
+    // ----- Prepare output mesh ---------------------------------------------
+    existing->clear_surfaces();
+
+    // ----- Options --------------------------------------------------------
+    occtl_mesh_options_t opts = OCCTL_MESH_OPTIONS_INIT;
+    if (options.is_valid()) opts = options->to_c();
+    double const deflection = opts.deflection;
+    double const angle      = opts.angle;
+
+    // ----- Resolve face IDs -----------------------------------------------
+    std::vector<occtl_node_id_t> ids_vec =
+        _resolve_face_ids(graph->_handle, face_ids);
+    if (ids_vec.empty()) return OCCTL_OK;
+
+    // ----- Generate mesh --------------------------------------------------
+    {
+        occtl_status_t st = _ensure_mesh_generated(
+            graph->_handle, ids_vec, deflection, angle);
+        if (st != OCCTL_OK) return OCCTL_OK;
+    }
+
+    // ----- Collect triangulation data -------------------------------------
+    int total_verts = 0, total_tris = 0;
+    std::vector<TriFaceData> face_data = _collect_face_data(
+        graph->_handle, ids_vec, include_uvs, total_verts, total_tris);
+    if (face_data.empty()) return OCCTL_OK;
+
+    // ----- Assemble ArrayMesh surface -------------------------------------
+    Array arrays = _assemble_mesh_arrays(face_data, total_verts, total_tris,
+        include_uvs, include_tangents, include_feature_ids);
+    existing->add_surface_from_arrays(Mesh::PRIMITIVE_TRIANGLES, arrays);
+    return OCCTL_OK;
+}
+
+// ===========================================================================
+// mesh_faces_collision  —  physics collision path
+// ===========================================================================
+
+int OclMeshToGodot::mesh_faces_collision(
+    const Ref<OclGraphHandle>& graph,
+    PhysicsBody3D*             body,
+    const Ref<OclMeshOptions>& options,
+    const Variant&             face_ids)
+{
+    if (!body) return OCCTL_INVALID_ARGUMENT;
+    if (graph.is_null() || !graph->_handle) return OCCTL_INVALID_ARGUMENT;
+
+    _clear_physics_children(body);
+
+    // ----- Options --------------------------------------------------------
+    occtl_mesh_options_t opts = OCCTL_MESH_OPTIONS_INIT;
+    if (options.is_valid()) opts = options->to_c();
+    double const deflection = opts.deflection;
+    double const angle      = opts.angle;
+
+    // ----- Resolve face IDs -----------------------------------------------
+    std::vector<occtl_node_id_t> ids_vec =
+        _resolve_face_ids(graph->_handle, face_ids);
+    if (ids_vec.empty()) return OCCTL_OK;
+
+    // ----- Generate mesh --------------------------------------------------
+    {
+        occtl_status_t st = _ensure_mesh_generated(
+            graph->_handle, ids_vec, deflection, angle);
+        if (st != OCCTL_OK) return OCCTL_OK;
+    }
+
+    // ----- Collect triangulation data (no UVs needed for physics) ---------
+    int total_verts = 0, total_tris = 0;
+    std::vector<TriFaceData> face_data = _collect_face_data(
+        graph->_handle, ids_vec, false, total_verts, total_tris);
+    if (face_data.empty()) return OCCTL_OK;
+
+    // ----- Add collision shapes -------------------------------------------
+    _add_face_collisions(body, face_data);
+    return OCCTL_OK;
+}
+
+// ===========================================================================
+// mesh_edges  —  MultiMesh rendering path
+// ===========================================================================
+
+int OclMeshToGodot::mesh_edges(
+    const Ref<OclGraphHandle>& graph,
+    const Ref<MultiMesh>&      existing,
+    const Ref<OclMeshOptions>& options,
+    const Variant&             edge_ids,
+    double                     radius)
+{
+    if (graph.is_null() || !graph->_handle) return OCCTL_INVALID_ARGUMENT;
+    if (existing.is_null()) return OCCTL_INVALID_ARGUMENT;
+
+    // ----- Prepare output MultiMesh ---------------------------------------
+    existing->set_instance_count(0);
+    existing->set_transform_format(MultiMesh::TRANSFORM_3D);
+    existing->set_mesh(Ref<ArrayMesh>());
+
+    // ----- Options --------------------------------------------------------
+    occtl_mesh_options_t opts = OCCTL_MESH_OPTIONS_INIT;
+    if (options.is_valid()) opts = options->to_c();
+    double const angle      = opts.angle;
+    double const deflection = opts.deflection;
+
+    double eff_radius = std::abs(radius);
+    if (eff_radius <= 0.0) eff_radius = deflection * 10.0;
+
+    // ----- Resolve edge IDs -----------------------------------------------
+    std::vector<occtl_node_id_t> ids_vec =
+        _resolve_edge_ids(graph->_handle, edge_ids);
+    if (ids_vec.empty()) return OCCTL_OK;
+
+    // ----- Generate mesh (caches edge 3D polygons) ------------------------
+    {
+        occtl_mesh_options_t gen_opts = OCCTL_MESH_OPTIONS_INIT;
+        gen_opts.deflection = deflection;
+        gen_opts.angle      = angle;
+        gen_opts.clean_model = 1;
+        occtl_status_t st = occtl_mesh_generate(
+            graph->_handle, nullptr, 0, &gen_opts);
+        if (st != OCCTL_OK) return OCCTL_OK;
+    }
+
+    // ----- Build cylinder mesh --------------------------------------------
+    int const slices = _slices_from_angle(angle);
+    Ref<ArrayMesh> cyl_mesh = _make_cylinder_mesh(slices);
+
+    if (radius >= 0.0) {
+        double const bbox_diag = _get_graph_bbox_diag(graph->_handle);
+        eff_radius *= bbox_diag;
+    }
+
+    // ----- Collect edge segments ------------------------------------------
+    std::vector<EdgeSegment> segments =
+        _collect_edge_segments(graph->_handle, ids_vec);
+
+    // ----- Build MultiMesh transforms -------------------------------------
+    std::vector<Transform3D> xforms;
+    xforms.reserve(segments.size());
+
+    for (const auto& seg : segments) {
+        gp_Vec dir(seg.p0, seg.p1);
+        double const seg_len = dir.Magnitude();
+        if (seg_len < 1e-15) continue;
+        dir.Normalize();
+
+        gp_XYZ const mid = 0.5 * (seg.p0.XYZ() + seg.p1.XYZ());
+        Basis const basis = _segment_basis(dir);
+
+        Transform3D xf(basis, Vector3(mid.X(), mid.Y(), mid.Z()));
+        xf = xf.scaled_local(Vector3(eff_radius, seg_len, eff_radius));
+        xforms.push_back(xf);
+    }
+
+    // ----- Set up MultiMesh -----------------------------------------------
+    existing->set_transform_format(MultiMesh::TRANSFORM_3D);
+    existing->set_instance_count(static_cast<int>(xforms.size()));
+    existing->set_mesh(cyl_mesh);
+    for (int i = 0; i < static_cast<int>(xforms.size()); i++)
+        existing->set_instance_transform(i, xforms[i]);
+
+    return OCCTL_OK;
+}
+
+// ===========================================================================
+// mesh_edges_collision  —  physics collision path
+// ===========================================================================
+
+int OclMeshToGodot::mesh_edges_collision(
+    const Ref<OclGraphHandle>& graph,
+    PhysicsBody3D*             body,
+    const Ref<OclMeshOptions>& options,
+    const Variant&             edge_ids,
+    double                     radius)
+{
+    if (!body) return OCCTL_INVALID_ARGUMENT;
+    if (graph.is_null() || !graph->_handle) return OCCTL_INVALID_ARGUMENT;
+
+    _clear_physics_children(body);
+
+    // ----- Options --------------------------------------------------------
+    occtl_mesh_options_t opts = OCCTL_MESH_OPTIONS_INIT;
+    if (options.is_valid()) opts = options->to_c();
+    double const angle      = opts.angle;
+    double const deflection = opts.deflection;
+
+    double eff_radius = std::abs(radius);
+    if (eff_radius <= 0.0) eff_radius = deflection * 10.0;
+
+    // ----- Resolve edge IDs -----------------------------------------------
+    std::vector<occtl_node_id_t> ids_vec =
+        _resolve_edge_ids(graph->_handle, edge_ids);
+    if (ids_vec.empty()) return OCCTL_OK;
+
+    // ----- Generate mesh (caches edge 3D polygons) ------------------------
+    {
+        occtl_mesh_options_t gen_opts = OCCTL_MESH_OPTIONS_INIT;
+        gen_opts.deflection = deflection;
+        gen_opts.angle      = angle;
+        gen_opts.clean_model = 1;
+        occtl_status_t st = occtl_mesh_generate(
+            graph->_handle, nullptr, 0, &gen_opts);
+        if (st != OCCTL_OK) return OCCTL_OK;
+    }
+
+    if (radius >= 0.0) {
+        double const bbox_diag = _get_graph_bbox_diag(graph->_handle);
+        eff_radius *= bbox_diag;
+    }
+
+    // ----- Collect edge segments ------------------------------------------
+    std::vector<EdgeSegment> segments =
+        _collect_edge_segments(graph->_handle, ids_vec);
+
+    // ----- Create collision shapes ----------------------------------------
+    for (const auto& seg : segments) {
+        gp_Vec dir(seg.p0, seg.p1);
+        double const seg_len = dir.Magnitude();
+        if (seg_len < 1e-15) continue;
+        dir.Normalize();
+
+        gp_XYZ const mid = 0.5 * (seg.p0.XYZ() + seg.p1.XYZ());
+        Basis const basis = _segment_basis(dir);
+
+        Ref<CapsuleShape3D> cshape;
+        cshape.instantiate();
+        cshape->set_radius(eff_radius);
+        cshape->set_height(std::max(0.0, seg_len - 2.0 * eff_radius));
+
+        CollisionShape3D* cs = memnew(CollisionShape3D);
+        cs->set_shape(cshape);
+        cs->set_position(Vector3(mid.X(), mid.Y(), mid.Z()));
+        cs->set_basis(basis);
+        cs->set_name(String("_occtl_edge_")
+                     + String::num_uint64(seg.eid.bits)
+                     + "_" + String::num_uint64(seg.seg_idx));
+
+        Dictionary meta;
+        meta["feature_id"] = static_cast<int64_t>(seg.eid.bits);
+        cs->set_meta("occtl", meta);
+
+        body->add_child(cs, true);
+        cs->set_owner(
+            body->get_owner() ? body->get_owner() : body);
+    }
+    return OCCTL_OK;
+}
+
+// ===========================================================================
+// mesh_vertices  —  MultiMesh rendering path
+// ===========================================================================
+
+int OclMeshToGodot::mesh_vertices(
+    const Ref<OclGraphHandle>& graph,
+    const Ref<MultiMesh>&      existing,
+    const Ref<OclMeshOptions>& options,
+    const Variant&             vertex_ids,
+    double                     radius)
+{
+    if (graph.is_null() || !graph->_handle) return OCCTL_INVALID_ARGUMENT;
+    if (existing.is_null()) return OCCTL_INVALID_ARGUMENT;
+
+    // ----- Prepare output MultiMesh ---------------------------------------
+    existing->set_instance_count(0);
+    existing->set_transform_format(MultiMesh::TRANSFORM_3D);
+    existing->set_mesh(Ref<ArrayMesh>());
+
+    // ----- Options --------------------------------------------------------
+    occtl_mesh_options_t opts = OCCTL_MESH_OPTIONS_INIT;
+    if (options.is_valid()) opts = options->to_c();
+    double const angle      = opts.angle;
+    double const deflection = opts.deflection;
+
+    double eff_radius = std::abs(radius);
+    if (eff_radius <= 0.0) eff_radius = deflection * 10.0;
+
+    // ----- Resolve vertex IDs ---------------------------------------------
+    std::vector<occtl_node_id_t> ids_vec =
+        _resolve_vertex_ids(graph->_handle, vertex_ids);
+    if (ids_vec.empty()) return OCCTL_OK;
+
+    // ----- Build sphere mesh ----------------------------------------------
+    int const slices = _slices_from_angle(angle);
+    Ref<ArrayMesh> sphere_mesh = _make_sphere_mesh(slices);
+
+    if (radius >= 0.0) {
+        double const bbox_diag = _get_graph_bbox_diag(graph->_handle);
+        eff_radius *= bbox_diag;
+    }
+
+    // ----- Collect vertex positions and build transforms ------------------
+    std::vector<Transform3D> xforms;
+    std::vector<VertexPos> verts =
+        _collect_vertex_positions(graph->_handle, ids_vec);
+    xforms.reserve(verts.size());
+
+    for (const auto& vp : verts) {
+        Transform3D xf;
+        xf.origin = Vector3(vp.pos.X(), vp.pos.Y(), vp.pos.Z());
+        xf = xf.scaled_local(
+            Vector3(eff_radius, eff_radius, eff_radius));
+        xforms.push_back(xf);
+    }
+
+    // ----- Set up MultiMesh -----------------------------------------------
+    existing->set_transform_format(MultiMesh::TRANSFORM_3D);
+    existing->set_instance_count(static_cast<int>(xforms.size()));
+    existing->set_mesh(sphere_mesh);
+    for (int i = 0; i < static_cast<int>(xforms.size()); i++)
+        existing->set_instance_transform(i, xforms[i]);
+
+    return OCCTL_OK;
+}
+
+// ===========================================================================
+// mesh_vertices_collision  —  physics collision path
+// ===========================================================================
+
+int OclMeshToGodot::mesh_vertices_collision(
+    const Ref<OclGraphHandle>& graph,
+    PhysicsBody3D*             body,
+    const Ref<OclMeshOptions>& options,
+    const Variant&             vertex_ids,
+    double                     radius)
+{
+    if (!body) return OCCTL_INVALID_ARGUMENT;
+    if (graph.is_null() || !graph->_handle) return OCCTL_INVALID_ARGUMENT;
+
+    _clear_physics_children(body);
+
+    // ----- Options --------------------------------------------------------
+    occtl_mesh_options_t opts = OCCTL_MESH_OPTIONS_INIT;
+    if (options.is_valid()) opts = options->to_c();
+    double const deflection = opts.deflection;
+    // angle is not needed &mdash; vertex collision shapes don't build a sphere mesh
+
+    double eff_radius = std::abs(radius);
+    if (eff_radius <= 0.0) eff_radius = deflection * 10.0;
+
+    // ----- Resolve vertex IDs ---------------------------------------------
+    std::vector<occtl_node_id_t> ids_vec =
+        _resolve_vertex_ids(graph->_handle, vertex_ids);
+    if (ids_vec.empty()) return OCCTL_OK;
+
+    if (radius >= 0.0) {
+        double const bbox_diag = _get_graph_bbox_diag(graph->_handle);
+        eff_radius *= bbox_diag;
+    }
+
+    // ----- Collect vertex positions and create collision shapes -----------
+    std::vector<VertexPos> verts =
+        _collect_vertex_positions(graph->_handle, ids_vec);
+
+    for (const auto& vp : verts) {
+        Ref<SphereShape3D> cshape;
+        cshape.instantiate();
+        cshape->set_radius(eff_radius);
+
+        CollisionShape3D* cs = memnew(CollisionShape3D);
+        cs->set_shape(cshape);
+        cs->set_position(Vector3(vp.pos.X(), vp.pos.Y(), vp.pos.Z()));
+        cs->set_name(String("_occtl_vertex_")
+                     + String::num_uint64(vp.vid.bits));
+
+        Dictionary meta;
+        meta["feature_id"] = static_cast<int64_t>(vp.vid.bits);
+        cs->set_meta("occtl", meta);
+
+        body->add_child(cs, true);
+        cs->set_owner(
+            body->get_owner() ? body->get_owner() : body);
+    }
+    return OCCTL_OK;
+}

@@ -1942,31 +1942,33 @@ static func test_mesh_generate() -> String:
 
 	return "OK"
 
-static func test_mesh_faces_on_box() -> String:
+static func test_mesh_to_godot_on_box() -> String:
 	var result = _make_box(10.0, 10.0, 10.0)
 	if result.has("error"):
 		return result.error
 
 	var graph: OclGraphHandle = result.graph
-	var root: OclNodeId = result.root
 
-	var opts = OclMeshOptions.new()
-	opts.set_deflection(0.5)
-
-	var status = OclMesh.generate(graph, PackedInt64Array([root.get_bits()]), opts)
-	if status != OK:
-		return "mesh generate failed: %s" % _status_str(status)
-
-	var face_ids = _collect_ids(graph, OclCore.KIND_FACE)
-	if face_ids.size() == 0:
-		return "no faces found in box graph"
-
-	var mesh = OclGodotMesher.mesh_faces(graph, null, opts,
-		PackedInt64Array(face_ids), true, true, false, false)
-	if mesh == null:
-		return "mesh_faces returned null"
+	var mesh := ArrayMesh.new()
+	var status := OclMeshToGodot.mesh_faces(graph, mesh)
+	if status != OclCore.OK:
+		return "mesh_faces returned status %s" % _status_str(status)
 	if mesh.get_surface_count() == 0:
 		return "expected at least 1 surface, got 0"
+
+	var mmesh := MultiMesh.new()
+	status = OclMeshToGodot.mesh_edges(graph, mmesh)
+	if status != OclCore.OK:
+		return "mesh_edges returned status %s" % _status_str(status)
+	if mmesh.instance_count == 0:
+		return "expected at least 1 edge instance, got 0"
+
+	mmesh = MultiMesh.new()
+	status = OclMeshToGodot.mesh_vertices(graph, mmesh)
+	if status != OclCore.OK:
+		return "mesh_edges returned status %s" % _status_str(status)
+	if mmesh.instance_count == 0:
+		return "expected at least 1 vertex instance, got 0"
 
 	return "OK"
 

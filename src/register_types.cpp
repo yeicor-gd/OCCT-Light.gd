@@ -8,7 +8,7 @@
 #include "autowrapper/module.h"
 
 // Hand-written meshing helper
-#include "OclGodotMesher.h"
+#include "OclMeshToGodot.h"
 
 // OCCT-Light core runtime
 #include <occtl/occtl_core.h>
@@ -89,7 +89,7 @@ static void occtl_light_gd_initialize(ModuleInitializationLevel p_level) {
     gdext_initialize_module_auto(p_level);
 
     // Register hand-written helper classes
-    GDREGISTER_CLASS(OclGodotMesher);
+    GDREGISTER_CLASS(OclMeshToGodot);
 
     // Register an atexit handler as a safety net: if Godot calls exit()
     // directly (bypassing GDExtension uninitialize), this ensures OCCT's
