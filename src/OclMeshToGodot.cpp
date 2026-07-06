@@ -61,6 +61,7 @@
 #include <unordered_map>
 #include <vector>
 #include <utility>
+#include <functional>
 
 #include "occtl/occtl_mesh.h"
 #include "occtl/occtl_topo_relation.h"
@@ -929,11 +930,177 @@ struct EdgeSegment {
     uint64_t seg_idx;   // per-edge segment index
 };
 
+// ===========================================================================
+// Edge curve sampling fallback (for edges without faces)
+// ===========================================================================
+
+/// Sample point on an edge curve, used by the adaptive curve sampler.
+struct CurvePt {
+    double t;     ///< Curve parameter.
+    gp_Pnt p;     ///< 3D position.
+    gp_Vec d1;    ///< First derivative (may be zero if unavailable).
+};
+
+/// Evaluate a point (and tangent) on an edge at parameter @p t.
+/// Falls back to vertex positions when curve evaluation is unavailable.
+static CurvePt _curve_eval(
+    occtl_graph_t* graph, occtl_node_id_t eid,
+    int32_t has_curve, double t,
+    double t_min, double t_max)
+{
+    CurvePt pt;
+    pt.t = t;
+    pt.d1 = gp_Vec(0, 0, 0);
+
+    if (has_curve) {
+        occtl_point3_t cp;
+        if (occtl_topo_edge_eval(graph, eid, t, &cp) == OCCTL_OK) {
+            pt.p = gp_Pnt(cp.x, cp.y, cp.z);
+            occtl_vector3_t d1;
+            if (occtl_topo_edge_eval_d1(graph, eid, t, &cp, &d1) == OCCTL_OK) {
+                pt.d1 = gp_Vec(d1.x, d1.y, d1.z);
+            }
+            return pt;
+        }
+    }
+
+    // Fallback: try vertex positions
+    if (t == t_min) {
+        occtl_node_id_t sv;
+        if (occtl_topo_edge_start_vertex(graph, eid, &sv) == OCCTL_OK) {
+            occtl_point3_t vp;
+            if (occtl_topo_vertex_point(graph, sv, &vp) == OCCTL_OK)
+                pt.p = gp_Pnt(vp.x, vp.y, vp.z);
+        }
+    } else if (t == t_max) {
+        occtl_node_id_t ev;
+        if (occtl_topo_edge_end_vertex(graph, eid, &ev) == OCCTL_OK) {
+            occtl_point3_t vp;
+            if (occtl_topo_vertex_point(graph, ev, &vp) == OCCTL_OK)
+                pt.p = gp_Pnt(vp.x, vp.y, vp.z);
+        }
+    }
+    return pt;
+}
+
+/// Recursively subdivide an edge curve segment, inserting sample points
+/// into @p samples in parameter order.  Stops when the chord deviation is
+/// within @p deflection AND the angular change is within @p angle.
+static void _curve_subdivide(
+    occtl_graph_t* graph, occtl_node_id_t eid, int32_t has_curve,
+    double t0, double t1,
+    const CurvePt& s0, const CurvePt& s1,
+    double deflection, double angle, int depth,
+    double t_min, double t_max,
+    std::vector<CurvePt>& samples)
+{
+    if (depth > 24) return; // safety limit
+
+    double const tm = 0.5 * (t0 + t1);
+    CurvePt sm = _curve_eval(graph, eid, has_curve, tm, t_min, t_max);
+
+    // --- chord deviation (distance from midpoint to chord) ---
+    gp_Vec const chord(s0.p, s1.p);
+    double const chord_len = chord.Magnitude();
+    double dev = 0.0;
+    if (chord_len > 1e-15) {
+        gp_Vec const v(s0.p, sm.p);
+        double t = v.Dot(chord) / (chord_len * chord_len);
+        t = std::max(0.0, std::min(1.0, t));
+        gp_Pnt const proj = s0.p.XYZ() + t * chord.XYZ();
+        dev = sm.p.Distance(proj);
+    }
+
+    // --- angular deviation (change in tangent direction) ---
+    double ang_dev = 0.0;
+    double const mag0 = s0.d1.Magnitude();
+    double const magm = sm.d1.Magnitude();
+    if (mag0 > 1e-15 && magm > 1e-15) {
+        double cos_a = s0.d1.Dot(sm.d1) / (mag0 * magm);
+        cos_a = std::max(-1.0, std::min(1.0, cos_a));
+        ang_dev = std::acos(cos_a);
+    }
+
+    double const seg_len = s0.p.Distance(s1.p);
+    bool const tiny = seg_len < 1e-12;
+
+    if ((dev <= deflection || tiny) && (ang_dev <= angle || tiny)) {
+        return; // segment meets quality criteria
+    }
+
+    // Subdivide: left, midpoint, right (maintains parameter order)
+    _curve_subdivide(graph, eid, has_curve,
+                     t0, tm, s0, sm,
+                     deflection, angle, depth + 1,
+                     t_min, t_max, samples);
+    samples.push_back(sm);
+    _curve_subdivide(graph, eid, has_curve,
+                     tm, t1, sm, s1,
+                     deflection, angle, depth + 1,
+                     t_min, t_max, samples);
+}
+
+/// Custom curve sampling for edges that have no face adjacency and no
+/// cached 3D polygon data.  Uses the OCCT curve evaluation API with
+/// adaptive subdivision controlled by @p deflection and @p angle.
+/// Segments are appended to @p out_segments.
+static void _sample_edge_curve_segments(
+    occtl_graph_t* graph,
+    occtl_node_id_t eid,
+    double deflection,
+    double angle,
+    std::vector<EdgeSegment>& out_segments)
+{
+    // Get parametric range
+    double t_min = 0.0, t_max = 1.0;
+    if (occtl_topo_edge_range(graph, eid, &t_min, &t_max) != OCCTL_OK)
+        return;
+
+    // Check if edge has a 3D curve
+    int32_t has_curve = 0;
+    occtl_topo_edge_has_curve(graph, eid, &has_curve);
+
+    // Evaluate endpoints
+    CurvePt s0 = _curve_eval(graph, eid, has_curve, t_min, t_min, t_max);
+    CurvePt s1 = _curve_eval(graph, eid, has_curve, t_max, t_min, t_max);
+
+    double const edge_len = s0.p.Distance(s1.p);
+    if (edge_len < 1e-15)
+        return; // degenerated or zero-length edge
+
+    // Collect sample points via adaptive subdivision
+    std::vector<CurvePt> samples;
+    samples.reserve(64);
+    samples.push_back(s0);
+    _curve_subdivide(graph, eid, has_curve,
+                     t_min, t_max, s0, s1,
+                     deflection, angle, 0,
+                     t_min, t_max, samples);
+    samples.push_back(s1);
+
+    // Build EdgeSegments from consecutive sample points
+    for (size_t i = 0; i + 1 < samples.size(); i++) {
+        double const seg_len = samples[i].p.Distance(samples[i + 1].p);
+        if (seg_len < 1e-15) continue;
+
+        EdgeSegment seg;
+        seg.p0 = samples[i].p;
+        seg.p1 = samples[i + 1].p;
+        seg.eid = eid;
+        seg.seg_idx = static_cast<uint64_t>(i);
+        out_segments.push_back(std::move(seg));
+    }
+}
+
 /// Collect edge segments from polygon-on-triangulation data.
 /// @note The graph must be meshed before calling this function.
+/// For edges without face adjacency and no cached 3D polygon, falls back
+/// to adaptive curve sampling controlled by @p deflection and @p angle.
 static std::vector<EdgeSegment> _collect_edge_segments(
     occtl_graph_t* graph,
-    const std::vector<occtl_node_id_t>& edge_ids)
+    const std::vector<occtl_node_id_t>& edge_ids,
+    double deflection,
+    double angle)
 {
     std::vector<EdgeSegment> segments;
     segments.reserve(edge_ids.size());
@@ -1000,8 +1167,13 @@ static std::vector<EdgeSegment> _collect_edge_segments(
         // own 3D polyline (available for every meshed edge).
         occtl_polygon3d_view_t pv;
         if (occtl_mesh_edge_polygon3d(graph, eid, &pv) != OCCTL_OK
-                || pv.node_count < 2)
+                || pv.node_count < 2) {
+            // Polygon data unavailable (free edge, wire-only graph, etc.)
+            // — use custom curve sampling with adaptive subdivision.
+            _sample_edge_curve_segments(
+                graph, eid, deflection, angle, segments);
             continue;
+        }
 
         for (size_t i = 0; i + 1 < pv.node_count; i++) {
             EdgeSegment seg;
@@ -1266,7 +1438,7 @@ int OclMeshToGodot::mesh_edges(
 
     // ----- Collect edge segments ------------------------------------------
     std::vector<EdgeSegment> segments =
-        _collect_edge_segments(graph->_handle, ids_vec);
+        _collect_edge_segments(graph->_handle, ids_vec, deflection, angle);
 
     // ----- Build MultiMesh transforms -------------------------------------
     std::vector<Transform3D> xforms;
@@ -1344,7 +1516,7 @@ int OclMeshToGodot::mesh_edges_collision(
 
     // ----- Collect edge segments ------------------------------------------
     std::vector<EdgeSegment> segments =
-        _collect_edge_segments(graph->_handle, ids_vec);
+        _collect_edge_segments(graph->_handle, ids_vec, deflection, angle);
 
     // ----- Create collision shapes ----------------------------------------
     for (const auto& seg : segments) {

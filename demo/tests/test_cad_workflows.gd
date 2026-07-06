@@ -131,6 +131,42 @@ static func _collect_ids(graph: OclGraphHandle, kind: int) -> Array:
 		ids.append(out_id.get_bits())
 	return ids
 
+
+# Helper: create a graph with a square polyline (4 edges, no faces).
+# Returns {"graph": ..., "wire": ...} or {"error": ...}.
+static func _make_free_edges_graph() -> Dictionary:
+	var init_err = _init_runtime()
+	if init_err != OK:
+		return {"error": "runtime_init failed: %s" % _status_str(init_err)}
+
+	var graph := OclGraphHandle.new()
+	var create_err := OclTopo.graph_create(graph)
+	if create_err != 0 or graph == null:
+		return {"error": "graph_create returned null"}
+
+	# Build a closed square polyline: 5 points (last = first to close)
+	var polyline_info = OclPrimPolylineInfo.new()
+	var pts := []
+	for coords in [[0.0, 0.0, 0.0], [10.0, 0.0, 0.0], [10.0, 10.0, 0.0], [0.0, 10.0, 0.0], [0.0, 0.0, 0.0]]:
+		var p = OclPoint3.new()
+		p.set_x(coords[0])
+		p.set_y(coords[1])
+		p.set_z(coords[2])
+		pts.append(p)
+
+	var p3_array = OclPoint3Array.new()
+	p3_array.set_data(pts)
+	polyline_info.set_points(p3_array)
+	polyline_info.set_closed(0)
+
+	var out_wire = OclNodeId.new()
+	var status = OclPrimSketch.polyline(graph, polyline_info, out_wire)
+	if status != OK:
+		return {"error": "polyline failed: %s" % _status_str(status)}
+
+	return {"graph": graph, "wire": out_wire}
+
+
 # Helper: create a graph with a box solid and return {graph, root}
 static func _make_box_full(dx: float = 10.0, dy: float = 20.0, dz: float = 30.0) -> Dictionary:
 	var init_err = _init_runtime()
@@ -1971,6 +2007,43 @@ static func test_mesh_to_godot_on_box() -> String:
 		return "expected at least 1 vertex instance, got 0"
 
 	return "OK"
+
+static func test_mesh_edges_free_edges_polyline() -> String:
+	var result = _make_free_edges_graph()
+	if result.has("error"):
+		return result.error
+
+	var graph: OclGraphHandle = result.graph
+
+	var mmesh := MultiMesh.new()
+	var status := OclMeshToGodot.mesh_edges(graph, mmesh)
+	if status != OclCore.OK:
+		return "mesh_edges on free polyline returned status %s" % _status_str(status)
+	if mmesh.instance_count == 0:
+		return "expected at least 1 edge instance for free polyline, got 0"
+
+	return "OK"
+
+
+static func test_mesh_edges_collision_free_edges_polyline() -> String:
+		var result = _make_free_edges_graph()
+		if result.has("error"):
+			return result.error
+
+		var graph: OclGraphHandle = result.graph
+
+		var body := StaticBody3D.new()
+		var status := OclMeshToGodot.mesh_edges_collision(graph, body)
+		if status != OclCore.OK:
+			return "mesh_edges_collision on free polyline returned status %s" % _status_str(status)
+
+		var child_count := body.get_child_count()
+		if child_count == 0:
+			return "expected at least 1 collision child for free polyline, got 0"
+
+		body.queue_free()
+		return "OK"
+
 
 # ---------------------------------------------------------------------------
 # Edge is_degenerated / is_manifold / is_boundary tests
