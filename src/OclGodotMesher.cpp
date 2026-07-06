@@ -150,14 +150,14 @@ void OclGodotMesher::_bind_methods() {
                         "radius"),
         &OclGodotMesher::mesh_edges,
         DEFVAL(Variant()), DEFVAL(Ref<OclMeshOptions>()), DEFVAL(Variant()),
-        DEFVAL(0.01));
+        DEFVAL(0.001));
 
     godot::ClassDB::bind_static_method("OclGodotMesher",
         godot::D_METHOD("mesh_vertices", "graph", "existing", "options",
                         "vertex_ids", "radius"),
         &OclGodotMesher::mesh_vertices,
         DEFVAL(Variant()), DEFVAL(Ref<OclMeshOptions>()), DEFVAL(Variant()),
-        DEFVAL(0.02));
+        DEFVAL(0.002));
 }
 
 // ===========================================================================
@@ -941,7 +941,8 @@ Ref<MultiMesh> OclGodotMesher::mesh_edges(
     double const bbox_diag  = _get_graph_bbox_diag(graph->_handle);
     eff_radius *= bbox_diag;
 
-    // ----- Build edge-coedge-face map ----------------------------------
+    // ----- Build edge polygon data using face triangulations -----------
+    // edge_map: edge_id -> (coedge_id, face_id)  for polygon-on-tri lookup
     std::unordered_map<uint64_t,
         std::pair<occtl_node_id_t, occtl_node_id_t>> edge_coedge_map;
     {
@@ -951,26 +952,13 @@ Ref<MultiMesh> OclGodotMesher::mesh_edges(
         if (st == OCCTL_OK && coedge_iter) {
             occtl_node_id_t cid;
             while (occtl_node_iter_next(coedge_iter, &cid) == OCCTL_OK) {
-                occtl_topo_related_iter_t* rel = nullptr;
-                if (occtl_topo_related_iter_create(graph->_handle, cid, &rel)
-                        != OCCTL_OK || !rel) continue;
-
-                occtl_node_id_t parent_edge{};
-                occtl_node_id_t owning_face{};
-                occtl_node_id_t rn;
-                occtl_relation_kind_t rk;
-                while (occtl_topo_related_iter_next(rel, &rn, &rk) == OCCTL_OK)
-                {
-                    if (rk == OCCTL_RELATION_PARENT_EDGE)
-                        parent_edge = rn;
-                    else if (rk == OCCTL_RELATION_OWNING_FACE)
-                        owning_face = rn;
-                }
-                occtl_topo_related_iter_free(rel);
-
-                if (parent_edge.bits != 0)
-                    edge_coedge_map.emplace(parent_edge.bits,
-                        std::make_pair(cid, owning_face));
+                occtl_node_id_t edge_of{};
+                occtl_node_id_t face_of{};
+                occtl_topo_coedge_edge_of(graph->_handle, cid, &edge_of);
+                occtl_topo_coedge_face_of(graph->_handle, cid, &face_of);
+                if (edge_of.bits != 0 && face_of.bits != 0)
+                    edge_coedge_map.emplace(edge_of.bits,
+                        std::make_pair(cid, face_of));
             }
             occtl_node_iter_free(coedge_iter);
         }
@@ -1032,100 +1020,36 @@ Ref<MultiMesh> OclGodotMesher::mesh_edges(
     };
 
     for (auto eid : ids_vec) {
-        std::vector<gp_Pnt> edge_pts;
+        // Single strategy: use OpenCASCADE's optimal polygon-on-triangulation.
+        // BRepMesh produces a polygon-on-triangulation for each coedge
+        // during face meshing.  We look up the coedge associated with this
+        // edge, read the polygon-on-tri node indices, then resolve the 3D
+        // positions from the parent face's triangulation.
+        auto it = edge_coedge_map.find(eid.bits);
+        if (it == edge_coedge_map.end()) continue;
 
-        // Strategy 1 — free edge 3D polygon
-        {
-            occtl_polygon3d_view_t pv;
-            occtl_status_t st = occtl_mesh_edge_polygon3d(
-                graph->_handle, eid, &pv);
-            if (st == OCCTL_OK && pv.node_count >= 2) {
-                edge_pts.reserve(pv.node_count);
-                for (size_t i = 0; i < pv.node_count; i++)
-                    edge_pts.emplace_back(pv.nodes[3 * i],
-                                          pv.nodes[3 * i + 1],
-                                          pv.nodes[3 * i + 2]);
-            }
+        auto [coedge_id, face_id] = it->second;
+
+        occtl_polygon_on_tri_view_t potv;
+        if (occtl_mesh_coedge_polygon_on_tri(graph->_handle, coedge_id, &potv)
+                != OCCTL_OK || potv.node_count < 2)
+            continue;
+
+        occtl_triangulation_view_t tv;
+        if (occtl_mesh_face_triangulation(graph->_handle, face_id, &tv)
+                != OCCTL_OK || tv.node_count == 0)
+            continue;
+
+        for (size_t i = 0; i + 1 < potv.node_count; i++) {
+            uint32_t idx0 = potv.node_indices[i];
+            uint32_t idx1 = potv.node_indices[i + 1];
+            if (idx0 >= tv.node_count || idx1 >= tv.node_count)
+                continue;
+            _add_segment(
+                gp_Pnt(tv.nodes[3 * idx0], tv.nodes[3 * idx0 + 1], tv.nodes[3 * idx0 + 2]),
+                gp_Pnt(tv.nodes[3 * idx1], tv.nodes[3 * idx1 + 1], tv.nodes[3 * idx1 + 2]),
+                eid, static_cast<uint64_t>(i));
         }
-
-        // Strategy 2 — face-owned edge via coedge polygon-on-triangulation
-        if (edge_pts.size() < 2) {
-            auto it = edge_coedge_map.find(eid.bits);
-            if (it != edge_coedge_map.end()) {
-                auto [coedge_id, face_id] = it->second;
-                occtl_polygon_on_tri_view_t potv;
-                occtl_status_t ps = occtl_mesh_coedge_polygon_on_tri(
-                    graph->_handle, coedge_id, &potv);
-                if (ps == OCCTL_OK && potv.node_count >= 2) {
-                    occtl_triangulation_view_t tv;
-                    occtl_status_t ts = occtl_mesh_face_triangulation(
-                        graph->_handle, face_id, &tv);
-                    if (ts == OCCTL_OK && tv.node_count > 0) {
-                        edge_pts.reserve(potv.node_count);
-                        for (size_t j = 0; j < potv.node_count; j++) {
-                            uint32_t idx = potv.node_indices[j];
-                            if (idx < tv.node_count)
-                                edge_pts.emplace_back(
-                                    tv.nodes[3 * idx],
-                                    tv.nodes[3 * idx + 1],
-                                    tv.nodes[3 * idx + 2]);
-                        }
-                    }
-                }
-            }
-        }
-
-        // Strategy 3 — sample edge's 3D curve directly
-        if (edge_pts.size() < 2) {
-            int32_t has_curve = 0;
-            if (occtl_topo_edge_has_curve(graph->_handle, eid, &has_curve)
-                    == OCCTL_OK && has_curve)
-            {
-                double u_first = 0.0, u_last = 0.0;
-                if (occtl_topo_edge_range(graph->_handle, eid,
-                                          &u_first, &u_last) == OCCTL_OK
-                    && u_last > u_first)
-                {
-                    occtl_point3_t pt;
-                    edge_pts.reserve(4);
-                    if (occtl_topo_edge_eval(graph->_handle, eid,
-                                             u_first, &pt) == OCCTL_OK)
-                        edge_pts.emplace_back(pt.x, pt.y, pt.z);
-
-                    double const u_range = u_last - u_first;
-                    occtl_vector3_t d1_mid;
-                    int mid_samples = 0;
-                    if (occtl_topo_edge_eval_d1(graph->_handle, eid,
-                            (u_first + u_last) * 0.5, &pt, &d1_mid) == OCCTL_OK)
-                    {
-                        double const tan_len = std::sqrt(
-                            d1_mid.x * d1_mid.x
-                            + d1_mid.y * d1_mid.y
-                            + d1_mid.z * d1_mid.z);
-                        double const est_arc = tan_len * u_range;
-                        if (est_arc > deflection * 2.0)
-                            mid_samples = std::min(64,
-                                std::max(1, static_cast<int>(
-                                    std::ceil(est_arc / deflection))));
-                    }
-                    for (int k = 1; k < mid_samples; ++k) {
-                        double u = u_first + u_range * k / mid_samples;
-                        if (occtl_topo_edge_eval(graph->_handle, eid,
-                                                 u, &pt) == OCCTL_OK)
-                            edge_pts.emplace_back(pt.x, pt.y, pt.z);
-                    }
-                    if (occtl_topo_edge_eval(graph->_handle, eid,
-                                             u_last, &pt) == OCCTL_OK)
-                        edge_pts.emplace_back(pt.x, pt.y, pt.z);
-                }
-            }
-        }
-
-        if (edge_pts.size() < 2) continue;
-
-        for (size_t i = 0; i + 1 < edge_pts.size(); i++)
-            _add_segment(edge_pts[i], edge_pts[i + 1], eid,
-                         static_cast<uint64_t>(i));
     }
 
     if (existing_body) return Ref<MultiMesh>();

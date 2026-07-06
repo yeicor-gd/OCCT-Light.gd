@@ -65,12 +65,12 @@ func _generate():
 	print("[OclManager] Generated solid in ", (Time.get_ticks_usec() - start_time) / 1000.0, " ms")
 	start_time = Time.get_ticks_usec()
 	
-	var vertices_mesh := OclGodotMesher.mesh_vertices(graph, $Vertices, null, null, 0.002)
+	var vertices_mesh := OclGodotMesher.mesh_vertices(graph, $Vertices)
 	$Vertices.multimesh = vertices_mesh
 	print("[OclManager] Meshed ", vertices_mesh.instance_count, " vertices in ", (Time.get_ticks_usec() - start_time) / 1000.0, " ms")
 	start_time = Time.get_ticks_usec()
 	
-	var edges_mesh := OclGodotMesher.mesh_edges(graph, $Edges, null, null, 0.001)
+	var edges_mesh := OclGodotMesher.mesh_edges(graph, $Edges)
 	$Edges.multimesh = edges_mesh
 	print("[OclManager] Meshed ", edges_mesh.instance_count, " edge segments in ", (Time.get_ticks_usec() - start_time) / 1000.0, " ms")
 	start_time = Time.get_ticks_usec()
