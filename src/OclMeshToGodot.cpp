@@ -678,11 +678,10 @@ static std::vector<TriFaceData> _collect_face_data(
 /// Handles both the simple (deduplicated, no attrs) and attribute paths.
 static Array _assemble_mesh_arrays(
     const std::vector<TriFaceData>& face_data,
-    int total_verts,
-    int total_tris,
     bool include_uvs,
     bool include_tangents,
-    bool include_feature_ids)
+    bool include_feature_ids,
+    double angle_threshold)
 {
     PackedVector3Array out_verts;
     PackedInt32Array   out_indices;
@@ -732,63 +731,144 @@ static Array _assemble_mesh_arrays(
             }
         }
     } else {
-        // ----- Attribute path: keep per-face vertices separate ---------
-        int const estimated_verts = total_verts;
-        int const estimated_tris  = total_tris;
-        out_verts.resize(estimated_verts);
-        out_indices.resize(3 * estimated_tris);
+        // ----- Attribute path: deduplicate by position + normal angle --
+        //
+        // Two face vertices at the same 3D position share a global vertex
+        // ONLY if the angle between their normals is ≤ angle_threshold.
+        // At sharp edges (angle > threshold) the vertex is duplicated so
+        // each face receives its own normal, preserving the hard edge.
+        // Smooth regions benefit from vertex sharing and normal blending.
+
+        // Position-hashed map: each entry is a vector of "normal groups"
+        // at that position.  Each group corresponds to a separate output
+        // vertex and has an accumulated normal for blending.
+        struct NormalGroup {
+            Vector3 normal_sum;
+            int     count;
+            int     global_idx;
+        };
+        std::unordered_map<uint64_t, std::vector<NormalGroup>> pos_groups;
 
         // Map each face's local vertex index → global output index
         std::vector<std::vector<int>> face_vert_map(face_data.size());
 
-        int voff = 0, ioff = 0;
-        for (size_t fi = 0; fi < face_data.size(); fi++) {
-            auto const& fd     = face_data[fi];
-            face_vert_map[fi].resize(fd.verts.size(), -1);
+        // Helper: hash a 3D position
+        auto pos_hash = [](Vector3 const& v) -> uint64_t {
+            uint64_t hx, hy, hz;
+            memcpy(&hx, &v.x, sizeof(v.x)); hx >>= 4;
+            memcpy(&hy, &v.y, sizeof(v.y)); hy >>= 4;
+            memcpy(&hz, &v.z, sizeof(v.z)); hz >>= 4;
+            return hx ^ (hy << 20) ^ (hz << 40);
+        };
 
-            for (size_t i = 0; i < fd.verts.size(); i++) {
-                out_verts[voff] = fd.verts[i];
-                face_vert_map[fi][i] = voff++;
-            }
-            for (size_t i = 0; i < fd.indices.size(); i += 3) {
-                out_indices[ioff++] = face_vert_map[fi][fd.indices[i]];
-                out_indices[ioff++] = face_vert_map[fi][fd.indices[i + 1]];
-                out_indices[ioff++] = face_vert_map[fi][fd.indices[i + 2]];
-            }
-        }
-        out_verts.resize(voff);
-        out_indices.resize(ioff);
-
-        // ----- Normals ------------------------------------------------
-        //
-        // Per-vertex normals from Poly_Triangulation (always outward-
-        // pointing and smooth).  _collect_face_data guarantees these
-        // are present for every face.
-        out_normals.resize(out_verts.size());
-        for (size_t fi = 0; fi < face_data.size(); fi++) {
-            auto const& fd = face_data[fi];
-            for (size_t vi = 0; vi < fd.verts.size(); vi++) {
-                int const gv = face_vert_map[fi][vi];
-                if (vi < fd.normals_c.size()) {
-                    out_normals[gv] = fd.normals_c[vi];
-                } else {
-                    out_normals[gv] = fd.face_normal;
+        // Helper: find or create a vertex, sharing when normals are
+        // compatible and forcing a split otherwise.
+        auto find_or_create = [&](Vector3 const& pos,
+                                   Vector3 const& nml,
+                                   uint64_t key) -> int {
+            auto& groups = pos_groups[key];
+            for (auto& g : groups) {
+                // Compute current average normal direction
+                Vector3 avg = g.normal_sum / static_cast<double>(g.count);
+                double len = avg.length();
+                if (len < 1e-30) continue;
+                avg /= len;
+                // Angle check
+                double cos_a = avg.dot(nml);
+                cos_a = std::max(-1.0, std::min(1.0, cos_a));
+                double ang = std::acos(cos_a);
+                if (ang <= angle_threshold) {
+                    // Compatible — share vertex
+                    g.normal_sum += nml;
+                    g.count++;
+                    return g.global_idx;
                 }
             }
+            // No compatible group found — create a new vertex
+            int idx = static_cast<int>(out_verts.size());
+            out_verts.push_back(pos);
+            out_normals.push_back(nml); // placeholder, finalised below
+            NormalGroup ng;
+            ng.normal_sum = nml;
+            ng.count      = 1;
+            ng.global_idx = idx;
+            groups.push_back(ng);
+            return idx;
+        };
+
+        // First pass: assign global vertex indices with angle-aware dedup
+        for (size_t fi = 0; fi < face_data.size(); fi++) {
+            auto const& fd = face_data[fi];
+            face_vert_map[fi].resize(fd.verts.size(), -1);
+
+            for (size_t vi = 0; vi < fd.verts.size(); vi++) {
+                Vector3 const& pos = fd.verts[vi];
+                Vector3 nml;
+                if (vi < fd.normals_c.size()) {
+                    nml = fd.normals_c[vi];
+                } else {
+                    nml = fd.face_normal;
+                }
+                uint64_t const key = pos_hash(pos);
+                face_vert_map[fi][vi] =
+                    find_or_create(pos, nml, key);
+            }
         }
 
-        // ----- UVs ----------------------------------------------------
+        // ----- UV handling (before index buffer) ----------------------
+        // Force vertex splits at UV seams so each face gets its own UV.
         if (include_uvs) {
             out_uvs.resize(out_verts.size());
+            for (auto& uv : out_uvs) uv = Vector2(NAN, NAN);
             for (size_t fi = 0; fi < face_data.size(); fi++) {
                 auto const& fd = face_data[fi];
                 if (fd.uvs.empty()) continue;
                 have_uvs = true;
                 for (size_t vi = 0; vi < fd.verts.size(); vi++) {
+                    if (vi >= fd.uvs.size()) continue;
                     int const gv = face_vert_map[fi][vi];
-                    if (vi < fd.uvs.size())
-                        out_uvs[gv] = fd.uvs[vi];
+                    Vector2 const& uv = fd.uvs[vi];
+                    Vector2& dst = out_uvs[gv];
+                    if (std::isnan(dst.x)) {
+                        dst = uv;
+                    } else if ((dst - uv).length_squared() > 1e-20) {
+                        // UV mismatch at shared vertex — force a split.
+                        // Use the face's own normal, not the shared one.
+                        Vector3 const split_nml = (vi < fd.normals_c.size())
+                            ? fd.normals_c[vi]
+                            : fd.face_normal;
+                        int new_idx = static_cast<int>(out_verts.size());
+                        out_verts.push_back(fd.verts[vi]);
+                        out_normals.push_back(split_nml);
+                        out_uvs.push_back(uv);
+                        face_vert_map[fi][vi] = new_idx;
+                    }
                 }
+            }
+            // Remove trailing NaN entries (unused vertices)
+            while (!out_uvs.is_empty() && std::isnan(out_uvs[out_uvs.size() - 1].x))
+                out_uvs.resize(out_uvs.size() - 1);
+        }
+
+        // Finalise normals: normalise the accumulated sum for each group
+        for (auto& [key, groups] : pos_groups) {
+            (void)key;
+            for (auto& g : groups) {
+                Vector3 n = g.normal_sum / static_cast<double>(g.count);
+                double len = n.length();
+                if (len > 1e-30)
+                    n /= len;
+                out_normals[g.global_idx] = n;
+            }
+        }
+
+        // Build index buffer from final face_vert_map
+        for (size_t fi = 0; fi < face_data.size(); fi++) {
+            auto const& fd = face_data[fi];
+            for (size_t i = 0; i < fd.indices.size(); i += 3) {
+                out_indices.push_back(face_vert_map[fi][fd.indices[i]]);
+                out_indices.push_back(face_vert_map[fi][fd.indices[i + 1]]);
+                out_indices.push_back(face_vert_map[fi][fd.indices[i + 2]]);
             }
         }
 
@@ -1333,8 +1413,8 @@ int OclMeshToGodot::mesh_faces(
     if (face_data.empty()) return OCCTL_OK;
 
     // ----- Assemble ArrayMesh surface -------------------------------------
-    Array arrays = _assemble_mesh_arrays(face_data, total_verts, total_tris,
-        include_uvs, include_tangents, include_feature_ids);
+    Array arrays = _assemble_mesh_arrays(face_data,
+        include_uvs, include_tangents, include_feature_ids, angle);
     existing->add_surface_from_arrays(Mesh::PRIMITIVE_TRIANGLES, arrays);
     return OCCTL_OK;
 }

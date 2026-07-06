@@ -76,17 +76,17 @@ func _generate():
 	start_time = Time.get_ticks_usec()
 	
 	# FIXME: SOME FACES ARE SWAPPED (LOOKING INSIDE THE MODEL)
-	status = OclMeshToGodot.mesh_faces(graph, $Faces.mesh, null, null, true, true, true)
-	assert(status == OclCore.OK, "Got status " + str(OclCore.status_to_string(status)))
-	print("[OclManager] Generated ", $Faces.mesh.get_faces().size(), " face segments in ", (Time.get_ticks_usec() - start_time) / 1000.0, " ms")
-	# WORKAROUND FOR NOW:
-	#var stl_bytes := OclByteArray.new()
-	#status = OclDe.write_memory(graph, sweep_id.bits, "stl", stl_bytes)
+	#status = OclMeshToGodot.mesh_faces(graph, $Faces.mesh, null, null, true, true, true)
 	#assert(status == OclCore.OK, "Got status " + str(OclCore.status_to_string(status)))
-	#print("[OclManager] Meshed ", stl_bytes.value.size(), "B for faces to memory in ", (Time.get_ticks_usec() - start_time) / 1000.0, " ms")
-	#start_time = Time.get_ticks_usec()
-	#var faces_mesh = StlImporter.LoadFromBytes(stl_bytes.value)
-	#assert(!StlImporter.IsError(faces_mesh), "StlImporter failed with result " + str(faces_mesh))
-	#var mesh: ArrayMesh = faces_mesh
-	#$Faces.mesh = faces_mesh
-	#print("[OclManager] Read ", faces_mesh.get_faces().size(), " faces (from GDScript) in ", (Time.get_ticks_usec() - start_time) / 1000.0, " ms")
+	#print("[OclManager] Generated ", $Faces.mesh.get_faces().size(), " face segments in ", (Time.get_ticks_usec() - start_time) / 1000.0, " ms")
+	# WORKAROUND FOR NOW:
+	var stl_bytes := OclByteArray.new()
+	status = OclDe.write_memory(graph, sweep_id.bits, "stl", stl_bytes)
+	assert(status == OclCore.OK, "Got status " + str(OclCore.status_to_string(status)))
+	print("[OclManager] Meshed ", stl_bytes.value.size(), "B for faces to memory in ", (Time.get_ticks_usec() - start_time) / 1000.0, " ms")
+	start_time = Time.get_ticks_usec()
+	var faces_mesh = StlImporter.LoadFromBytes(stl_bytes.value)
+	assert(!StlImporter.IsError(faces_mesh), "StlImporter failed with result " + str(faces_mesh))
+	var mesh: ArrayMesh = faces_mesh
+	$Faces.mesh = faces_mesh
+	print("[OclManager] Read ", faces_mesh.get_faces().size(), " faces (from GDScript) in ", (Time.get_ticks_usec() - start_time) / 1000.0, " ms")
