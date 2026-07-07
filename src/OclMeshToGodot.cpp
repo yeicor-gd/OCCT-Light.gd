@@ -4,33 +4,12 @@
 // Bridges OCCT-Light graph handles (OclGraphHandle / occtl_graph_t) with
 // Godot rendering (ArrayMesh, MultiMesh) and physics (PhysicsBody3D +
 // CollisionShape3D).
-//
-// REVERSED face handling
-// ----------------------
-// BRepMesh_IncrementalMesh (OpenCASCADE) triangulates each face and stores
-// triangle indices with CCW winding in UV parameter space.  For a REVERSED
-// face the UV->3D mapping flips, so the 3D winding becomes CW and the
-// geometric cross product e1xe2 points INWARD (opposite to the face's
-// outward direction).
-//
-// However the per-vertex normals stored in Poly_Triangulation ARE computed
-// with the face orientation taken into account - BRepMesh negates the
-// surface normal (dS/du x dS/dv) for REVERSED faces so that the stored
-// normals point OUTWARD.
-//
-// Therefore the correction for a REVERSED face is:
-//   1. Flip triangle indices (swap 1<->2) -> restores CCW/outward winding.
-//   2. Keep per-vertex normals as-is - they are already outward-pointing.
-//
-// Detection uses per-vertex normals (always outward-pointing) compared
-// against the geometric winding normal from the raw indices.  A dot
-// product < 0 indicates a REVERSED face.  If per-vertex normals are
-// unavailable, the raw surface normal (dS/du x dS/dv at UV centre) is
-// used instead.
 // ---------------------------------------------------------------------------
 
 #include "OclMeshToGodot.h"
 
+#include <BRepGraph_NodeId.hxx>
+#include <TopAbs_Orientation.hxx>
 #include <godot_cpp/classes/array_mesh.hpp>
 #include <godot_cpp/classes/multi_mesh.hpp>
 
@@ -57,14 +36,17 @@
 #include <gp_Dir.hxx>
 
 #include <cmath>
-#include <cstring>
+
 #include <unordered_map>
 #include <vector>
 #include <utility>
-#include <functional>
 
+#include "OclGraphHandle.h"
 #include "occtl/occtl_mesh.h"
-#include "occtl/occtl_topo_relation.h"
+
+// XXX: Internal OCCTL APIs / OpenCASCADE APIs
+#include "BRepGraph_ShapesView.hxx"
+#include "../OCCT-Light/src/topo/GraphHandle.hxx"
 
 using namespace godot;
 
@@ -445,29 +427,6 @@ static Ref<ArrayMesh> _make_sphere_mesh(int slices) {
     return mesh;
 }
 
-/// Returns true when the face's triangulation has CW winding in 3D
-/// (REVERSED face &mdash; needs index flipping).  Uses per-vertex normals
-/// from BRepMesh which are the only reliable indicator &mdash; they always
-/// point outward regardless of face orientation.
-///
-/// The detection is based on comparing the average per-vertex normal
-/// (always outward) with the geometric normal from raw winding:
-///   - geo_n opposing normals  &rarr; raw winding is INWARD  &rarr; needs flip
-///   - geo_n agreeing with normals  &rarr; raw winding is OUTWARD &rarr; no flip
-static bool _is_face_reversed(gp_Vec const&              geo_n,
-                              std::vector<Vector3> const& normals_c)
-{
-    gp_Vec ref(0, 0, 0);
-    for (auto const& vn : normals_c)
-        ref += gp_Vec(vn.x, vn.y, vn.z);
-    double const rlen = ref.Magnitude();
-    if (rlen > 1e-30) {
-        ref.Normalize();
-        return ref.Dot(geo_n) < 0;
-    }
-    return false;
-}
-
 
 // ===========================================================================
 // Shared face data structures and helpers
@@ -477,11 +436,9 @@ static bool _is_face_reversed(gp_Vec const&              geo_n,
 /// Per-face triangulation data used by both ArrayMesh and collision paths.
 struct TriFaceData {
     occtl_node_id_t    face_id;
+    std::vector<int>     indices;    // 0-based, 3 per triangle
     std::vector<Vector3> verts;      // local vertices
     std::vector<Vector2> uvs;        // local UVs (may be empty)
-    std::vector<Vector3> normals_c;  // per-vertex normals (may be empty)
-    std::vector<int>     indices;    // 0-based, 3 per triangle
-    Vector3              face_normal; // geometric outward normal, computed from geo_n
 };
 
 /// Collect triangulation data for every face in @p ids_vec.
@@ -496,29 +453,6 @@ static std::vector<TriFaceData> _collect_face_data(
     face_data.reserve(ids_vec.size());
     out_total_verts = 0;
     out_total_tris  = 0;
-
-    // Compute graph centroid from ALL faces for the centroid fallback.
-    // Must be done before individual face processing so the result is
-    // independent of which faces the caller requested.
-    gp_XYZ graph_centroid(0, 0, 0);
-    int    centroid_count = 0;
-    {
-        std::vector<occtl_node_id_t> all_faces =
-            _collect_all_nodes(graph, occtl_graph_face_iter_create);
-        for (auto fid : all_faces) {
-            occtl_triangulation_view_t tv;
-            if (occtl_mesh_face_triangulation(graph, fid, &tv) != OCCTL_OK)
-                continue;
-            for (size_t i = 0; i < tv.node_count; i++) {
-                graph_centroid += gp_XYZ(tv.nodes[3 * i],
-                                         tv.nodes[3 * i + 1],
-                                         tv.nodes[3 * i + 2]);
-                centroid_count++;
-            }
-        }
-        if (centroid_count > 0)
-            graph_centroid /= static_cast<double>(centroid_count);
-    }
 
     for (auto fid : ids_vec) {
         occtl_triangulation_view_t tv;
@@ -555,116 +489,15 @@ static std::vector<TriFaceData> _collect_face_data(
                 fd.uvs.emplace_back(tv.uvs[2 * i], tv.uvs[2 * i + 1]);
         }
 
-        // Per-vertex normals — prefer BRepMesh outward-pointing normals.
-        if (tv.normals) {
-            fd.normals_c.reserve(nv);
-            for (size_t i = 0; i < nv; i++)
-                fd.normals_c.emplace_back(tv.normals[3 * i],
-                                          tv.normals[3 * i + 1],
-                                          tv.normals[3 * i + 2]);
-        }
-
-        // ----- Compute geometric normal from raw winding (single pass) ----
-        //
-        // BRepMesh stores triangle indices CCW in UV parameter space.
-        // For a REVERSED face this produces CW winding in 3D (geometric
-        // cross product points inward).  Per-vertex normals from BRepMesh
-        // always point outward (adjusted for face orientation).
-        gp_Vec geo_n(0, 0, 0);
-        for (size_t i = 0; i < nt; i++) {
-            int const i0 = fd.indices[3 * i];
-            int const i1 = fd.indices[3 * i + 1];
-            int const i2 = fd.indices[3 * i + 2];
-            gp_Vec const e1(
-                gp_Pnt(fd.verts[i1].x, fd.verts[i1].y, fd.verts[i1].z),
-                gp_Pnt(fd.verts[i0].x, fd.verts[i0].y, fd.verts[i0].z));
-            gp_Vec const e2(
-                gp_Pnt(fd.verts[i2].x, fd.verts[i2].y, fd.verts[i2].z),
-                gp_Pnt(fd.verts[i0].x, fd.verts[i0].y, fd.verts[i0].z));
-            gp_Vec const n = e1.Crossed(e2);
-            double const len = n.Magnitude();
-            if (len > 1e-30) geo_n += n.Normalized();
-        }
-        double const glen = geo_n.Magnitude();
-        gp_Vec const geo_n_norm = (glen > 1e-30)
-            ? geo_n.Normalized()
-            : gp_Vec(0, 0, 1);
-
         // ----- REVERSED-face correction -----
-        // When BRepMesh provides per-vertex normals (always outward),
-        // compare them with the raw geometric normal to detect reversal.
-        // When normals are unavailable, we compute smooth per-vertex
-        // normals from the triangulation geometry.  Since these follow
-        // the winding order they always agree with geo_n, so reversal
-        // detection is lost — the mesh remains watertight and renderable
-        // but reversed faces may have inward-pointing normals.
-        bool reversed = false;
-        if (fd.normals_c.empty()) {
-            // Compute smooth per-vertex normals from raw winding.
-            fd.normals_c.assign(nv, Vector3(0, 0, 0));
-            std::vector<int> ncount(nv, 0);
-            for (size_t i = 0; i < nt; i++) {
-                int const i0 = fd.indices[3 * i];
-                int const i1 = fd.indices[3 * i + 1];
-                int const i2 = fd.indices[3 * i + 2];
-                gp_Vec const e1(
-                    gp_Pnt(fd.verts[i1].x, fd.verts[i1].y, fd.verts[i1].z),
-                    gp_Pnt(fd.verts[i0].x, fd.verts[i0].y, fd.verts[i0].z));
-                gp_Vec const e2(
-                    gp_Pnt(fd.verts[i2].x, fd.verts[i2].y, fd.verts[i2].z),
-                    gp_Pnt(fd.verts[i0].x, fd.verts[i0].y, fd.verts[i0].z));
-                gp_Vec n = e1.Crossed(e2);
-                double const len = n.Magnitude();
-                if (len > 1e-30) n.Normalize();
-                for (int vi : {i0, i1, i2}) {
-                    fd.normals_c[vi].x += static_cast<float>(n.X());
-                    fd.normals_c[vi].y += static_cast<float>(n.Y());
-                    fd.normals_c[vi].z += static_cast<float>(n.Z());
-                    ncount[vi]++;
-                }
-            }
-            for (size_t vi = 0; vi < nv; vi++) {
-                if (ncount[vi] > 0) {
-                    double const inv = 1.0 / static_cast<double>(ncount[vi]);
-                    fd.normals_c[vi] *= static_cast<float>(inv);
-                    double mag = fd.normals_c[vi].length();
-                    if (mag > 1e-30)
-                        fd.normals_c[vi] /= static_cast<float>(mag);
-                }
-            }
-            // Without BRepMesh outward normals, fall back to centroid
-            // heuristic: if geo_n points toward the graph centroid, the
-            // raw winding is inward — REVERSED, needs a flip.
-            if (centroid_count > 0) {
-                gp_XYZ face_center(0, 0, 0);
-                for (auto const& v : fd.verts)
-                    face_center += gp_XYZ(v.x, v.y, v.z);
-                face_center /= static_cast<double>(fd.verts.size());
-                gp_Vec to_center(graph_centroid, face_center);
-                double const tc_len = to_center.Magnitude();
-                if (tc_len > 1e-30) {
-                    gp_Vec const tc_norm = to_center.Normalized();
-                    reversed = geo_n_norm.Dot(tc_norm) < 0;
-                }
-            }
-        } else {
-            reversed = _is_face_reversed(geo_n_norm, fd.normals_c);
-        }
-
-        if (reversed) {
+        // XXX: Need access to internal opencascade graph, skipping the public OCCTL API for now.
+        const auto hacked_graph = static_cast<struct occtl_graph*>(graph);
+        bool reversed = hacked_graph->graph.Shapes().Shape(BRepGraph_NodeId::Typed<BRepGraph_NodeId::Kind::Face>(fid.bits)).Orientation() == TopAbs_REVERSED;
+        UtilityFunctions::push_error("Face " + String::num_int64(fid.bits) + " is " + (reversed ? "REVERSED" : "FORWARD") + " in OCCT graph");
+        if (!reversed) { // NOTE: OpenCASCADE winds the opposite as Godot for all faces, so negate the check.
             for (size_t i = 0; i < nt; i++)
                 std::swap(fd.indices[3 * i + 1], fd.indices[3 * i + 2]);
         }
-
-        // Unconditionally swap indices 1 and 2 — all raw triangles are
-        // wound CW (backward for Godot); Godot expects CCW (outward).
-        for (size_t i = 0; i < nt; i++)
-            std::swap(fd.indices[3 * i + 1], fd.indices[3 * i + 2]);
-
-        // Face normal = geometric normal oriented outward
-        fd.face_normal = reversed
-            ? Vector3(-geo_n_norm.X(), -geo_n_norm.Y(), -geo_n_norm.Z())
-            : Vector3( geo_n_norm.X(),  geo_n_norm.Y(),  geo_n_norm.Z());
 
         out_total_verts += static_cast<int>(nv);
         out_total_tris  += static_cast<int>(nt);
@@ -675,13 +508,16 @@ static std::vector<TriFaceData> _collect_face_data(
 }
 
 /// Assemble a Godot Mesh::Array from the per-face triangulation data.
-/// Handles both the simple (deduplicated, no attrs) and attribute paths.
+///
+/// Within each face, smooth per-vertex normals are computed by averaging
+/// the face normals of all incident triangles.  Faces never share vertices
+/// with each other, producing hard edges at face boundaries automatically
+/// without any angle-threshold tuning.
 static Array _assemble_mesh_arrays(
     const std::vector<TriFaceData>& face_data,
     bool include_uvs,
     bool include_tangents,
-    bool include_feature_ids,
-    double angle_threshold)
+    bool include_feature_ids)
 {
     PackedVector3Array out_verts;
     PackedInt32Array   out_indices;
@@ -693,273 +529,153 @@ static Array _assemble_mesh_arrays(
     bool have_tangents = false;
     bool have_colors   = false;
 
-    // Normals are always present (required for correct face orientation),
-    // so we must always use the attribute (per-vertex) path.
-    bool const have_attrs = true;
+    // Map each face's local vertex index → global output index
+    std::vector<std::vector<int>> face_vert_map(face_data.size());
 
-    if (!have_attrs) {
-        // ----- Simple path: deduplicate by position --------------------
-        std::unordered_map<uint64_t, int> pos_map;
-        auto pos_hash = [](Vector3 const& v) -> uint64_t {
-            uint64_t hx, hy, hz;
-            memcpy(&hx, &v.x, sizeof(v.x)); hx >>= 4;
-            memcpy(&hy, &v.y, sizeof(v.y)); hy >>= 4;
-            memcpy(&hz, &v.z, sizeof(v.z)); hz >>= 4;
-            return hx ^ (hy << 20) ^ (hz << 40);
-        };
+    // ---- First pass: emit vertices & compute smooth per-face normals ----
+    for (size_t fi = 0; fi < face_data.size(); fi++) {
+        auto const& fd = face_data[fi];
+        size_t const nv = fd.verts.size();
+        size_t const nt = fd.indices.size() / 3;
+        if (nv == 0 || nt == 0) continue;
 
-        for (const auto& fd : face_data) {
-            for (size_t i = 0; i < fd.indices.size(); i += 3) {
-                int tri[3] = { fd.indices[i], fd.indices[i + 1],
-                               fd.indices[i + 2] };
-                for (int j = 0; j < 3; j++) {
-                    int const local_idx = tri[j];
-                    Vector3 const& pos = fd.verts[local_idx];
-                    uint64_t const key = pos_hash(pos);
-                    auto it = pos_map.find(key);
-                    if (it != pos_map.end() &&
-                        (out_verts[it->second] - pos).length_squared() < 1e-20)
-                    {
-                        out_indices.push_back(it->second);
-                        continue;
-                    }
-                    int const new_idx = out_verts.size();
-                    out_verts.push_back(pos);
-                    out_indices.push_back(new_idx);
-                    pos_map[key] = new_idx;
-                }
-            }
-        }
-    } else {
-        // ----- Attribute path: deduplicate by position + normal angle --
-        //
-        // Two face vertices at the same 3D position share a global vertex
-        // ONLY if the angle between their normals is ≤ angle_threshold.
-        // At sharp edges (angle > threshold) the vertex is duplicated so
-        // each face receives its own normal, preserving the hard edge.
-        // Smooth regions benefit from vertex sharing and normal blending.
-
-        // Position-hashed map: each entry is a vector of "normal groups"
-        // at that position.  Each group corresponds to a separate output
-        // vertex and has an accumulated normal for blending.
-        struct NormalGroup {
-            Vector3 normal_sum;
-            int     count;
-            int     global_idx;
-        };
-        std::unordered_map<uint64_t, std::vector<NormalGroup>> pos_groups;
-
-        // Map each face's local vertex index → global output index
-        std::vector<std::vector<int>> face_vert_map(face_data.size());
-
-        // Helper: hash a 3D position
-        auto pos_hash = [](Vector3 const& v) -> uint64_t {
-            uint64_t hx, hy, hz;
-            memcpy(&hx, &v.x, sizeof(v.x)); hx >>= 4;
-            memcpy(&hy, &v.y, sizeof(v.y)); hy >>= 4;
-            memcpy(&hz, &v.z, sizeof(v.z)); hz >>= 4;
-            return hx ^ (hy << 20) ^ (hz << 40);
-        };
-
-        // Helper: find or create a vertex, sharing when normals are
-        // compatible and forcing a split otherwise.
-        auto find_or_create = [&](Vector3 const& pos,
-                                   Vector3 const& nml,
-                                   uint64_t key) -> int {
-            auto& groups = pos_groups[key];
-            for (auto& g : groups) {
-                // Compute current average normal direction
-                Vector3 avg = g.normal_sum / static_cast<double>(g.count);
-                double len = avg.length();
-                if (len < 1e-30) continue;
-                avg /= len;
-                // Angle check
-                double cos_a = avg.dot(nml);
-                cos_a = std::max(-1.0, std::min(1.0, cos_a));
-                double ang = std::acos(cos_a);
-                if (ang <= angle_threshold) {
-                    // Compatible — share vertex
-                    g.normal_sum += nml;
-                    g.count++;
-                    return g.global_idx;
-                }
-            }
-            // No compatible group found — create a new vertex
-            int idx = static_cast<int>(out_verts.size());
-            out_verts.push_back(pos);
-            out_normals.push_back(nml); // placeholder, finalised below
-            NormalGroup ng;
-            ng.normal_sum = nml;
-            ng.count      = 1;
-            ng.global_idx = idx;
-            groups.push_back(ng);
-            return idx;
-        };
-
-        // First pass: assign global vertex indices with angle-aware dedup
-        for (size_t fi = 0; fi < face_data.size(); fi++) {
-            auto const& fd = face_data[fi];
-            face_vert_map[fi].resize(fd.verts.size(), -1);
-
-            for (size_t vi = 0; vi < fd.verts.size(); vi++) {
-                Vector3 const& pos = fd.verts[vi];
-                Vector3 nml;
-                if (vi < fd.normals_c.size()) {
-                    nml = fd.normals_c[vi];
-                } else {
-                    nml = fd.face_normal;
-                }
-                uint64_t const key = pos_hash(pos);
-                face_vert_map[fi][vi] =
-                    find_or_create(pos, nml, key);
-            }
+        // Compute face normal for each triangle
+        std::vector<Vector3> tri_normals(nt);
+        for (size_t i = 0; i < nt; i++) {
+            int const i0 = fd.indices[3 * i];
+            int const i1 = fd.indices[3 * i + 1];
+            int const i2 = fd.indices[3 * i + 2];
+            Vector3 const e1 = fd.verts[i1] - fd.verts[i0];
+            Vector3 const e2 = fd.verts[i2] - fd.verts[i0];
+            Vector3 n = e1.cross(e2);
+            double len = n.length();
+            if (len > 1e-30) n /= len;
+            tri_normals[i] = n;
         }
 
-        // ----- UV handling (before index buffer) ----------------------
-        // Force vertex splits at UV seams so each face gets its own UV.
-        if (include_uvs) {
-            out_uvs.resize(out_verts.size());
-            for (auto& uv : out_uvs) uv = Vector2(NAN, NAN);
-            for (size_t fi = 0; fi < face_data.size(); fi++) {
-                auto const& fd = face_data[fi];
-                if (fd.uvs.empty()) continue;
+        // Accumulate incident triangle normals per vertex
+        std::vector<Vector3> vert_normals(nv, Vector3(0, 0, 0));
+        for (size_t i = 0; i < nt; i++) {
+            Vector3 const& n = tri_normals[i];
+            vert_normals[fd.indices[3 * i]]     += n;
+            vert_normals[fd.indices[3 * i + 1]] += n;
+            vert_normals[fd.indices[3 * i + 2]] += n;
+        }
+        // Normalise
+        for (auto& vn : vert_normals) {
+            double len = vn.length();
+            if (len > 1e-30) vn /= len;
+        }
+
+        // Emit to global arrays (no cross-face sharing → sharp seams)
+        face_vert_map[fi].resize(nv);
+        for (size_t vi = 0; vi < nv; vi++) {
+            int const gv = static_cast<int>(out_verts.size());
+            out_verts.push_back(fd.verts[vi]);
+            out_normals.push_back(vert_normals[vi]);
+            if (include_uvs && vi < fd.uvs.size()) {
+                out_uvs.push_back(fd.uvs[vi]);
                 have_uvs = true;
-                for (size_t vi = 0; vi < fd.verts.size(); vi++) {
-                    if (vi >= fd.uvs.size()) continue;
-                    int const gv = face_vert_map[fi][vi];
-                    Vector2 const& uv = fd.uvs[vi];
-                    Vector2& dst = out_uvs[gv];
-                    if (std::isnan(dst.x)) {
-                        dst = uv;
-                    } else if ((dst - uv).length_squared() > 1e-20) {
-                        // UV mismatch at shared vertex — force a split.
-                        // Use the face's own normal, not the shared one.
-                        Vector3 const split_nml = (vi < fd.normals_c.size())
-                            ? fd.normals_c[vi]
-                            : fd.face_normal;
-                        int new_idx = static_cast<int>(out_verts.size());
-                        out_verts.push_back(fd.verts[vi]);
-                        out_normals.push_back(split_nml);
-                        out_uvs.push_back(uv);
-                        face_vert_map[fi][vi] = new_idx;
-                    }
-                }
             }
-            // Remove trailing NaN entries (unused vertices)
-            while (!out_uvs.is_empty() && std::isnan(out_uvs[out_uvs.size() - 1].x))
-                out_uvs.resize(out_uvs.size() - 1);
-        }
-
-        // Finalise normals: normalise the accumulated sum for each group
-        for (auto& [key, groups] : pos_groups) {
-            (void)key;
-            for (auto& g : groups) {
-                Vector3 n = g.normal_sum / static_cast<double>(g.count);
-                double len = n.length();
-                if (len > 1e-30)
-                    n /= len;
-                out_normals[g.global_idx] = n;
-            }
-        }
-
-        // Build index buffer from final face_vert_map
-        for (size_t fi = 0; fi < face_data.size(); fi++) {
-            auto const& fd = face_data[fi];
-            for (size_t i = 0; i < fd.indices.size(); i += 3) {
-                out_indices.push_back(face_vert_map[fi][fd.indices[i]]);
-                out_indices.push_back(face_vert_map[fi][fd.indices[i + 1]]);
-                out_indices.push_back(face_vert_map[fi][fd.indices[i + 2]]);
-            }
-        }
-
-        // ----- Tangents -----------------------------------------------
-        if (include_tangents && have_uvs) {
-            out_tangents.resize(out_verts.size() * 4);
-            out_tangents.fill(0.0f);
-            std::vector<int> tangent_count(out_verts.size(), 0);
-
-            for (size_t ti = 0; ti < face_data.size(); ti++) {
-                auto const& fd = face_data[ti];
-                if (fd.uvs.empty()) continue;
-                for (size_t j = 0; j < fd.indices.size() / 3; j++) {
-                    int const i0 = face_vert_map[ti][fd.indices[3 * j]];
-                    int const i1 = face_vert_map[ti][fd.indices[3 * j + 1]];
-                    int const i2 = face_vert_map[ti][fd.indices[3 * j + 2]];
-
-                    Vector3 const e1 = out_verts[i1] - out_verts[i0];
-                    Vector3 const e2 = out_verts[i2] - out_verts[i0];
-                    Vector2 const duv1 = out_uvs[i1] - out_uvs[i0];
-                    Vector2 const duv2 = out_uvs[i2] - out_uvs[i0];
-
-                    double const r = 1.0 / (duv1.x * duv2.y
-                                          - duv2.x * duv1.y + 1e-20);
-                    Vector3 const tangent =
-                        (e1 * duv2.y - e2 * duv1.y) * r;
-
-                    for (int vi : {i0, i1, i2}) {
-                        int const base = vi * 4;
-                        out_tangents[base]     += static_cast<float>(tangent.x);
-                        out_tangents[base + 1] += static_cast<float>(tangent.y);
-                        out_tangents[base + 2] += static_cast<float>(tangent.z);
-                        tangent_count[vi]++;
-                    }
-                }
-            }
-
-            // Orthogonalize and normalize
-            for (int i = 0; i < out_verts.size(); i++) {
-                if (tangent_count[i] == 0) continue;
-                int const base = i * 4;
-                Vector3 t(out_tangents[base],
-                          out_tangents[base + 1],
-                          out_tangents[base + 2]);
-                t /= static_cast<double>(tangent_count[i]);
-
-                Vector3 const& n = out_normals[i];
-                t = (t - n * n.dot(t)).normalized();
-
-                out_tangents[base]     = static_cast<float>(t.x);
-                out_tangents[base + 1] = static_cast<float>(t.y);
-                out_tangents[base + 2] = static_cast<float>(t.z);
-
-                Vector3 const bitangent = n.cross(t.normalized());
-                Vector3 const accum(out_tangents[base],
-                                    out_tangents[base + 1],
-                                    out_tangents[base + 2]);
-                out_tangents[base + 3] =
-                    (bitangent.dot(accum) >= 0) ? 1.0f : -1.0f;
-            }
-            have_tangents = true;
-        }
-
-        // ----- Feature-ID colours --------------------------------------
-        if (include_feature_ids) {
-            out_colors.resize(out_verts.size());
-            for (size_t fi = 0; fi < face_data.size(); fi++) {
-                auto const& fd   = face_data[fi];
-                uint64_t const b = fd.face_id.bits;
-                Color const color(
-                    ((b * 1234567u) & 0xFF) / 255.0f,
-                    ((b * 7654321u) & 0xFF) / 255.0f,
-                    ((b * 3456789u) & 0xFF) / 255.0f,
-                    1.0f);
-                for (size_t vi = 0; vi < fd.verts.size(); vi++) {
-                    int const gv = face_vert_map[fi][vi];
-                    out_colors[gv] = color;
-                }
-            }
-            have_colors = true;
+            face_vert_map[fi][vi] = gv;
         }
     }
 
-    // ----- Build surface arrays -----------------------------------------
+    // ---- Build index buffer ----
+    for (size_t fi = 0; fi < face_data.size(); fi++) {
+        auto const& fd = face_data[fi];
+        for (size_t i = 0; i < fd.indices.size(); i += 3) {
+            out_indices.push_back(face_vert_map[fi][fd.indices[i]]);
+            out_indices.push_back(face_vert_map[fi][fd.indices[i + 1]]);
+            out_indices.push_back(face_vert_map[fi][fd.indices[i + 2]]);
+        }
+    }
+
+    // ---- Tangents ----
+    if (include_tangents && have_uvs) {
+        out_tangents.resize(out_verts.size() * 4);
+        out_tangents.fill(0.0f);
+        std::vector<int> tangent_count(out_verts.size(), 0);
+
+        for (size_t ti = 0; ti < face_data.size(); ti++) {
+            auto const& fd = face_data[ti];
+            if (fd.uvs.empty()) continue;
+            for (size_t j = 0; j < fd.indices.size() / 3; j++) {
+                int const i0 = face_vert_map[ti][fd.indices[3 * j]];
+                int const i1 = face_vert_map[ti][fd.indices[3 * j + 1]];
+                int const i2 = face_vert_map[ti][fd.indices[3 * j + 2]];
+
+                Vector3 const e1 = out_verts[i1] - out_verts[i0];
+                Vector3 const e2 = out_verts[i2] - out_verts[i0];
+                Vector2 const duv1 = out_uvs[i1] - out_uvs[i0];
+                Vector2 const duv2 = out_uvs[i2] - out_uvs[i0];
+
+                double const r = 1.0 / (duv1.x * duv2.y
+                                      - duv2.x * duv1.y + 1e-20);
+                Vector3 const tangent =
+                    (e1 * duv2.y - e2 * duv1.y) * r;
+
+                for (int vi : {i0, i1, i2}) {
+                    int const base = vi * 4;
+                    out_tangents[base]     += static_cast<float>(tangent.x);
+                    out_tangents[base + 1] += static_cast<float>(tangent.y);
+                    out_tangents[base + 2] += static_cast<float>(tangent.z);
+                    tangent_count[vi]++;
+                }
+            }
+        }
+
+        // Orthogonalize and normalize
+        for (int i = 0; i < out_verts.size(); i++) {
+            if (tangent_count[i] == 0) continue;
+            int const base = i * 4;
+            Vector3 t(out_tangents[base],
+                      out_tangents[base + 1],
+                      out_tangents[base + 2]);
+            t /= static_cast<double>(tangent_count[i]);
+
+            Vector3 const& n = out_normals[i];
+            t = (t - n * n.dot(t)).normalized();
+
+            out_tangents[base]     = static_cast<float>(t.x);
+            out_tangents[base + 1] = static_cast<float>(t.y);
+            out_tangents[base + 2] = static_cast<float>(t.z);
+
+            Vector3 const bitangent = n.cross(t.normalized());
+            Vector3 const accum(out_tangents[base],
+                                out_tangents[base + 1],
+                                out_tangents[base + 2]);
+            out_tangents[base + 3] =
+                (bitangent.dot(accum) >= 0) ? 1.0f : -1.0f;
+        }
+        have_tangents = true;
+    }
+
+    // ---- Feature-ID colours ----
+    if (include_feature_ids) {
+        out_colors.resize(out_verts.size());
+        for (size_t fi = 0; fi < face_data.size(); fi++) {
+            auto const& fd   = face_data[fi];
+            uint64_t const b = fd.face_id.bits;
+            Color const color(
+                ((b * 1234567u) & 0xFF) / 255.0f,
+                ((b * 7654321u) & 0xFF) / 255.0f,
+                ((b * 3456789u) & 0xFF) / 255.0f,
+                1.0f);
+            for (size_t vi = 0; vi < fd.verts.size(); vi++) {
+                int const gv = face_vert_map[fi][vi];
+                out_colors[gv] = color;
+            }
+        }
+        have_colors = true;
+    }
+
+    // ---- Build surface arrays ----
     Array arrays;
     arrays.resize(Mesh::ARRAY_MAX);
     arrays[Mesh::ARRAY_VERTEX] = out_verts;
     arrays[Mesh::ARRAY_INDEX]  = out_indices;
-
-    if (!out_normals.is_empty())
-        arrays[Mesh::ARRAY_NORMAL] = out_normals;
+    arrays[Mesh::ARRAY_NORMAL] = out_normals;
     if (have_uvs)
         arrays[Mesh::ARRAY_TEX_UV] = out_uvs;
     if (have_tangents)
@@ -1139,14 +855,31 @@ static void _sample_edge_curve_segments(
     // Check if edge has a 3D curve
     int32_t has_curve = 0;
     occtl_topo_edge_has_curve(graph, eid, &has_curve);
+    // UtilityFunctions::print(
+    //     "  range=[", t_min, ", ", t_max, "] has_curve=", has_curve);
 
-    // Evaluate endpoints
+    // if (!has_curve) {
+    //     UtilityFunctions::push_warning(
+    //         String("EDGE ")
+    //         + String::num_uint64(eid.bits)
+    //         + " HAS NO 3D CURVE");
+    // }
+
     CurvePt s0 = _curve_eval(graph, eid, has_curve, t_min, t_min, t_max);
     CurvePt s1 = _curve_eval(graph, eid, has_curve, t_max, t_min, t_max);
 
-    double const edge_len = s0.p.Distance(s1.p);
-    if (edge_len < 1e-15)
-        return; // degenerated or zero-length edge
+    // UtilityFunctions::print(
+    //     "  p0=", s0.p.X(), ",", s0.p.Y(), ",", s0.p.Z(),
+    //     "  p1=", s1.p.X(), ",", s1.p.Y(), ",", s1.p.Z());
+
+    // double edge_len = s0.p.Distance(s1.p);
+
+    // if (edge_len < 1e-15) {
+    //     UtilityFunctions::push_warning(
+    //         String("EDGE ")
+    //         + String::num_uint64(eid.bits)
+    //         + " ZERO ENDPOINT DISTANCE");
+    // }
 
     // Collect sample points via adaptive subdivision
     std::vector<CurvePt> samples;
@@ -1185,13 +918,13 @@ static std::vector<EdgeSegment> _collect_edge_segments(
     std::vector<EdgeSegment> segments;
     segments.reserve(edge_ids.size());
 
-    // Build edge -> (coedge, face) lookup from ALL coedges
+    // Build edge -> ALL (coedge, face) pairs instead of just the first one.
     std::unordered_map<uint64_t,
-        std::pair<occtl_node_id_t, occtl_node_id_t>> edge_coedge_map;
+        std::vector<std::pair<occtl_node_id_t, occtl_node_id_t>>> edge_coedge_map;
+
     {
         occtl_node_iter_t* coedge_iter = nullptr;
-        occtl_status_t st = occtl_graph_coedge_iter_create(
-            graph, &coedge_iter);
+        occtl_status_t st = occtl_graph_coedge_iter_create(graph, &coedge_iter);
         if (st == OCCTL_OK && coedge_iter) {
             occtl_node_id_t cid;
             while (occtl_node_iter_next(coedge_iter, &cid) == OCCTL_OK) {
@@ -1199,74 +932,143 @@ static std::vector<EdgeSegment> _collect_edge_segments(
                 occtl_node_id_t face_of{};
                 occtl_topo_coedge_edge_of(graph, cid, &edge_of);
                 occtl_topo_coedge_face_of(graph, cid, &face_of);
+
                 if (edge_of.bits != 0 && face_of.bits != 0)
-                    edge_coedge_map.emplace(edge_of.bits,
-                        std::make_pair(cid, face_of));
+                    edge_coedge_map[edge_of.bits].push_back({cid, face_of});
             }
             occtl_node_iter_free(coedge_iter);
         }
     }
 
     for (auto eid : edge_ids) {
+        // const size_t before = segments.size();
+
+        // UtilityFunctions::print("\n=== EDGE ", uint64_t(eid.bits), " ===");
+
+        // Try EVERY adjacent coedge until one produces a polygon.
         auto it = edge_coedge_map.find(eid.bits);
         if (it != edge_coedge_map.end()) {
-            // Edge has an adjacent face — use coedge polygon-on-triangulation
-            // for segments aligned with the triangulated surface.
-            auto [coedge_id, face_id] = it->second;
+            // UtilityFunctions::print("  coedges: ", int(it->second.size()));
 
-            occtl_polygon_on_tri_view_t potv;
-            if (occtl_mesh_coedge_polygon_on_tri(graph, coedge_id, &potv)
-                    == OCCTL_OK && potv.node_count >= 2) {
-                occtl_triangulation_view_t tv;
-                if (occtl_mesh_face_triangulation(graph, face_id, &tv)
-                        == OCCTL_OK && tv.node_count > 0) {
-                    for (size_t i = 0; i + 1 < potv.node_count; i++) {
-                        uint32_t idx0 = potv.node_indices[i];
-                        uint32_t idx1 = potv.node_indices[i + 1];
-                        if (idx0 >= tv.node_count || idx1 >= tv.node_count)
-                            continue;
+            bool handled = false;
 
-                        EdgeSegment seg;
-                        seg.p0 = gp_Pnt(tv.nodes[3 * idx0],
-                                        tv.nodes[3 * idx0 + 1],
-                                        tv.nodes[3 * idx0 + 2]);
-                        seg.p1 = gp_Pnt(tv.nodes[3 * idx1],
-                                        tv.nodes[3 * idx1 + 1],
-                                        tv.nodes[3 * idx1 + 2]);
-                        seg.eid = eid;
-                        seg.seg_idx = static_cast<uint64_t>(i);
-                        segments.push_back(std::move(seg));
-                    }
-                    continue; // handled via coedge polygon-on-tri
+            for (auto [coedge_id, face_id] : it->second) {
+                occtl_polygon_on_tri_view_t potv{};
+                auto st = occtl_mesh_coedge_polygon_on_tri(graph, coedge_id, &potv);
+
+                // UtilityFunctions::print(
+                //     "    coedge ", uint64_t(coedge_id.bits),
+                //     " status=", int(st),
+                //     " nodes=", int(potv.node_count));
+
+                if (st != OCCTL_OK || potv.node_count < 2)
+                    continue;
+
+                occtl_triangulation_view_t tv{};
+                st = occtl_mesh_face_triangulation(graph, face_id, &tv);
+
+                // UtilityFunctions::print(
+                //     "      face ", uint64_t(face_id.bits),
+                //     " status=", int(st),
+                //     " tri_nodes=", int(tv.node_count));
+
+                if (st != OCCTL_OK || tv.node_count == 0)
+                    continue;
+
+                for (size_t i = 0; i + 1 < potv.node_count; ++i) {
+                    uint32_t idx0 = potv.node_indices[i];
+                    uint32_t idx1 = potv.node_indices[i + 1];
+
+                    if (idx0 >= tv.node_count || idx1 >= tv.node_count)
+                        continue;
+
+                    EdgeSegment seg;
+                    seg.p0 = gp_Pnt(
+                        tv.nodes[3 * idx0],
+                        tv.nodes[3 * idx0 + 1],
+                        tv.nodes[3 * idx0 + 2]);
+
+                    seg.p1 = gp_Pnt(
+                        tv.nodes[3 * idx1],
+                        tv.nodes[3 * idx1 + 1],
+                        tv.nodes[3 * idx1 + 2]);
+
+                    seg.eid = eid;
+                    seg.seg_idx = static_cast<uint64_t>(i);
+                    segments.push_back(std::move(seg));
                 }
+
+                handled = true;
+                break;
             }
+
+            if (handled) {
+                // UtilityFunctions::print(
+                //     "  emitted ",
+                //     int(segments.size() - before),
+                //     " segments via coedge");
+                continue;
+            }
+        } else {
+            // UtilityFunctions::print("  no coedges");
         }
 
-        // Edge has no adjacent face (wire edge, free edge, open shell), or
-        // the coedge-based polygon-on-tri failed — fall back to the edge's
-        // own 3D polyline (available for every meshed edge).
-        occtl_polygon3d_view_t pv;
-        if (occtl_mesh_edge_polygon3d(graph, eid, &pv) != OCCTL_OK
-                || pv.node_count < 2) {
-            // Polygon data unavailable (free edge, wire-only graph, etc.)
-            // — use custom curve sampling with adaptive subdivision.
-            _sample_edge_curve_segments(
-                graph, eid, deflection, angle, segments);
+        // Try cached Polygon3D.
+        occtl_polygon3d_view_t pv{};
+        auto st = occtl_mesh_edge_polygon3d(graph, eid, &pv);
+
+        // UtilityFunctions::print(
+        //     "  polygon3d status=",
+        //     int(st),
+        //     " nodes=",
+        //     int(pv.node_count));
+
+        if (st == OCCTL_OK && pv.node_count >= 2) {
+            for (size_t i = 0; i + 1 < pv.node_count; ++i) {
+                EdgeSegment seg;
+                seg.p0 = gp_Pnt(
+                    pv.nodes[3 * i],
+                    pv.nodes[3 * i + 1],
+                    pv.nodes[3 * i + 2]);
+
+                seg.p1 = gp_Pnt(
+                    pv.nodes[3 * (i + 1)],
+                    pv.nodes[3 * (i + 1) + 1],
+                    pv.nodes[3 * (i + 1) + 2]);
+
+                seg.eid = eid;
+                seg.seg_idx = static_cast<uint64_t>(i);
+                segments.push_back(std::move(seg));
+            }
+
+            // UtilityFunctions::print(
+            //     "  emitted ",
+            //     int(segments.size() - before),
+            //     " segments via polygon3d");
             continue;
         }
 
-        for (size_t i = 0; i + 1 < pv.node_count; i++) {
-            EdgeSegment seg;
-            seg.p0 = gp_Pnt(pv.nodes[3 * i],
-                            pv.nodes[3 * i + 1],
-                            pv.nodes[3 * i + 2]);
-            seg.p1 = gp_Pnt(pv.nodes[3 * (i + 1)],
-                            pv.nodes[3 * (i + 1) + 1],
-                            pv.nodes[3 * (i + 1) + 2]);
-            seg.eid = eid;
-            seg.seg_idx = static_cast<uint64_t>(i);
-            segments.push_back(std::move(seg));
-        }
+        // Last resort: sample the curve.
+        // UtilityFunctions::print("  sampling curve...");
+
+        _sample_edge_curve_segments(
+            graph,
+            eid,
+            deflection,
+            angle,
+            segments);
+
+        // UtilityFunctions::print(
+        //     "  emitted ",
+        //     int(segments.size() - before),
+        //     " segments via sampler");
+
+        // if (segments.size() == before) {
+        //     UtilityFunctions::push_warning(
+        //         String("EDGE ")
+        //         + String::num_uint64(eid.bits)
+        //         + " PRODUCED ZERO SEGMENTS");
+        // }
     }
 
     return segments;
@@ -1414,7 +1216,7 @@ int OclMeshToGodot::mesh_faces(
 
     // ----- Assemble ArrayMesh surface -------------------------------------
     Array arrays = _assemble_mesh_arrays(face_data,
-        include_uvs, include_tangents, include_feature_ids, angle);
+        include_uvs, include_tangents, include_feature_ids);
     existing->add_surface_from_arrays(Mesh::PRIMITIVE_TRIANGLES, arrays);
     return OCCTL_OK;
 }

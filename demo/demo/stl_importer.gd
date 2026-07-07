@@ -153,7 +153,7 @@ static func LoadAsciiFromBuffer(bytes :PackedByteArray) -> Variant:
 			ASCII_PARSING_MODE.END_SOLID:
 				break
 
-	mesh.set_meta('triangle_count', int(vertices.size()/3))
+	mesh.set_meta('triangle_count', int(float(vertices.size())/3))
 	var arrays := Array()
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = vertices
@@ -205,7 +205,7 @@ static func LoadBinaryFromBuffer(bytes :PackedByteArray) -> Variant:
 			vertices.append_array([v1, v2, v3])
 		else:
 			vertices.append_array([v3, v2, v1])
-		var attribute := bytes.decode_u16(offset)
+		# var _attribute := bytes.decode_u16(offset)
 		offset += 2
 
 	var arrays := Array()
