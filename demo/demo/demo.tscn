@@ -1,4 +1,4 @@
-[gd_scene format=4 uid="uid://cdpxyy5g6myu7"]
+[gd_scene format=3 uid="uid://cdpxyy5g6myu7"]
 
 [ext_resource type="Script" uid="uid://x07ga2kmi7gw" path="res://demo/maze_generator.gd" id="1_d6po2"]
 [ext_resource type="Script" uid="uid://b5qu3isg8s157" path="res://demo/outside.gd" id="2_j5lb4"]
@@ -43,43 +43,31 @@ point_count = 25
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_u10mr"]
 albedo_color = Color(1, 0, 1, 1)
 
-[sub_resource type="ArrayMesh" id="ArrayMesh_onu7k"]
-_surfaces = [{
-"aabb": AABB(-1, -1, -1, 2, 2, 2),
-"format": 34359742471,
-"index_count": 144,
-"index_data": PackedByteArray("AAABAAIAAAACAAMAAAADAAQAAAAEAAUAAAAFAAYAAAAGAAcAAAAHAAgAAAAIAAEAAQAJAAIACgACAAkAAgAKAAMACwADAAoAAwALAAQADAAEAAsABAAMAAUADQAFAAwABQANAAYADgAGAA0ABgAOAAcADwAHAA4ABwAPAAgAEAAIAA8ACAAQAAEACQABABAACQARAAoAEgAKABEACgASAAsAEwALABIACwATAAwAFAAMABMADAAUAA0AFQANABQADQAVAA4AFgAOABUADgAWAA8AFwAPABYADwAXABAAGAAQABcAEAAYAAkAEQAJABgAGQASABEAGQATABIAGQAUABMAGQAVABQAGQAWABUAGQAXABYAGQAYABcAGQARABgA"),
-"primitive": 3,
-"uv_scale": Vector4(0, 0, 0, 0),
-"vertex_count": 26,
-"vertex_data": PackedByteArray("AAAAAAAAgD8AAAAA8wQ1P/MENT8AAAAAAAAAP/MENT8AAAA/Bq1HJPMENT/zBDU/AAAAv/MENT8AAAA/8wQ1v/MENT8GrcckAAAAv/MENT8AAAC/xMEVpfMENT/zBDW/AAAAP/MENT8AAAC/AACAPzIxjSQAAAAA8wQ1PzIxjSTzBDU/MjGNJDIxjSQAAIA/8wQ1vzIxjSTzBDU/AACAvzIxjSQyMQ0l8wQ1vzIxjSTzBDW/yslTpTIxjSQAAIC/8wQ1PzIxjSTzBDW/8wQ1P/MENb8AAAAAAAAAP/MENb8AAAA/Bq1HJPMENb/zBDU/AAAAv/MENb8AAAA/8wQ1v/MENb8GrcckAAAAv/MENb8AAAC/xMEVpfMENb/zBDW/AAAAP/MENb8AAAC/AAAAAAAAgL8AAAAA/3///wAA/7//v/+/VFVU1XylBLUdPovE/3//v1RVqaqCWgS1CWp8pf8//79UVamqBDWB2gQ18KD/P///qipUlfrKgdr/HP7c////f/9//7//v/9/VFWpqv9//3//fwCA/z//f6qqqaoAAP9//3//vwAA/79UVamqAAD///9/AID///+/qqqpqv+//z9UVamqfKX6SgQ18KD/f/8/qipUlYJa+kr/HP7c/z//P1RVVNUENX0lHT6LxP8/AABUVamq+sp9JQlqfKX/fwAAAAD/vw==")
-}]
+[sub_resource type="SphereMesh" id="SphereMesh_onu7k"]
+radius = 2.0
+height = 4.0
+radial_segments = 8
+rings = 4
 
-[sub_resource type="MultiMesh" id="MultiMesh_s1s6j"]
+[sub_resource type="MultiMesh" id="MultiMesh_onu7k"]
 transform_format = 1
 instance_count = 8
-mesh = SubResource("ArrayMesh_onu7k")
+mesh = SubResource("SphereMesh_onu7k")
 buffer = PackedFloat32Array(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.010365322, 0, 0, 0.2035392, 0, 0.010365322, 0, -0.51472867, 0, 0, 0.010365322, 2.7439222, 0.010365322, 0, 0, -0.29109314, 0, 0.010365322, 0, -0.5844138, 0, 0, 0.010365322, 2.721986, 0.010365322, 0, 0, -0.29266334, 0, 0.010365322, 0, -0.60412574, 0, 0, 0.010365322, 2.8200111, 0.010365322, 0, 0, 0.20196901, 0, 0.010365322, 0, -0.5344406, 0, 0, 0.010365322, 2.8419473)
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_s1s6j"]
 albedo_color = Color(1, 1, 0, 0.42745098)
 
-[sub_resource type="ArrayMesh" id="ArrayMesh_onvmd"]
-_surfaces = [{
-"aabb": AABB(-1, -0.5, -1, 2, 1, 2),
-"format": 34359742471,
-"index_count": 96,
-"index_data": PackedByteArray("AAADAAIAAAAEAAMAAAAFAAQAAAAGAAUAAAAHAAYAAAAIAAcAAAAJAAgAAAACAAkAAQAKAAsAAQALAAwAAQAMAA0AAQANAA4AAQAOAA8AAQAPABAAAQAQABEAAQARAAoAAgADAAoACwAKAAMAAwAEAAsADAALAAQABAAFAAwADQAMAAUABQAGAA0ADgANAAYABgAHAA4ADwAOAAcABwAIAA8AEAAPAAgACAAJABAAEQAQAAkACQACABEACgARAAIA"),
-"primitive": 3,
-"uv_scale": Vector4(0, 0, 0, 0),
-"vertex_count": 18,
-"vertex_data": PackedByteArray("AAAAAAAAAL8AAAAAAAAAAAAAAD8AAAAAAACAPwAAAL8AAAAA8wQ1PwAAAL/zBDU/MjGNJAAAAL8AAIA/8wQ1vwAAAL/zBDU/AACAvwAAAL8yMQ0l8wQ1vwAAAL/zBDW/yslTpQAAAL8AAIC/8wQ1PwAAAL/zBDW/AACAPwAAAD8AAAAA8wQ1PwAAAD/zBDU/MjGNJAAAAD8AAIA/8wQ1vwAAAD/zBDU/AACAvwAAAD8yMQ0l8wQ1vwAAAD/zBDW/yslTpQAAAD8AAIC/8wQ1PwAAAD/zBDW//38AAAAA/7//f///AAD/v////3//f/+//7//f1RVqar/f/9//38AgP8//3+qqqmqAAD/f/9//78AAP+/VFWpqgAA////fwCA////v6qqqar///9//3//v/+//39UVamq/3//f/9/AID/P/9/qqqpqgAA/3//f/+/AAD/v1RVqaoAAP///38AgP///7+qqqmq")
-}]
+[sub_resource type="CylinderMesh" id="CylinderMesh_s1s6j"]
+top_radius = 2.0
+bottom_radius = 2.0
+height = 1.0
+radial_segments = 8
 
-[sub_resource type="MultiMesh" id="MultiMesh_oeqrt"]
+[sub_resource type="MultiMesh" id="MultiMesh_s1s6j"]
 transform_format = 1
 instance_count = 8
-mesh = SubResource("ArrayMesh_onvmd")
+mesh = SubResource("CylinderMesh_s1s6j")
 buffer = PackedFloat32Array(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -0.0002296169, -0.49463233, 0.00072160223, -0.043776974, 0, -0.06968515, -0.0051320796, -0.5495713, 0.005177572, -0.02193614, 3.2001884e-05, 2.7329543, 0.005181996, -0.0015701836, 1.6362159e-05, -0.29187822, 0, -0.01971191, -0.005080974, -0.59426975, 8.300619e-05, 0.09802505, -0.0010214739, 2.7709987, 0.0002296169, 0.49463233, 0.00072160223, -0.045347154, 0, 0.06968515, -0.0051320796, -0.5692831, -0.005177572, 0.02193614, 3.2001884e-05, 2.830979, -0.005181996, 0.0015701836, 1.6362159e-05, 0.2027541, 0, 0.01971191, -0.005080974, -0.52458465, -8.300619e-05, -0.09802505, -0.0010214739, 2.7929347)
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_onvmd"]
@@ -87,7 +75,7 @@ albedo_color = Color(0, 1, 1, 1)
 distance_fade_min_distance = 164.66
 distance_fade_max_distance = 102.91
 
-[sub_resource type="ArrayMesh" id="ArrayMesh_ykvhj"]
+[sub_resource type="ArrayMesh" id="ArrayMesh_onu7k"]
 
 [node name="Node3D" type="Node3D" unique_id=1989707108]
 
@@ -118,8 +106,8 @@ node_count = 25
 segment_length = 0.5
 
 [node name="MazePathFollow" type="PathFollow3D" parent="Maze/Path" unique_id=435211787]
-transform = Transform3D(-0.26713425, -0.98209447, -0.12128817, 0.29574722, 0.025279805, -1.1082587, 0.9353262, -0.28848487, 0.31578735, 1.18876, -0.75585073, 1.9477757)
-progress = 2.7212136
+transform = Transform3D(0.76873505, 0.51576567, -0.48522887, -0.49848464, 0.87967116, 0.17185415, 0.44100615, 0.09527132, 1.040074, -1.0400122, -0.1152291, -0.5409135)
+progress = 7.1976156
 script = ExtResource("3_dar0o")
 play_in_editor = true
 speed = 1.0
@@ -135,12 +123,12 @@ curve = SubResource("Curve3D_u10mr")
 
 [node name="Vertices" type="MultiMeshInstance3D" parent="Maze/OclManager" unique_id=84311422]
 material_override = SubResource("StandardMaterial3D_u10mr")
-multimesh = SubResource("MultiMesh_s1s6j")
+multimesh = SubResource("MultiMesh_onu7k")
 
 [node name="Edges" type="MultiMeshInstance3D" parent="Maze/OclManager" unique_id=1291881625]
 material_override = SubResource("StandardMaterial3D_s1s6j")
-multimesh = SubResource("MultiMesh_oeqrt")
+multimesh = SubResource("MultiMesh_s1s6j")
 
 [node name="Faces" type="MeshInstance3D" parent="Maze/OclManager" unique_id=1787046184]
 material_override = SubResource("StandardMaterial3D_onvmd")
-mesh = SubResource("ArrayMesh_ykvhj")
+mesh = SubResource("ArrayMesh_onu7k")

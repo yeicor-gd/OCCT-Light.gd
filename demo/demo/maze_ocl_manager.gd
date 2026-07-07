@@ -370,38 +370,25 @@ func _build_segment_graph(index: int, path: Path3D, aux_curve: Curve3D) -> Segme
 # ==============================================================================
 
 func _append_graph_vertices(graph: OclGraphHandle, multimesh: MultiMesh) -> void:
-	var first_time := multimesh.instance_count == 0
-	var temp_mm: MultiMesh
-	if first_time:
-		temp_mm = multimesh
-	else:
-		temp_mm = MultiMesh.new()
+	var temp_mm := MultiMesh.new()
 	var status := OclMeshToGodot.mesh_vertices(graph, temp_mm, null, null, 0.02) as OclCore.status
 	assert(status == OclCore.OK,
 		"Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
-	if not first_time:
-		var base_index := multimesh.instance_count
-		multimesh.instance_count += temp_mm.instance_count
-		for i in range(temp_mm.instance_count):
-			multimesh.set_instance_transform(base_index + i, temp_mm.get_instance_transform(i))
+	var base_index := multimesh.instance_count
+	multimesh.instance_count = base_index + temp_mm.instance_count
+	for i in range(temp_mm.instance_count):
+		multimesh.set_instance_transform(base_index + i, temp_mm.get_instance_transform(i))
 
 
 func _append_graph_edges(graph: OclGraphHandle, multimesh: MultiMesh) -> void:
-	var first_time := multimesh.instance_count == 0
-	var temp_mm: MultiMesh
-	if first_time:
-		temp_mm = multimesh
-	else:
-		temp_mm = MultiMesh.new()
+	var temp_mm := MultiMesh.new()
 	var status := OclMeshToGodot.mesh_edges(graph, temp_mm, null, null, 0.01) as OclCore.status
 	assert(status == OclCore.OK,
 		"Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
-	print("first_time: ", first_time)
-	if not first_time:
-		var base_index := multimesh.instance_count
-		multimesh.instance_count += temp_mm.instance_count
-		for i in range(temp_mm.instance_count):
-			multimesh.set_instance_transform(base_index + i, temp_mm.get_instance_transform(i))
+	var base_index := multimesh.instance_count
+	multimesh.instance_count = base_index + temp_mm.instance_count
+	for i in range(temp_mm.instance_count):
+		multimesh.set_instance_transform(base_index + i, temp_mm.get_instance_transform(i))
 
 
 # Mesh every solid in |graph| via the STL export/import workaround and add each
@@ -436,8 +423,8 @@ func _append_graph_faces(graph: OclGraphHandle, target: ArrayMesh) -> void:
 
 
 func _clear_display_meshes() -> void:
-	$Vertices.multimesh = MultiMesh.new()
-	$Edges.multimesh = MultiMesh.new()
+	$Vertices.multimesh.instance_count = 0
+	$Edges.multimesh.instance_count = 0
 	$Faces.mesh = ArrayMesh.new()
 
 
