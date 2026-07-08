@@ -134,7 +134,6 @@ static func build_profile_cool(
 	var split_info := OclTopoSplitByPlaneOptions.new()
 	split_info.root = slot_id.bits
 	split_info.keep = OclTopoAlgo.TOPO_SPLIT_KEEP_NEGATIVE
-	print("WALL HEIGHT: ", var_to_str(cfg))
 	split_info.point = OcctConversionUtils.v3_to_p3(xf.translated_local(Vector3.UP * (-cfg.wall_thickness + (cfg.wall_height - 0.5) * cfg.ball_radius)).origin)
 	split_info.normal = OcctConversionUtils.v3_to_d3(xf.basis.y)
 	var split_id := OclNodeId.new()

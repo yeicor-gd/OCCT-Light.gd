@@ -34,6 +34,14 @@ class_name OclMeshBuilder
 ## Profile strategy: 0 = fast (rectangle cut), 1 = cool (slot + trace).
 @export_enum("Fast", "Cool") var profile_strategy: int = 1
 
+@export_group("Chunking")
+
+## Number of segments to merge into one OCCT graph. Higher values reduce sweep
+## operations at the cost of larger per-chunk graphs.
+## 1 = one graph per segment (original behaviour).
+## Auto-reduced for the last chunk when the segment count is not a multiple.
+@export_range(1, 200, 1) var chunk_size: int = 5
+
 @export_group("Display")
 
 ## OCCT mesh tessellation options.
@@ -108,34 +116,46 @@ func regenerate():
 	_clear_display()
 
 	var segment_count := path.curve.point_count - 1
-	print("[OclMeshBuilder] Generating ", segment_count, " segment(s)...")
+	print("[OclMeshBuilder] Generating ", segment_count, " segment(s) with chunk_size=", chunk_size, "...")
 
-	for i in range(segment_count):
-		var seg_start := Time.get_ticks_usec()
+	var chunker := ChunkBuilder.new()
+	chunker.chunk_size = chunk_size
+	var chunks := chunker.plan_chunks(segment_count)
 
-		# Build a complete graph for this segment.
-		var segment := _build_segment_graph(i, path, aux_path.curve)
+	for ci in range(chunks.size()):
+		var chunk := chunks[ci]
+		var chunk_start := Time.get_ticks_usec()
+
+		# Build a single graph for this chunk (may span multiple segments).
+		var graph := chunker.build_chunk_graph(
+			chunk, path.curve, aux_path.curve, _profile_cfg, profile_strategy,
+		)
+		if not graph:
+			push_error("OclMeshBuilder: build_chunk_graph returned null for chunk ", ci)
+			continue
 
 		# Mesh immediately and accumulate into display nodes.
 		if show_vertices:
-			_append_graph_vertices(segment.graph, $Vertices.multimesh)
+			_append_graph_vertices(graph, $Vertices.multimesh)
 		if show_edges:
-			_append_graph_edges(segment.graph, $Edges.multimesh)
+			_append_graph_edges(graph, $Edges.multimesh)
 		if show_faces:
-			_append_graph_faces(segment.graph, $Faces.mesh)
+			_append_graph_faces(graph, $Faces.mesh)
 
-		# Free the per-segment graph.
-		OclTopo.graph_free(segment.graph)
+		# Free the per-chunk graph.
+		OclTopo.graph_free(graph)
 
-		var seg_ms := (Time.get_ticks_usec() - seg_start) / 1000.0
-		print("[OclMeshBuilder] Segment ", i + 1, "/", segment_count, " done in ", seg_ms, " ms")
+		var chunk_ms := (Time.get_ticks_usec() - chunk_start) / 1000.0
+		print("[OclMeshBuilder] Chunk ", ci + 1, "/", chunks.size(),
+			" (segments ", chunk.start_segment, "-", chunk.end_segment,
+			") done in ", chunk_ms, " ms")
 
-		# Future: emit_signal("generation_progress", i + 1, segment_count)
+		# Future: emit_signal("generation_progress", ci + 1, chunks.size())
 		# Future: await get_tree().idle_frame  (for live display refresh)
 
 	print(
 		"[OclMeshBuilder] All ", segment_count,
-		" segments generated in ",
+		" segments in ", chunks.size(), " chunk(s) generated in ",
 		(Time.get_ticks_usec() - total_start) / 1000.0, " ms",
 	)
 
