@@ -5,16 +5,17 @@ extends Node3D
 @export_tool_button("Generate") var generate_ := _generate
 @onready var maze := $".."
 
-
 # ==============================================================================
 #  Lightweight data containers
 # ==============================================================================
+
 
 # Holds everything belonging to one Bezier segment's result.
 # Each segment produces its own independent graph, so graphs stay tiny.
 class SegmentGraph:
 	var graph: OclGraphHandle
 	var solid: OclNodeId
+
 
 	func _init(g: OclGraphHandle, s: OclNodeId):
 		graph = g
@@ -28,14 +29,15 @@ class SweepProfile:
 	var graph: OclGraphHandle
 	var profile_id: OclNodeId
 
+
 	func _init(g: OclGraphHandle, p: OclNodeId):
 		graph = g
 		profile_id = p
 
-
 # ==============================================================================
 #  Conversion helpers
 # ==============================================================================
+
 
 func v3_to_p3(v3: Vector3) -> OclPoint3:
 	var p3 := OclPoint3.new()
@@ -60,19 +62,30 @@ func p3_to_v3(p3: OclPoint3) -> Vector3:
 func transform3d_to_occt_array(t: Transform3D) -> PackedFloat64Array:
 	var b := t.basis
 	var o := t.origin
-	return PackedFloat64Array([
-		# Row 0
-		b.x.x, b.y.x, b.z.x, o.x,
-		# Row 1
-		b.x.y, b.y.y, b.z.y, o.y,
-		# Row 2
-		b.x.z, b.y.z, b.z.z, o.z,
-	])
-
+	return PackedFloat64Array(
+		[
+			# Row 0
+			b.x.x,
+			b.y.x,
+			b.z.x,
+			o.x,
+			# Row 1
+			b.x.y,
+			b.y.y,
+			b.z.y,
+			o.y,
+			# Row 2
+			b.x.z,
+			b.y.z,
+			b.z.z,
+			o.z,
+		],
+	)
 
 # ==============================================================================
 #  Auxiliary curve – used to orient the sweep (debug visualisation)
 # ==============================================================================
+
 
 func _build_auxiliary_curve(base_curve: Curve3D) -> Curve3D:
 	var res := Curve3D.new()
@@ -119,10 +132,10 @@ static func _floor_perpendicular(forward: Vector3, point: Vector3) -> Vector3:
 			right = radial.cross(Vector3.FORWARD)
 	return right.normalized()
 
-
 # ==============================================================================
 #  Profile creation  (slot → split → transform → trace)
 # ==============================================================================
+
 
 # Build the sweep profile geometry inside a given graph.
 # Returns the node id of the resulting profile shape.
@@ -140,8 +153,10 @@ func _build_profile_in_graph(graph: OclGraphHandle, path: Path3D) -> OclNodeId:
 	slot_info.placement = slot_placement
 	var slot_id := OclNodeId.new()
 	var status := OclPrimSketch.slot(graph, slot_info, slot_id) as OclCore.status
-	assert(status == OclCore.OK,
-		"Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
+	assert(
+		status == OclCore.OK,
+		"Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())],
+	)
 
 	# Split by plane (keep negative Y)
 	var split_info := OclTopoSplitByPlaneOptions.new()
@@ -150,8 +165,10 @@ func _build_profile_in_graph(graph: OclGraphHandle, path: Path3D) -> OclNodeId:
 	split_info.normal = v3_to_d3(Vector3(0, 1, 0))
 	var split_id := OclNodeId.new()
 	status = OclTopoAlgo.make_split_by_plane(graph, split_info, graph, split_id) as OclCore.status
-	assert(status == OclCore.OK,
-		"Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
+	assert(
+		status == OclCore.OK,
+		"Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())],
+	)
 
 	# Transform to align with the start of the path
 	var spline_start := path.curve.sample_baked_with_rotation(0.0)
@@ -159,39 +176,49 @@ func _build_profile_in_graph(graph: OclGraphHandle, path: Path3D) -> OclNodeId:
 	xform_info.m = transform3d_to_occt_array(spline_start)
 	var xform_id := OclNodeId.new()
 	status = OclTopoAlgo.transformed(graph, split_id.bits, xform_info, graph, xform_id) as OclCore.status
-	assert(status == OclCore.OK,
-		"Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
+	assert(
+		status == OclCore.OK,
+		"Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())],
+	)
 
 	# Trace to obtain a wire from the transformed shape
 	var wire_iter := OclNodeIterHandle.new()
 	status = OclTopo.graph_wire_iter_create(graph, wire_iter) as OclCore.status
-	assert(status == OclCore.OK,
-		"Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
+	assert(
+		status == OclCore.OK,
+		"Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())],
+	)
 	var mwire := OclNodeId.new()
 	status = OclTopo.node_iter_next(wire_iter, mwire) as OclCore.status
-	assert(status == OclCore.OK,
-		"Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
+	assert(
+		status == OclCore.OK,
+		"Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())],
+	)
 
 	var trace_info := OclPrimTraceInfo.new()
 	trace_info.path = mwire.bits
 	trace_info.width = slot_info.length * 0.1
 	var trace_id := OclNodeId.new()
 	status = OclPrimSketch.trace(graph, trace_info, trace_id) as OclCore.status
-	assert(status == OclCore.OK,
-		"Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
+	assert(
+		status == OclCore.OK,
+		"Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())],
+	)
 
 	# Remove the temporary wire (no longer needed after trace)
 	status = OclTopoBuild.topo_remove_subgraph(graph, mwire.bits) as OclCore.status
-	assert(status == OclCore.OK,
-		"Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
+	assert(
+		status == OclCore.OK,
+		"Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())],
+	)
 
 	OclTopo.node_iter_free(wire_iter)
 	return trace_id
 
-
 # ==============================================================================
 #  Graph lifecycle
 # ==============================================================================
+
 
 func _create_graph() -> OclGraphHandle:
 	var graph := OclGraphHandle.new()
@@ -199,30 +226,34 @@ func _create_graph() -> OclGraphHandle:
 	assert(status == OclCore.OK, "Got status " + str(OclCore.status_to_string(status)))
 	return graph
 
-
 # ==============================================================================
 #  Low-level topology builders
 # ==============================================================================
 
+
 func _make_bezier_curve(
-	graph: OclGraphHandle,
-	p0: Vector3,
-	c0: Vector3,
-	c1: Vector3,
-	p1: Vector3,
+		graph: OclGraphHandle,
+		p0: Vector3,
+		c0: Vector3,
+		c1: Vector3,
+		p1: Vector3,
 ) -> OclRepId:
 	var info := OclCurveBezierCreateInfo.new()
-	info.poles = OclPoint3Array.from([
-		v3_to_p3(p0),
-		v3_to_p3(c0),
-		v3_to_p3(c1),
-		v3_to_p3(p1),
-	])
+	info.poles = OclPoint3Array.from(
+		[
+			v3_to_p3(p0),
+			v3_to_p3(c0),
+			v3_to_p3(c1),
+			v3_to_p3(p1),
+		],
+	)
 	info.weights = PackedFloat64Array([1, 1, 1, 1])
 	var rep := OclRepId.new()
 	var status := OclCurves.create_bezier(graph, info, rep) as OclCore.status
-	assert(status == OclCore.OK,
-		"Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
+	assert(
+		status == OclCore.OK,
+		"Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())],
+	)
 	return rep
 
 
@@ -231,16 +262,18 @@ func _make_vertex(graph: OclGraphHandle, point: Vector3) -> OclNodeId:
 	info.point = v3_to_p3(point)
 	var vertex := OclNodeId.new()
 	var status := OclTopoBuild.topo_make_vertex(graph, info, vertex) as OclCore.status
-	assert(status == OclCore.OK,
-		"Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
+	assert(
+		status == OclCore.OK,
+		"Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())],
+	)
 	return vertex
 
 
 func _make_edge(
-	graph: OclGraphHandle,
-	curve: OclRepId,
-	start_vertex: OclNodeId,
-	end_vertex: OclNodeId,
+		graph: OclGraphHandle,
+		curve: OclRepId,
+		start_vertex: OclNodeId,
+		end_vertex: OclNodeId,
 ) -> OclNodeId:
 	var info := OclTopoMakeEdgeInfo.new()
 	info.curve = curve.bits
@@ -250,15 +283,19 @@ func _make_edge(
 	var first := OclDouble.new()
 	var last := OclDouble.new()
 	var status := OclCurves.parameter_range(graph, curve.bits, first, last) as OclCore.status
-	assert(status == OclCore.OK,
-		"Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
+	assert(
+		status == OclCore.OK,
+		"Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())],
+	)
 	info.first = first.value
 	info.last = last.value
 
 	var edge := OclNodeId.new()
 	status = OclTopoBuild.topo_make_edge(graph, info, edge) as OclCore.status
-	assert(status == OclCore.OK,
-		"Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
+	assert(
+		status == OclCore.OK,
+		"Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())],
+	)
 	return edge
 
 
@@ -267,14 +304,119 @@ func _make_wire(graph: OclGraphHandle, oriented_edges: Array[OclOrientedNode]) -
 	info.edges = OclOrientedNodeArray.from(oriented_edges)
 	var wire := OclNodeId.new()
 	var status := OclTopoBuild.topo_make_wire(graph, info, wire) as OclCore.status
-	assert(status == OclCore.OK,
-		"Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
+	assert(
+		status == OclCore.OK,
+		"Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())],
+	)
 	return wire
 
+func _make_profile(graph: OclGraphHandle, pos: Vector3, tangent: Vector3) -> OclNodeId:
+	var rect_info := OclPrimRectangleInfo.new()
+	rect_info.width = 0.5
+	rect_info.height = 0.1
+
+	var rect := OclNodeId.new()
+	OclPrimSketch.rectangle(graph, rect_info, rect)
+
+	var up := pos.normalized()
+	var z := tangent.normalized()
+	var x := z.cross(up).normalized()
+	var y := x.cross(z).normalized()
+
+	var xform := OclTransform.new()
+	xform.m = PackedFloat64Array([
+		x.x, y.x, z.x, pos.x,
+		x.y, y.y, z.y, pos.y,
+		x.z, y.z, z.z, pos.z,
+	])
+
+	var placed := OclNodeId.new()
+	OclTopoAlgo.transformed(graph, rect.bits, xform, graph, placed)
+	
+	#var face_info := OclPrimPlanarFaceInfo.new()
+	#face_info.outer_wire = placed.bits
+	#var face := OclNodeId.new()
+	#OclPrimSketch.planar_face(graph, face_info, face)
+
+	return placed
+
+func _print_node_kind_count(
+	graph: OclGraphHandle,
+	node_kind: OclCore.node_kind,
+	hint: String = ""
+):
+	var res := OclSize.new()
+	var status: OclCore.status
+
+	match node_kind:
+		OclCore.KIND_SOLID:
+			status = OclTopo.graph_solid_count(graph, res) as OclCore.status
+		OclCore.KIND_SHELL:
+			status = OclTopo.graph_shell_count(graph, res) as OclCore.status
+		OclCore.KIND_FACE:
+			status = OclTopo.graph_face_count(graph, res) as OclCore.status
+		OclCore.KIND_WIRE:
+			status = OclTopo.graph_wire_count(graph, res) as OclCore.status
+		OclCore.KIND_EDGE:
+			status = OclTopo.graph_edge_count(graph, res) as OclCore.status
+		OclCore.KIND_VERTEX:
+			status = OclTopo.graph_vertex_count(graph, res) as OclCore.status
+		OclCore.KIND_COMPOUND:
+			status = OclTopo.graph_compound_count(graph, res) as OclCore.status
+		OclCore.KIND_COMPSOLID:
+			status = OclTopo.graph_compsolid_count(graph, res) as OclCore.status
+		OclCore.KIND_COEDGE:
+			status = OclTopo.graph_coedge_count(graph, res) as OclCore.status
+		OclCore.KIND_PRODUCT:
+			status = OclTopo.graph_product_count(graph, res) as OclCore.status
+		OclCore.KIND_OCCURRENCE:
+			status = OclTopo.graph_occurrence_count(graph, res) as OclCore.status
+		OclCore.KIND_INVALID:
+			assert(false, "KIND_INVALID is not a valid node kind to count")
+			return
+		_:
+			assert(false, "Unknown node kind: %d" % node_kind)
+			return
+
+	assert(
+		status == OclCore.OK,
+		"Got status %s - %s" % [
+			OclCore.status_to_string(status),
+			var_to_str(OclCore.error_last()),
+		],
+	)
+
+	print(
+		"Graph has ",
+		res.value,
+		" ",
+		OclCore.node_kind_to_string(node_kind),
+		" nodes (",
+		hint,
+		")"
+	)
+
+func _check_graph(graph: OclGraphHandle):
+	var issues := OclTopoCheckIssueArray.new()
+	var status := OclTopoAlgo.check(graph, issues) as OclCore.status
+	assert(
+		status == OclCore.OK,
+		"Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())],
+	)
+	var issues_str := ""
+	for issue_ in issues.data:
+		var issue: OclTopoCheckIssue = issue_
+		var severity := OclTopoAlgo.check_severity_to_string(issue.severity)
+		if issues_str == "":
+			issues_str = "Found some issues with the graph:\n"
+		issues_str += " - [" + severity + "] Per-severity status bit:" + str(issue.status_bit) + " -- Node ID: " + str(issue.node_id) + " (context node id: " + str(issue.context_node_id) + ")"
+	if issues_str != "":
+		assert(false, issues_str)
 
 # ==============================================================================
 #  Per-segment construction
 # ==============================================================================
+
 
 # Build a complete isolated graph for one Bezier segment.
 #
@@ -289,23 +431,36 @@ func _make_wire(graph: OclGraphHandle, oriented_edges: Array[OclOrientedNode]) -
 # Returns a SegmentGraph that owns the graph and the resulting solid node.
 func _build_segment_graph(index: int, path: Path3D, aux_curve: Curve3D) -> SegmentGraph:
 	var graph := _create_graph()
+	
+	# ---- Sweep profile (track) placed at both ends of the segment ----
+	var start_profile = _make_profile(
+		graph,
+		path.curve.get_point_position(index),
+		path.curve.get_point_out(index)
+	)
+
+	var end_profile = _make_profile(
+		graph,
+		path.curve.get_point_position(index + 1),
+		-path.curve.get_point_in(index + 1)
+	)
 
 	# ---- Helper to build an edge + wire for a single bezier segment -------
-	var _build_wire_for_segment := func(graph: OclGraphHandle, curve3d: Curve3D, idx: int) -> OclNodeId:
+	var _build_wire_for_segment := func(mgraph: OclGraphHandle, curve3d: Curve3D, idx: int) -> OclNodeId:
 		var p0: Vector3 = curve3d.get_point_position(idx)
 		var p1: Vector3 = curve3d.get_point_position(idx + 1)
 		var cl0: Vector3 = p0 + curve3d.get_point_out(idx)
 		var cl1: Vector3 = p1 + curve3d.get_point_in(idx + 1)
 
-		var bez := _make_bezier_curve(graph, p0, cl0, cl1, p1)
-		var sv := _make_vertex(graph, p0)
-		var ev := _make_vertex(graph, p1)
-		var ed := _make_edge(graph, bez, sv, ev)
+		var bez := _make_bezier_curve(mgraph, p0, cl0, cl1, p1)
+		var sv := _make_vertex(mgraph, p0)
+		var ev := _make_vertex(mgraph, p1)
+		var ed := _make_edge(mgraph, bez, sv, ev)
 
 		var oriented := OclOrientedNode.new()
 		oriented.id = ed.bits
 		oriented.orientation = OclTopoRelation.ORIENTATION_FORWARD
-		return _make_wire(graph, [oriented])
+		return _make_wire(mgraph, [oriented])
 
 	# ---- Spine wire (main path) ----
 	var spine_wire: OclNodeId = _build_wire_for_segment.call(graph, path.curve, index)
@@ -313,82 +468,65 @@ func _build_segment_graph(index: int, path: Path3D, aux_curve: Curve3D) -> Segme
 	# ---- Auxiliary spine wire (offset curve, visually verified in Godot) ----
 	var aux_wire: OclNodeId = _build_wire_for_segment.call(graph, aux_curve, index)
 
-	# ---- Sweep profile (rectangle) placed at the start of the segment ----
-	var rect_info := OclPrimRectangleInfo.new()
-	rect_info.width = 0.5
-	rect_info.height = 0.1
-	var rect_id := OclNodeId.new()
-	OclPrimSketch.rectangle(graph, rect_info, rect_id)
-
-	# Profile frame from the spine curve tangent and the radial "up".
-	var spine_p0: Vector3 = path.curve.get_point_position(index)
-	var forward: Vector3 = path.curve.get_point_out(index).normalized()
-	var up: Vector3 = spine_p0.normalized()  # away from origin (gravity goes toward origin)
-
-	# Right-handed frame: Z = forward, Y = up, X = Z.cross(Y).
-	var z_axis := forward
-	var y_axis := up
-	var x_axis := z_axis.cross(y_axis)
-
-	var xform := OclTransform.new()
-	xform.m = PackedFloat64Array([
-		x_axis.x, y_axis.x, z_axis.x, spine_p0.x,
-		x_axis.y, y_axis.y, z_axis.y, spine_p0.y,
-		x_axis.z, y_axis.z, z_axis.z, spine_p0.z,
-	])
-
-	var rect_placed := OclNodeId.new()
-	var status := OclTopoAlgo.transformed(graph, rect_id.bits, xform, graph, rect_placed) as OclCore.status
-	assert(status == OclCore.OK,
-		"Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
+	_print_node_kind_count(graph, OclCore.KIND_FACE, "before sweep")
 
 	## ---- Sweep ----
-	#var sweep_info := OclPrimPipeShellInfo.new()
-	#sweep_info.spine_wire = spine_wire.bits
-	#sweep_info.auxiliary_spine_wire = aux_wire.bits
-	#sweep_info.mode = OclPrimSweep.PIPE_MODE_AUXILIARY_SPINE
-	#sweep_info.profiles = PackedInt64Array([rect_placed.bits])
-	#var sweep_id := OclNodeId.new()
-	#status = OclPrimSweep.pipe_shell(graph, sweep_info, sweep_id) as OclCore.status
-	#assert(status == OclCore.OK,
-		#"Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
+	var sweep_info := OclPrimPipeShellInfo.new()
+	sweep_info.profiles = PackedInt64Array([
+		start_profile.bits,
+		end_profile.bits,
+	])
+	sweep_info.spine_wire = spine_wire.bits
+	sweep_info.mode = OclPrimSweep.PIPE_MODE_AUXILIARY_SPINE
+	sweep_info.auxiliary_spine_wire = aux_wire.bits
+	sweep_info.auxiliary_curvilinear_equivalence = 1
+	#sweep_info.auxiliary_contact = 1
+	sweep_info.make_solid = 1
+	var sweep_id := OclNodeId.new()
+	var status := OclPrimSweep.pipe_shell(graph, sweep_info, sweep_id) as OclCore.status
+	assert(status == OclCore.OK,
+	"Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
+	
+	_print_node_kind_count(graph, OclCore.KIND_FACE, "after sweep")
+	_print_node_kind_count(graph, OclCore.KIND_SOLID, "after sweep")
 
-	# ---- Sweep ----
-	#var sweep_info := OclPrimPipeInfo.new()
-	#sweep_info.spine_wire = spine_wire.bits
-	#sweep_info.profile = rect_placed.bits
-	#var sweep_id := OclNodeId.new()
-	#status = OclPrimSweep.pipe(graph, sweep_info, sweep_id) as OclCore.status
-	#assert(status == OclCore.OK,
-		#"Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
+	if Engine.is_editor_hint():
+		_check_graph(graph)
 
-	return SegmentGraph.new(graph, rect_placed)
-
+	return SegmentGraph.new(graph, sweep_id)
 
 # ==============================================================================
 #  Meshing helpers  (transfer OCCT graph data into Godot display nodes)
 # ==============================================================================
 
+
+func _append_multimesh(dst: MultiMesh, src: MultiMesh) -> void:
+	var base := dst.instance_count
+	var transforms: Array[Transform3D] = []
+	transforms.resize(base)
+	for i in base:
+		transforms[i] = dst.get_instance_transform(i)
+
+	dst.instance_count = base + src.instance_count
+
+	for i in base:
+		dst.set_instance_transform(i, transforms[i])
+	for i in src.instance_count:
+		dst.set_instance_transform(base + i, src.get_instance_transform(i))
+
+
 func _append_graph_vertices(graph: OclGraphHandle, multimesh: MultiMesh) -> void:
-	var temp_mm := MultiMesh.new()
-	var status := OclMeshToGodot.mesh_vertices(graph, temp_mm, null, null, 0.02) as OclCore.status
-	assert(status == OclCore.OK,
-		"Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
-	var base_index := multimesh.instance_count
-	multimesh.instance_count = base_index + temp_mm.instance_count
-	for i in range(temp_mm.instance_count):
-		multimesh.set_instance_transform(base_index + i, temp_mm.get_instance_transform(i))
+	var tmp := MultiMesh.new()
+	var status := OclMeshToGodot.mesh_vertices(graph, tmp, null, null, 0.02) as OclCore.status
+	assert(status == OclCore.OK, "Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
+	_append_multimesh(multimesh, tmp)
 
 
 func _append_graph_edges(graph: OclGraphHandle, multimesh: MultiMesh) -> void:
-	var temp_mm := MultiMesh.new()
-	var status := OclMeshToGodot.mesh_edges(graph, temp_mm, null, null, 0.01) as OclCore.status
-	assert(status == OclCore.OK,
-		"Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
-	var base_index := multimesh.instance_count
-	multimesh.instance_count = base_index + temp_mm.instance_count
-	for i in range(temp_mm.instance_count):
-		multimesh.set_instance_transform(base_index + i, temp_mm.get_instance_transform(i))
+	var tmp := MultiMesh.new()
+	var status := OclMeshToGodot.mesh_edges(graph, tmp, null, null, 0.01) as OclCore.status
+	assert(status == OclCore.OK, "Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
+	_append_multimesh(multimesh, tmp)
 
 
 # Mesh every solid in |graph| via the STL export/import workaround and add each
@@ -396,24 +534,30 @@ func _append_graph_edges(graph: OclGraphHandle, multimesh: MultiMesh) -> void:
 func _append_graph_faces(graph: OclGraphHandle, target: ArrayMesh) -> void:
 	var iter := OclNodeIterHandle.new()
 	var status := OclTopo.graph_solid_iter_create(graph, iter) as OclCore.status
-	assert(status == OclCore.OK,
-		"Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
+	assert(
+		status == OclCore.OK,
+		"Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())],
+	)
 
 	while true:
 		var root_id := OclNodeId.new()
 		status = OclTopo.node_iter_next(iter, root_id) as OclCore.status
 		if status == OclCore.NOT_FOUND:
 			break
-		assert(status == OclCore.OK,
-			"Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
+		assert(
+			status == OclCore.OK,
+			"Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())],
+		)
 
 		var stl_bytes := OclByteArray.new()
 		status = OclDe.write_memory(graph, root_id.bits, "stl", stl_bytes) as OclCore.status
 		assert(status == OclCore.OK, "Got status " + str(OclCore.status_to_string(status)))
 
 		var faces_mesh = StlImporter.LoadFromBytes(stl_bytes.value)
-		assert(!StlImporter.IsError(faces_mesh),
-			"StlImporter failed with result " + str(faces_mesh))
+		assert(
+			!StlImporter.IsError(faces_mesh),
+			"StlImporter failed with result " + str(faces_mesh),
+		)
 		target.add_surface_from_arrays(
 			Mesh.PRIMITIVE_TRIANGLES,
 			faces_mesh.surface_get_arrays(0),
@@ -427,10 +571,10 @@ func _clear_display_meshes() -> void:
 	$Edges.multimesh.instance_count = 0
 	$Faces.mesh = ArrayMesh.new()
 
-
 # ==============================================================================
 #  Entry point
 # ==============================================================================
+
 
 func _generate():
 	var total_start := Time.get_ticks_usec()
@@ -442,7 +586,7 @@ func _generate():
 	# Prepare fresh display containers.
 	_clear_display_meshes()
 
-	var segment_count := 2 # path.curve.point_count - 1
+	var segment_count := path.curve.point_count - 1
 	print("[OclManager] Generating ", segment_count, " segment(s)...")
 
 	for i in range(segment_count):
@@ -466,5 +610,10 @@ func _generate():
 		#   emit_signal("generation_progress", i + 1, segment_count)
 		#   yield(get_tree(), "idle_frame")   # allow live display refresh
 
-	print("[OclManager] All ", segment_count, " segments generated in ",
-		(Time.get_ticks_usec() - total_start) / 1000.0, " ms")
+	print(
+		"[OclManager] All ",
+		segment_count,
+		" segments generated in ",
+		(Time.get_ticks_usec() - total_start) / 1000.0,
+		" ms",
+	)

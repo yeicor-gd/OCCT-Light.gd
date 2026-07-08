@@ -17,7 +17,9 @@
 #include <godot_cpp/classes/collision_shape3d.hpp>
 #include <godot_cpp/classes/concave_polygon_shape3d.hpp>
 #include <godot_cpp/classes/capsule_shape3d.hpp>
+#include <godot_cpp/classes/cylinder_mesh.hpp>
 #include <godot_cpp/classes/sphere_shape3d.hpp>
+#include <godot_cpp/classes/sphere_mesh.hpp>
 #include <godot_cpp/classes/node3d.hpp>
 
 #include <godot_cpp/variant/packed_int64_array.hpp>
@@ -266,167 +268,6 @@ static inline int _slices_from_angle(double angle) {
     double const safe = std::max(angle, 0.001);
     return std::max(4, static_cast<int>(std::round(Math_PI / safe)) + 2);
 }
-
-// ---------------------------------------------------------------------------
-// Low-resolution unit cylinder mesh (Y-up, radius 1, height 1)
-// ---------------------------------------------------------------------------
-static Ref<ArrayMesh> _make_cylinder_mesh(int slices) {
-    Ref<ArrayMesh> mesh;
-    mesh.instantiate();
-
-    PackedVector3Array verts;
-    PackedInt32Array    indices;
-    PackedVector3Array normals;
-
-    double const radius      = 1.0;
-    double const half_height = 0.5;
-
-    // Bottom cap centre
-    int const center_bottom = verts.size();
-    verts.push_back(Vector3(0, -half_height, 0));
-    normals.push_back(Vector3(0, -1, 0));
-
-    // Top cap centre
-    int const center_top = verts.size();
-    verts.push_back(Vector3(0, half_height, 0));
-    normals.push_back(Vector3(0, 1, 0));
-
-    // Side vertices: bottom ring, then top ring
-    int const ring_bottom_start = verts.size();
-    for (int i = 0; i < slices; i++) {
-        double const a = 2.0 * Math_PI * i / slices;
-        double const x = radius * std::cos(a);
-        double const z = radius * std::sin(a);
-        verts.push_back(Vector3(x, -half_height, z));
-        normals.push_back(Vector3(x, 0, z).normalized());
-    }
-    int const ring_top_start = verts.size();
-    for (int i = 0; i < slices; i++) {
-        double const a = 2.0 * Math_PI * i / slices;
-        double const x = radius * std::cos(a);
-        double const z = radius * std::sin(a);
-        verts.push_back(Vector3(x, half_height, z));
-        normals.push_back(Vector3(x, 0, z).normalized());
-    }
-
-    // Bottom cap (fan)
-    for (int i = 0; i < slices; i++) {
-        int const next = (i + 1) % slices;
-        indices.push_back(center_bottom);
-        indices.push_back(ring_bottom_start + next);
-        indices.push_back(ring_bottom_start + i);
-    }
-    // Top cap (fan)
-    for (int i = 0; i < slices; i++) {
-        int const next = (i + 1) % slices;
-        indices.push_back(center_top);
-        indices.push_back(ring_top_start + i);
-        indices.push_back(ring_top_start + next);
-    }
-    // Side quads → two triangles each
-    for (int i = 0; i < slices; i++) {
-        int const next = (i + 1) % slices;
-        int const b0   = ring_bottom_start + i;
-        int const b1   = ring_bottom_start + next;
-        int const t0   = ring_top_start + i;
-        int const t1   = ring_top_start + next;
-        indices.push_back(b0);
-        indices.push_back(b1);
-        indices.push_back(t0);
-        indices.push_back(t1);
-        indices.push_back(t0);
-        indices.push_back(b1);
-    }
-
-    Array arrays;
-    arrays.resize(Mesh::ARRAY_MAX);
-    arrays[Mesh::ARRAY_VERTEX] = verts;
-    arrays[Mesh::ARRAY_NORMAL] = normals;
-    arrays[Mesh::ARRAY_INDEX]  = indices;
-
-    mesh->add_surface_from_arrays(Mesh::PRIMITIVE_TRIANGLES, arrays);
-    return mesh;
-}
-
-// ---------------------------------------------------------------------------
-// Low-resolution unit sphere mesh (centred at origin, radius 1)
-// ---------------------------------------------------------------------------
-static Ref<ArrayMesh> _make_sphere_mesh(int slices) {
-    Ref<ArrayMesh> mesh;
-    mesh.instantiate();
-
-    int stacks = std::max(3, slices / 2);
-    if (slices < 4) slices = 4;
-
-    PackedVector3Array verts;
-    PackedInt32Array    indices;
-    PackedVector3Array normals;
-
-    // Top pole
-    int const top_idx = verts.size();
-    verts.push_back(Vector3(0, 1, 0));
-    normals.push_back(Vector3(0, 1, 0));
-
-    // Intermediate rings
-    for (int j = 1; j < stacks; j++) {
-        double const phi = Math_PI * j / stacks;
-        for (int i = 0; i < slices; i++) {
-            double const theta = 2.0 * Math_PI * i / slices;
-            double const x     = std::sin(phi) * std::cos(theta);
-            double const y     = std::cos(phi);
-            double const z     = std::sin(phi) * std::sin(theta);
-            verts.push_back(Vector3(x, y, z));
-            normals.push_back(Vector3(x, y, z));
-        }
-    }
-
-    // Bottom pole
-    int const bottom_idx = verts.size();
-    verts.push_back(Vector3(0, -1, 0));
-    normals.push_back(Vector3(0, -1, 0));
-
-    // Top cap
-    for (int i = 0; i < slices; i++) {
-        int const next = (i + 1) % slices;
-        indices.push_back(top_idx);
-        indices.push_back(1 + i);
-        indices.push_back(1 + next);
-    }
-    // Body
-    for (int j = 0; j < stacks - 2; j++) {
-        for (int i = 0; i < slices; i++) {
-            int const next = (i + 1) % slices;
-            int const a    = 1 + j * slices + i;
-            int const b    = 1 + j * slices + next;
-            int const c    = 1 + (j + 1) * slices + i;
-            int const d    = 1 + (j + 1) * slices + next;
-            indices.push_back(a);
-            indices.push_back(c);
-            indices.push_back(b);
-            indices.push_back(d);
-            indices.push_back(b);
-            indices.push_back(c);
-        }
-    }
-    // Bottom cap
-    int const last_ring_start = 1 + (stacks - 2) * slices;
-    for (int i = 0; i < slices; i++) {
-        int const next = (i + 1) % slices;
-        indices.push_back(bottom_idx);
-        indices.push_back(last_ring_start + next);
-        indices.push_back(last_ring_start + i);
-    }
-
-    Array arrays;
-    arrays.resize(Mesh::ARRAY_MAX);
-    arrays[Mesh::ARRAY_VERTEX] = verts;
-    arrays[Mesh::ARRAY_NORMAL] = normals;
-    arrays[Mesh::ARRAY_INDEX]  = indices;
-
-    mesh->add_surface_from_arrays(Mesh::PRIMITIVE_TRIANGLES, arrays);
-    return mesh;
-}
-
 
 // ===========================================================================
 // Shared face data structures and helpers
@@ -1309,15 +1150,6 @@ int OclMeshToGodot::mesh_edges(
         if (st != OCCTL_OK) return OCCTL_OK;
     }
 
-    // ----- Build cylinder mesh --------------------------------------------
-    int const slices = _slices_from_angle(angle);
-    Ref<ArrayMesh> cyl_mesh = _make_cylinder_mesh(slices);
-
-    if (radius >= 0.0) {
-        double const bbox_diag = _get_graph_bbox_diag(graph->_handle);
-        eff_radius *= bbox_diag;
-    }
-
     // ----- Collect edge segments ------------------------------------------
     std::vector<EdgeSegment> segments =
         _collect_edge_segments(graph->_handle, ids_vec, deflection, angle);
@@ -1325,6 +1157,11 @@ int OclMeshToGodot::mesh_edges(
     // ----- Build MultiMesh transforms -------------------------------------
     std::vector<Transform3D> xforms;
     xforms.reserve(segments.size());
+
+    if (radius >= 0.0) {
+        double const bbox_diag = _get_graph_bbox_diag(graph->_handle);
+        eff_radius *= bbox_diag;
+    }
 
     for (const auto& seg : segments) {
         gp_Vec dir(seg.p0, seg.p1);
@@ -1343,7 +1180,17 @@ int OclMeshToGodot::mesh_edges(
     // ----- Set up MultiMesh -----------------------------------------------
     existing->set_transform_format(MultiMesh::TRANSFORM_3D);
     existing->set_instance_count(static_cast<int>(xforms.size()));
-    existing->set_mesh(cyl_mesh);
+    if (!existing->get_mesh().is_valid()) {
+        int const slices = _slices_from_angle(angle);
+        Ref<CylinderMesh> cyl_mesh;
+        cyl_mesh.instantiate();
+        cyl_mesh->set_height(1.0);
+        cyl_mesh->set_radial_segments(slices);
+        cyl_mesh->set_rings(1);
+        cyl_mesh->set_cap_top(false);
+        cyl_mesh->set_cap_bottom(false);
+        existing->set_mesh(cyl_mesh);
+    }
     for (int i = 0; i < static_cast<int>(xforms.size()); i++)
         existing->set_instance_transform(i, xforms[i]);
 
@@ -1467,20 +1314,16 @@ int OclMeshToGodot::mesh_vertices(
         _resolve_vertex_ids(graph->_handle, vertex_ids);
     if (ids_vec.empty()) return OCCTL_OK;
 
-    // ----- Build sphere mesh ----------------------------------------------
-    int const slices = _slices_from_angle(angle);
-    Ref<ArrayMesh> sphere_mesh = _make_sphere_mesh(slices);
-
-    if (radius >= 0.0) {
-        double const bbox_diag = _get_graph_bbox_diag(graph->_handle);
-        eff_radius *= bbox_diag;
-    }
-
     // ----- Collect vertex positions and build transforms ------------------
     std::vector<Transform3D> xforms;
     std::vector<VertexPos> verts =
         _collect_vertex_positions(graph->_handle, ids_vec);
     xforms.reserve(verts.size());
+
+    if (radius >= 0.0) {
+        double const bbox_diag = _get_graph_bbox_diag(graph->_handle);
+        eff_radius *= bbox_diag;
+    }
 
     for (const auto& vp : verts) {
         Transform3D xf;
@@ -1493,7 +1336,15 @@ int OclMeshToGodot::mesh_vertices(
     // ----- Set up MultiMesh -----------------------------------------------
     existing->set_transform_format(MultiMesh::TRANSFORM_3D);
     existing->set_instance_count(static_cast<int>(xforms.size()));
-    existing->set_mesh(sphere_mesh);
+    if (!existing->get_mesh().is_valid()) {
+        int const slices = _slices_from_angle(angle);
+        Ref<SphereMesh> sph_mesh;
+        sph_mesh.instantiate();
+        sph_mesh->set_radius(1.0);
+        sph_mesh->set_radial_segments(slices);
+        sph_mesh->set_rings(slices / 2);
+        existing->set_mesh(sph_mesh);
+    }
     for (int i = 0; i < static_cast<int>(xforms.size()); i++)
         existing->set_instance_transform(i, xforms[i]);
 
