@@ -1,5 +1,6 @@
 @tool
 extends Path3D
+class_name MazePath
 
 # -----------------------------------------------------------------------------
 # Configuration
@@ -395,3 +396,28 @@ func _apply_curve_data(data: Array[CurvePointData]) -> void:
 		
 	var relax_time = (Time.get_ticks_usec() - start_time) / 1000.0
 	print("MazePath::_apply_curve_data took ", relax_time, " ms to compute ", data.size(), " positions")
+
+func transform_at_point(i: int) -> Transform3D:
+	var res := Transform3D.IDENTITY
+	var from := curve.get_point_position(i)
+	res = res.translated(from)
+	var next_point := from
+	if i < curve.point_count - 1:
+		next_point += curve.get_point_out(i)
+	else:
+		next_point += -curve.get_point_in(i)
+	var is_radial = abs(fmod((next_point - from).normalized().angle_to(from.normalized()), PI)) < 0.001
+	if not is_radial:
+		res = res.looking_at(next_point, from.normalized())
+	return res
+
+func transform_at(baked_length: float, cubic_interp: bool = true) -> Transform3D:
+	var res := Transform3D.IDENTITY
+	if baked_length+0.001 < curve.get_baked_length():
+		var from := curve.sample_baked(baked_length, cubic_interp)
+		res = res.translated(from)
+		var next_point := curve.sample_baked(baked_length+0.001, cubic_interp)
+		var is_radial = abs(fmod((next_point - from).normalized().angle_to(from.normalized()), PI)) < 0.001
+		if not is_radial:
+			res = res.looking_at(next_point, from.normalized())
+	return res
