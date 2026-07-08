@@ -15,7 +15,7 @@ class_name MazeGenerator
 @export_group("Maze Dimensions")
 
 ## Outer radius of the spherical shell.
-@export_range(1.0, 50.0) var maze_outer_radius := 3.5
+@export_range(1.0, 50.0) var maze_outer_radius := 5.0
 ## Inner radius of the spherical shell (central void).
 @export_range(0.0, 5.0) var maze_inner_radius := 0.5
 ## Radius of the ball that will traverse the maze.
@@ -49,15 +49,12 @@ func get_ocl_manager():
 func regenerate_all():
 	# 1. Regenerate the main path (rope simulation).
 	var main_path = get_main_path()
-	if main_path and main_path.has_method("regenerate"):
-		main_path.regenerate()
+	await main_path.regenerate(true)
 
 	# 2. Regenerate auxiliary curve (offset).
 	var aux_path = get_aux_path()
-	if aux_path and aux_path.has_method("regenerate"):
-		aux_path.regenerate()
+	aux_path.regenerate()
 
 	# 3. Regenerate OCCT mesh.
 	var ocl = get_ocl_manager()
-	if ocl and ocl.has_method("regenerate"):
-		ocl.regenerate()
+	ocl.regenerate()

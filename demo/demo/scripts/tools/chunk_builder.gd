@@ -108,7 +108,7 @@ func build_chunk_graph(
 	sweep_info.spine_wire = spine_wire.bits
 	sweep_info.mode = OclPrimSweep.PIPE_MODE_AUXILIARY_SPINE
 	sweep_info.auxiliary_spine_wire = aux_wire.bits
-	sweep_info.auxiliary_curvilinear_equivalence = 1
+	#sweep_info.auxiliary_curvilinear_equivalence = 1
 	sweep_info.make_solid = 1
 	var sweep_id := OclNodeId.new()
 	var status := OclPrimSweep.pipe_shell(graph, sweep_info, sweep_id) as OclCore.status
@@ -128,7 +128,7 @@ func build_chunk_graph(
 ## continuous chain rather than disconnected edge fragments.
 static func _build_multi_wire(graph: OclGraphHandle, curve3d: Curve3D, chunk: Chunk) -> OclNodeId:
 	var edges: Array[OclOrientedNode] = []
-	var prev_vertex: OclNodeId
+	var prev_vertex: OclNodeId = OclNodeId.new()
 
 	for i in range(chunk.start_segment, chunk.end_segment):
 		var p0: Vector3 = curve3d.get_point_position(i)

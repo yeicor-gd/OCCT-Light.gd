@@ -45,6 +45,9 @@ var radial_penalty_strength: float = 0.5
 ## Inter-node repulsion stiffness.
 var repulsion_strength: float = 1.0
 
+## Inter-node repulsion influence.
+var repulsion_influence: float = 4.0
+
 ## Random jitter every iteration to escape symmetry.
 var jitter_noise: float = 0.001
 
@@ -207,12 +210,12 @@ func relax(inner_radius: float, outer_radius: float, margin: float):
 				var dist2 = delta.length_squared()
 				if dist2 < 0.0001:
 					continue
-				if dist2 > 4.0 * margin * margin:
+				if dist2 > repulsion_influence * margin * repulsion_influence * margin:
 					continue
 				var dist = sqrt(dist2)
-				var t = 1.0 - dist / (2.0 * margin)
+				var t = 1.0 - dist / (repulsion_influence * margin)
 				var push = delta / dist
-				push *= t * t * repulsion_strength * 0.5
+				push *= t * t * repulsion_strength
 				nodes[i].pos -= push
 				nodes[j].pos += push
 

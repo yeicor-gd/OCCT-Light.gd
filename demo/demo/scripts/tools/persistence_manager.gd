@@ -73,7 +73,8 @@ static func load_mesh(resource_path: String) -> ArrayMesh:
 static func save_all_face_surfaces(faces_mesh: ArrayMesh, base_name: String) -> PackedStringArray:
 	var paths := PackedStringArray()
 	for i in faces_mesh.get_surface_count():
-		var arrays := faces_mesh.surface_get_arrays(i)
+		var arrays: Array = faces_mesh.surface_get_arrays(i)
+		arrays.resize(Mesh.ARRAY_MAX)
 		var single := ArrayMesh.new()
 		single.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 		# Copy material if present.

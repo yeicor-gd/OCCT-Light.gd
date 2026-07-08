@@ -27,27 +27,27 @@ static func print_node_kind_count(
 
 	match node_kind:
 		OclCore.KIND_SOLID:
-			status = OclTopo.graph_solid_count(graph, res)
+			status = OclTopo.graph_solid_count(graph, res) as OclCore.status
 		OclCore.KIND_SHELL:
-			status = OclTopo.graph_shell_count(graph, res)
+			status = OclTopo.graph_shell_count(graph, res) as OclCore.status
 		OclCore.KIND_FACE:
-			status = OclTopo.graph_face_count(graph, res)
+			status = OclTopo.graph_face_count(graph, res) as OclCore.status
 		OclCore.KIND_WIRE:
-			status = OclTopo.graph_wire_count(graph, res)
+			status = OclTopo.graph_wire_count(graph, res) as OclCore.status
 		OclCore.KIND_EDGE:
-			status = OclTopo.graph_edge_count(graph, res)
+			status = OclTopo.graph_edge_count(graph, res) as OclCore.status
 		OclCore.KIND_VERTEX:
-			status = OclTopo.graph_vertex_count(graph, res)
+			status = OclTopo.graph_vertex_count(graph, res) as OclCore.status
 		OclCore.KIND_COMPOUND:
-			status = OclTopo.graph_compound_count(graph, res)
+			status = OclTopo.graph_compound_count(graph, res) as OclCore.status
 		OclCore.KIND_COMPSOLID:
-			status = OclTopo.graph_compsolid_count(graph, res)
+			status = OclTopo.graph_compsolid_count(graph, res) as OclCore.status
 		OclCore.KIND_COEDGE:
-			status = OclTopo.graph_coedge_count(graph, res)
+			status = OclTopo.graph_coedge_count(graph, res) as OclCore.status
 		OclCore.KIND_PRODUCT:
-			status = OclTopo.graph_product_count(graph, res)
+			status = OclTopo.graph_product_count(graph, res) as OclCore.status
 		OclCore.KIND_OCCURRENCE:
-			status = OclTopo.graph_occurrence_count(graph, res)
+			status = OclTopo.graph_occurrence_count(graph, res) as OclCore.status
 		OclCore.KIND_INVALID:
 			push_error("KIND_INVALID is not a valid node kind to count")
 			return

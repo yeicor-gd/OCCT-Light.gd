@@ -8,7 +8,6 @@ class_name OutsideSphere
 func _ready():
 	# Use a timer to defer until the parent generator is fully ready.
 	var timer := Timer.new()
-	timer.one_shot = true
 	timer.timeout.connect(_sync_from_parent)
 	add_child(timer)
 	timer.start(0.0)

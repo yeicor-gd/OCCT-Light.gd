@@ -8,7 +8,6 @@ class_name MazePathFollow
 @export var speed := 0.1  # m/s
 
 @onready var _path := $".." as MazePath
-@onready var _cam := $"Camera3D"
 
 func _ready():
 	progress = 0.0

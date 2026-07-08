@@ -17,7 +17,7 @@ class_name MazePath
 @export_group("Rope")
 
 ## Number of nodes along the rope. More nodes = finer detail.
-@export_range(2, 5000) var node_count: int = 200
+@export_range(2, 5000) var node_count: int = 100
 
 ## Rest length of each rope segment. The PBD spring attempts to keep
 ## consecutive nodes this far apart.
@@ -26,9 +26,6 @@ class_name MazePath
 ## Curve sharpness. Higher values make the interpolated Catmull-Rom
 ## spline hug the node positions more tightly (lower = smoother / looser).
 @export_range(0.5, 30.0) var sharpness: float = 5.0
-
-## Automatically regenerate when the scene enters play mode.
-@export var regenerate_on_play := false
 
 @export_group("Solver")
 
@@ -59,7 +56,10 @@ class_name MazePath
 
 ## Stiffness of the inter-node repulsion. Higher = nodes spread apart
 ## more aggressively.
-@export_range(0.0, 10.0) var repulsion_strength: float = 1.0
+@export_range(0.0, 10.0) var repulsion_strength: float = 0.5
+
+## How far away nodes keep pushing each other.
+@export_range(0.0, 10.0) var repulsion_influence: float = 4.0
 
 ## Random jitter applied every iteration to help the system escape
 ## symmetrical local minima. 0 = deterministic, 0.02 = mild, 0.1 = chaotic.
@@ -70,7 +70,7 @@ class_name MazePath
 @export_tool_button("Reset") var reset_ = _reset
 @export_tool_button("Step") var step_ = func(): _step(1)
 @export_tool_button("Step N") var step_n_ = func(): _step(relaxation_iters)
-@export_tool_button("Generate") var generate_ = _generate
+@export_tool_button("Generate") var generate_ = func(): regenerate(false)
 
 # -----------------------------------------------------------------------------
 # State
@@ -92,11 +92,11 @@ func _get_parent_generator():
 
 func _get_inner_radius() -> float:
 	var p = _get_parent_generator()
-	return p.maze_inner_radius if p else 2.0
+	return p.maze_inner_radius
 
 func _get_outer_radius() -> float:
 	var p = _get_parent_generator()
-	return p.maze_outer_radius if p else 5.0
+	return p.maze_outer_radius
 
 func _get_seed() -> int:
 	var p = _get_parent_generator()
@@ -112,10 +112,6 @@ func _get_tube_margin() -> float:
 # -----------------------------------------------------------------------------
 # Lifecycle
 # -----------------------------------------------------------------------------
-
-func _ready():
-	if regenerate_on_play and not Engine.is_editor_hint():
-		_generate()
 
 func _reset():
 	if _rope:
@@ -140,7 +136,7 @@ func _step(n: int):
 		WorkerThreadPool.wait_for_task_completion.call_deferred(self_task[0])
 	)
 
-func _generate():
+func regenerate(do_await: bool):
 	_reset()
 	if not _rope:
 		_rope = RopePhysics.new()
@@ -151,8 +147,13 @@ func _generate():
 		_rope.relax(_get_inner_radius(), _get_outer_radius(), _get_tube_margin())
 		var data := CurveUtils.precompute_curve_data(_rope.get_positions(), sharpness)
 		CurveUtils.apply_curve_data.call_deferred(curve, data)
-		WorkerThreadPool.wait_for_task_completion.call_deferred(self_task[0])
+		if !do_await:
+			WorkerThreadPool.wait_for_task_completion(self_task[0])
 	)
+	if do_await:
+		while !WorkerThreadPool.is_task_completed(self_task[0]):
+			await get_tree().create_timer(0.2).timeout
+		WorkerThreadPool.wait_for_task_completion(self_task[0])
 
 func _sync_rope_config():
 	_rope.node_count = node_count
@@ -165,6 +166,7 @@ func _sync_rope_config():
 	_rope.radial_penalty_threshold = radial_penalty_threshold
 	_rope.radial_penalty_strength = radial_penalty_strength
 	_rope.repulsion_strength = repulsion_strength
+	_rope.repulsion_influence = repulsion_influence
 	_rope.jitter_noise = jitter_noise
 
 # -----------------------------------------------------------------------------
