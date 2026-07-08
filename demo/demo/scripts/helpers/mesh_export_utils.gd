@@ -20,7 +20,7 @@ static func write_stl(path: String, triangles: PackedVector3Array, solid_name: S
 		return FileAccess.get_open_error()
 
 	# 80-byte header.
-	var header := solid_name.lpad(80, "\x00").left(80).to_ascii_buffer()
+	var header := solid_name.lpad(80, String() + char(0)).left(80).to_ascii_buffer()
 	if header.size() < 80:
 		header.resize(80)
 	file.store_buffer(header.slice(0, 80))

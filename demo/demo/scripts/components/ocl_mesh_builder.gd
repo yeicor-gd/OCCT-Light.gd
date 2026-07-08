@@ -7,6 +7,8 @@ class_name OclMeshBuilder
 ## Reads the main path (Path3D) and auxiliary path (Path3D), then for each
 ## Bezier segment builds a pipe-shell sweep using an extruded track profile.
 ## Results are accumulated into display nodes (Vertices, Edges, Faces).
+## After generation, each resource is saved to a .res file so the .tscn
+## references it externally instead of embedding the mesh data.
 ##
 ## Design:
 ##   - Each segment gets its own independent OCCT graph, keeping graphs tiny.
@@ -34,7 +36,7 @@ class_name OclMeshBuilder
 
 @export_group("Display")
 
-## Show OCCT vertex points (spheres).
+## OCCT mesh tessellation options.
 @export var mesh_options := OclMeshOptions.new()
 ## Show OCCT vertex points (spheres).
 @export var show_vertices := true
@@ -42,6 +44,12 @@ class_name OclMeshBuilder
 @export var show_edges := true
 ## Show tessellated face surfaces.
 @export var show_faces := true
+
+@export_group("Persistence")
+
+## Base path for saving generated mesh resources (e.g. res://generated/maze_meshes).
+## Leave empty to keep resources in-memory only.
+@export var resource_save_path := "res://demo/generated/maze_meshes"
 
 @export_group("Actions")
 
@@ -66,16 +74,17 @@ func _find_generator():
 		p = p.get_parent()
 	return null
 
+## Rebuild the profile config from current exported values.
+## Called every regenerate() so inspector changes take effect immediately.
 func _ensure_config():
 	if not _maze_generator or not is_instance_valid(_maze_generator):
 		_maze_generator = _find_generator()
-	if not _profile_cfg:
-		_profile_cfg = ProfileBuilder.Config.new(
-			_maze_generator.ball_radius if _maze_generator else 0.5,
-			_maze_generator.ball_to_path_min_ratio if _maze_generator else 0.9,
-			wall_thickness,
-			wall_height,
-		)
+	_profile_cfg = ProfileBuilder.Config.new(
+		_maze_generator.ball_radius if _maze_generator else 0.5,
+		_maze_generator.ball_to_path_min_ratio if _maze_generator else 0.9,
+		wall_thickness,
+		wall_height,
+	)
 
 # -----------------------------------------------------------------------------
 # Entry point
@@ -129,6 +138,48 @@ func regenerate():
 		" segments generated in ",
 		(Time.get_ticks_usec() - total_start) / 1000.0, " ms",
 	)
+
+	# Persist generated resources to disk so the .tscn doesn't embed them.
+	_persist_resources()
+
+# -----------------------------------------------------------------------------
+# Resource persistence (save-as-file pattern)
+# -----------------------------------------------------------------------------
+
+## Save |resource| to |path| as a compressed .res file.
+## Creates parent directories if needed. Returns true on success.
+func _save_resource(resource: Resource, path: String) -> bool:
+	var dir := path.get_base_dir()
+	DirAccess.make_dir_recursive_absolute(dir)
+
+	var err := ResourceSaver.save(resource, path, ResourceSaver.FLAG_COMPRESS)
+	if err != OK:
+		push_error("Failed to save %s: %s" % [path, error_string(err)])
+		return false
+	return true
+
+## Save each generated resource to disk, then reload and reassign
+## so the scene references external files instead of embedded data.
+func _persist_resources():
+	if resource_save_path.is_empty():
+		return  # in-memory only
+
+	var base := resource_save_path.trim_suffix("/")
+
+	if show_faces and has_node("Faces") and $Faces.mesh:
+		var p := base + "/faces.res"
+		if _save_resource($Faces.mesh, p):
+			$Faces.mesh = load(p)
+
+	if show_vertices and has_node("Vertices") and $Vertices.multimesh:
+		var p := base + "/vertices.res"
+		if _save_resource($Vertices.multimesh, p):
+			$Vertices.multimesh = load(p)
+
+	if show_edges and has_node("Edges") and $Edges.multimesh:
+		var p := base + "/edges.res"
+		if _save_resource($Edges.multimesh, p):
+			$Edges.multimesh = load(p)
 
 # -----------------------------------------------------------------------------
 # Per-segment construction
