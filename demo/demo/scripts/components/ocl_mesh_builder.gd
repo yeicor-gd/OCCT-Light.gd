@@ -52,12 +52,12 @@ class_name OclMeshBuilder
 ## Number of segments to merge into one OCCT graph. Higher values reduce sweep
 ## operations at the cost of larger per-chunk graphs.
 ## 1 = one graph per segment (original behaviour).
-@export_range(1, 200, 1) var chunk_size: int = 5
+@export_range(1, 200, 1) var chunk_size: int = 8
 
 ## Maximum number of chunk results to accumulate before flushing to display
 ## nodes.  Higher values reduce GPU draw-call count but increase per-frame
 ## main-thread work.  0 = flush every result immediately.
-@export_range(0, 200, 1) var merge_batch_size: int = 4
+@export_range(0, 200, 1) var merge_batch_size: int = 1
 
 ## Maximum number of WorkerThreadPool tasks to run simultaneously.
 ## 0 = unlimited (let the threadpool decide).  Set to 1 when the
