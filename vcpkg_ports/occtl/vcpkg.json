@@ -1,8 +1,8 @@
 {
   "name": "occtl",
   "version": "0.1.0",
-  "port-version": 1,
-  "description": "OCCT-Light: a C-ABI wrapper around Open CASCADE Technology",
+  "port-version": 2,
+    "description": "OCCT-Light: a C-ABI wrapper around Open CASCADE Technology",
   "homepage": "https://github.com/Open-Cascade-SAS/OCCT-Light",
   "license": "AGPL-3.0-or-later",
   "dependencies": [
