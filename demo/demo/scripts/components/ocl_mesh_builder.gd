@@ -98,6 +98,10 @@ var _profile_cfg: ProfileBuilder.Config
 ## Guards against concurrent regenerate() calls.
 var _is_regenerating: bool = false
 
+## Reference to the current TaskScheduler so _exit_tree() can
+## wait for outstanding worker tasks when the node is torn down.
+var _scheduler: TaskScheduler = null
+
 # -----------------------------------------------------------------------------
 # Initialisation
 # -----------------------------------------------------------------------------
@@ -173,9 +177,10 @@ func regenerate() -> void:
 	var captured_path_curve: Curve3D = path.curve
 	var captured_aux_curve: Curve3D = aux_path.curve
 
-	# Create scheduler.
+	# Create scheduler and store it for cleanup.
 	var scheduler := TaskScheduler.new()
 	scheduler.max_concurrent = max_concurrent
+	_scheduler = scheduler
 
 	# Accumulators for batched merge ("chunks of chunks").
 	var vertex_batch: Array[PackedFloat64Array] = []
@@ -256,6 +261,9 @@ func regenerate() -> void:
 		if not scheduler.is_busy():
 			break
 		await get_tree().process_frame
+		# If _exit_tree() cleaned up while we were waiting, bail out.
+		if not _is_regenerating:
+			return
 
 	# Final drain (any results submitted between last reap and loop exit).
 	for res in scheduler.collect_all():
@@ -274,6 +282,7 @@ func regenerate() -> void:
 	# Persist generated resources to disk.
 	_persist_resources()
 
+	_scheduler = null
 	_is_regenerating = false
 
 # =============================================================================
@@ -381,6 +390,20 @@ static func _export_face_data(graph, opts: OclMeshOptions) -> Array:
 		return []
 	var arrays = mesh.surface_get_arrays(0)
 	return [arrays]
+
+# =============================================================================
+# Cleanup
+# =============================================================================
+
+func _exit_tree() -> void:
+	## If regeneration is in progress, wait for outstanding worker tasks
+	## before the node (and its scene tree) are torn down.  This prevents
+	## crashes where WorkerThreadPool tasks still reference objects that
+	## have already been freed.
+	if _scheduler != null and _scheduler.is_busy():
+		_scheduler.sync_and_discard()
+		_scheduler = null
+		_is_regenerating = false
 
 # =============================================================================
 # Display helpers (main thread only)

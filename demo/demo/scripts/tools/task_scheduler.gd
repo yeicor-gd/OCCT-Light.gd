@@ -149,6 +149,12 @@ func collect_all() -> Array[Variant]:
 ## pending list.  Also dispatches queued tasks when concurrency slots
 ## open up.
 ##
+## After confirming a task is complete, calls
+## WorkerThreadPool.wait_for_task_completion() so that the
+## WorkerThreadPool can free the task's internal resources (including
+## the Callable) immediately, rather than leaving them in the pool
+## until engine shutdown.
+##
 ## Returns the number of tasks reaped this call.
 ##
 ## Call this once per frame before collect_all() to keep is_busy()
@@ -158,6 +164,11 @@ func reap_completed() -> int:
 	var i := 0
 	while i < _pending_ids.size():
 		if WorkerThreadPool.is_task_completed(_pending_ids[i]):
+			# Reclaim from WorkerThreadPool so the Task (and its
+			# Callable/generated closures) are freed now instead of
+			# lingering until WorkerThreadPool destruction during
+			# engine shutdown.
+			WorkerThreadPool.wait_for_task_completion(_pending_ids[i])
 			_pending_ids.remove_at(i)
 			_pending_count -= 1
 			_total_remaining -= 1
@@ -198,3 +209,31 @@ func pending_count() -> int:
 ## Number of tasks queued (waiting for a concurrency slot).
 func queued_count() -> int:
 	return _queued.size()
+
+## Blocks the calling thread until all dispatched WorkerThreadPool tasks
+## have completed and discards any queued (not yet dispatched) tasks.
+##
+## After this call the scheduler is in a clean, idle state and can be
+## safely freed.  All uncollected results are discarded.
+##
+## This is intended for cleanup paths such as _exit_tree() where the
+## node that owns the scheduler is being torn down.  It MUST be called
+## from the main thread to avoid races with dispatch / reap logic.
+func sync_and_discard() -> void:
+	# Discard queued tasks (they were never dispatched to WorkerThreadPool).
+	_total_remaining -= _queued.size()
+	_queued.clear()
+
+	# Wait for each pending WorkerThreadPool task to finish.
+	for tid in _pending_ids:
+		WorkerThreadPool.wait_for_task_completion(tid)
+
+	# Reset internal state.
+	_pending_ids.clear()
+	_pending_count = 0
+	_total_remaining = 0
+
+	# Discard any results that were submitted but never collected.
+	_mutex.lock()
+	_result_queue.clear()
+	_mutex.unlock()
