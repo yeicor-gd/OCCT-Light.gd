@@ -383,7 +383,8 @@ static std::unordered_map<uint64_t, bool> _build_accumulated_orientation_map(
 /// Per-face triangulation data used by both ArrayMesh and collision paths.
 struct TriFaceData {
     occtl_node_id_t    face_id;
-    std::vector<int>     indices;    // 0-based, 3 per triangle
+    bool                 reversed;   // true if face is REVERSED in its solid context
+    std::vector<int>     indices;    // 0-based, 3 per triangle, Godot-compatible winding
     std::vector<Vector3> verts;      // local vertices
     std::vector<Vector2> uvs;        // local UVs (may be empty)
 };
@@ -455,7 +456,8 @@ static std::vector<TriFaceData> _collect_face_data(
         }
 
         TriFaceData fd;
-        fd.face_id = fid;
+        fd.face_id  = fid;
+        fd.reversed = reversed;
 
         // ---- Vertices (apply face location to get global coords) ----
         const bool has_loc = !loc.IsIdentity();
@@ -553,6 +555,8 @@ static Array _assemble_mesh_arrays(
         if (nv == 0 || nt == 0) continue;
 
         // Compute face normal for each triangle
+        // The normals from (B-A)×(C-A) use OCCT's orientation convention;
+        // Godot expects the opposite, so we negate all triangle normals.
         std::vector<Vector3> tri_normals(nt);
         for (size_t i = 0; i < nt; i++) {
             int const i0 = fd.indices[3 * i];
@@ -560,7 +564,7 @@ static Array _assemble_mesh_arrays(
             int const i2 = fd.indices[3 * i + 2];
             Vector3 const e1 = fd.verts[i1] - fd.verts[i0];
             Vector3 const e2 = fd.verts[i2] - fd.verts[i0];
-            Vector3 n = e1.cross(e2);
+            Vector3 n = -(e1.cross(e2));
             double len = n.length();
             if (len > 1e-30) n /= len;
             tri_normals[i] = n;
@@ -625,8 +629,8 @@ static Array _assemble_mesh_arrays(
 
                 double const r = 1.0 / (duv1.x * duv2.y
                                       - duv2.x * duv1.y + 1e-20);
-                Vector3 const tangent =
-                    (e1 * duv2.y - e2 * duv1.y) * r;
+                Vector3 tangent =
+                    -((e1 * duv2.y - e2 * duv1.y) * r);
 
                 for (int vi : {i0, i1, i2}) {
                     int const base = vi * 4;
