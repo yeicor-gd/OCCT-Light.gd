@@ -103,8 +103,9 @@ curve = SubResource("Curve3D_dar0o")
 script = ExtResource("2_ytiva")
 
 [node name="MazePathFollow" type="PathFollow3D" parent="Maze/Paths/MainPath" unique_id=435211787]
-transform = Transform3D(0.10712019, 0.37596995, 0.9204194, -0.31001955, -0.86696076, 0.390214, 0.9446762, -0.32714778, 0.023689013, 1.3965611, -3.8177366, -1.4112483)
-progress = 26.190475
+transform = Transform3D(-0.23010609, 0.6643646, -0.71110535, -0.96454734, -0.05866705, 0.2573063, 0.12922676, 0.7451025, 0.65431076, 2.6194034, -0.15234274, 3.5271244)
+visible = false
+progress = 2.9008925
 rotation_mode = 0
 tilt_enabled = false
 script = ExtResource("3_dar0o")
@@ -116,10 +117,10 @@ transform = Transform3D(1, 0, 0, 0, 0.8660254, 0.5, 0, -0.5, 0.8660254, 0, 0, 0)
 
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="Maze/Paths/MainPath/MazePathFollow" unique_id=1206018148]
 transform = Transform3D(1, 0, 0, 0, -4.371139e-08, 1, 0, -1, -4.371139e-08, 0, 0, 0)
-visible = false
 shadow_enabled = true
 
 [node name="MainPathBinormal" type="Path3D" parent="Maze/Paths" unique_id=1877760000]
+visible = false
 curve = SubResource("Curve3D_ykvhj")
 script = ExtResource("6_onu7k")
 source_path = NodePath("../MainPath")

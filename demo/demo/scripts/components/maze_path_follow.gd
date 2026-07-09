@@ -11,6 +11,8 @@ class_name MazePathFollow
 
 func _ready():
 	progress = 0.0
+	if not Engine.is_editor_hint():
+		visible = true
 
 func _process(delta: float) -> void:
 	if play_in_editor or not Engine.is_editor_hint():

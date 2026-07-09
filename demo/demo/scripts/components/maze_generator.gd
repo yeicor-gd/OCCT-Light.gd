@@ -29,19 +29,6 @@ class_name MazeGenerator
 var regenerate_all_ := regenerate_all
 
 # -----------------------------------------------------------------------------
-# Lazy lookup helpers
-# -----------------------------------------------------------------------------
-
-func get_main_path():
-	return $Paths/MainPath if has_node("Paths/MainPath") else null
-
-func get_aux_path():
-	return $Paths/MainPathBinormal if has_node("Paths/MainPathBinormal") else null
-
-func get_ocl_manager():
-	return $OclManager if has_node("OclManager") else null
-
-# -----------------------------------------------------------------------------
 # Actions
 # -----------------------------------------------------------------------------
 
@@ -50,15 +37,12 @@ func regenerate_all():
 	var start_time := Time.get_ticks_usec()
 	
 	# 1. Regenerate the main path (rope simulation).
-	var main_path = get_main_path()
-	await main_path.regenerate(true)
+	await $Paths/MainPath.regenerate(true)
 
 	# 2. Regenerate auxiliary curve (offset).
-	var aux_path = get_aux_path()
-	aux_path.regenerate()
+	$Paths/MainPathBinormal.regenerate()
 
 	# 3. Regenerate OCCT mesh.
-	var ocl = get_ocl_manager()
-	await ocl.regenerate()
+	await $OclManager.regenerate()
 
 	print("[Maze] Total generation time: ", (Time.get_ticks_usec() - start_time) / 1000.0, "ms")

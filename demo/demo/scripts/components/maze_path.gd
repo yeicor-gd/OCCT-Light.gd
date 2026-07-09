@@ -70,7 +70,7 @@ class_name MazePath
 @export_tool_button("Reset") var reset_ = _reset
 @export_tool_button("Step") var step_ = func(): _step(1)
 @export_tool_button("Step N") var step_n_ = func(): _step(relaxation_iters)
-@export_tool_button("Generate") var generate_ = func(): regenerate(false)
+@export_tool_button("Generate") var generate_ = func(): await regenerate(false)
 
 # -----------------------------------------------------------------------------
 # State

@@ -47,3 +47,10 @@ static func transform3d_to_occt_placement(t: Transform3D) -> OclAxis2Placement:
 	res.x_dir = v3_to_d3(t.basis.z)
 	res.x_dir_ref = v3_to_d3(t.basis.x)
 	return res
+
+
+static func v3_to_axis1(location: Vector3, direction: Vector3) -> OclAxis1Placement:
+	var res := OclAxis1Placement.new()
+	res.location = v3_to_p3(location)
+	res.direction = v3_to_d3(direction)
+	return res
