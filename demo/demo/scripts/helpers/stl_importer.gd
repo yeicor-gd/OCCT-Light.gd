@@ -165,7 +165,7 @@ const BYTES_PER_TRIANGLE :int = 50
 static func LoadBinaryFromBuffer(bytes :PackedByteArray) -> Variant:
 	var mesh := ArrayMesh.new()
 	var offset := 0
-	mesh.set_meta('header', bytes.slice(0, 80).get_string_from_ascii())
+	#mesh.set_meta('header', bytes.slice(0, 80).get_string_from_ascii())
 	offset+=80
 	var vertices := PackedVector3Array()
 	var normals := PackedVector3Array()

@@ -47,6 +47,8 @@ func get_ocl_manager():
 
 ## Regenerate everything: path + auxiliary curve + OCCT mesh.
 func regenerate_all():
+	var start_time := Time.get_ticks_usec()
+	
 	# 1. Regenerate the main path (rope simulation).
 	var main_path = get_main_path()
 	await main_path.regenerate(true)
@@ -57,4 +59,6 @@ func regenerate_all():
 
 	# 3. Regenerate OCCT mesh.
 	var ocl = get_ocl_manager()
-	ocl.regenerate()
+	await ocl.regenerate()
+
+	print("[Maze] Total generation time: ", (Time.get_ticks_usec() - start_time) / 1000.0, "ms")

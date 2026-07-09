@@ -115,6 +115,14 @@ func build_chunk_graph(
 	assert(status == OclCore.OK,
 		"Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())],
 	)
+	
+	# Clean up temporary sketches.
+	status = OclTopoBuild.topo_remove_subgraph(graph, start_profile.bits) as OclCore.status
+	assert(status == OclCore.OK, "Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
+	status = OclTopoBuild.topo_remove_subgraph(graph, spine_wire.bits) as OclCore.status # FIXME: Only removes first edge for some reason
+	assert(status == OclCore.OK, "Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
+	status = OclTopoBuild.topo_remove_subgraph(graph, aux_wire.bits) as OclCore.status # FIXME: Only removes first edge for some reason
+	assert(status == OclCore.OK, "Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
 
 	if Engine.is_editor_hint():
 		GraphUtils.check_graph(graph)

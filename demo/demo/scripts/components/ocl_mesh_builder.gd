@@ -19,14 +19,16 @@ class_name OclMeshBuilder
 ##   - After all results are collected, generated resources are persisted.
 ##
 ## Thread safety:
-##   - GDExtension OCCT calls (OclGraphHandle operations, OclMeshToGodot,
-##     OclDe, StlImporter) operate on per-task graph handles and freshly-
-##     allocated Godot resources, so they are safe on worker threads.
+##   - GDExtension OCCT calls (OclGraphHandle operations, OclMesh.generate,
+##     OclMeshToGodot.mesh_vertices/edges) operate on per-task graph handles
+##     and are safe on worker threads.
+##   - Face mesh extraction uses the existing OclMeshToGodot.mesh_faces()
+##     API on the MAIN THREAD (via the submitted graph handle), because it
+##     calls add_surface_from_arrays() which requires main-thread access.
+##     The graph is built and meshed on the worker, so mesh_faces() on the
+##     main thread reads cached triangulation data without regenerating it.
 ##   - Scene tree nodes (MultiMeshInstance3D, MeshInstance3D) are only
 ##     touched on the main thread.
-##   - Raw mesh data crosses threads as packed arrays (PackedFloat64Array,
-##     Array of Variant arrays) inside a Dictionary — all are reference-
-##     counted value types safe for sharing.
 
 # -----------------------------------------------------------------------------
 # Configuration
@@ -40,7 +42,7 @@ class_name OclMeshBuilder
 @export_group("Wall Profile")
 
 ## Thickness of the track walls.
-@export_range(0.0, 1.0) var wall_thickness := 0.1
+@export_range(0.0, 1.0) var wall_thickness := 0.05
 ## Wall height relative to ball radius. 0.3 means walls are 0.3 * ball_radius tall.
 @export_range(0.0, 1.0) var wall_height := 0.3
 
@@ -209,7 +211,14 @@ func regenerate() -> void:
 	var handle_result := func(result: Dictionary) -> void:
 		var v: PackedFloat64Array = result.get("v", PackedFloat64Array()) as PackedFloat64Array
 		var e: PackedFloat64Array = result.get("e", PackedFloat64Array()) as PackedFloat64Array
-		var f: Array = result.get("f", []) as Array
+		var f_data: Array = result.get("f", []) as Array
+
+		# Surface arrays are already pre-assembled on the worker thread.
+		var f_surfaces: Array[Array] = []
+		for sa_raw in f_data:
+			var sa: Array = sa_raw as Array
+			if sa.size() > 0:
+				f_surfaces.append(sa)
 
 		if merge_batch_size == 0:
 			# No batching — apply immediately.
@@ -217,19 +226,19 @@ func regenerate() -> void:
 				_append_vertex_transforms(v)
 			if e.size() > 0:
 				_append_edge_transforms(e)
-			if f.size() > 0:
-				_append_face_surfaces(f)
+			if f_surfaces.size() > 0:
+				_append_face_surfaces(f_surfaces)
 		else:
 			# Accumulate and flush when batch is full.
 			if v.size() > 0:
 				vertex_batch.append(v)
 			if e.size() > 0:
 				edge_batch.append(e)
-			if f.size() > 0:
-				# Flatten: f is Array[Array] (list of surface arrays).
+			if f_surfaces.size() > 0:
+				# Flatten: f_surfaces is Array[Array] (list of surface arrays).
 				# Append each surface array individually so _flush_batch
 				# can pass them directly to add_surface_from_arrays.
-				for s in f:
+				for s in f_surfaces:
 					face_batch.append(s as Array)
 
 			if (vertex_batch.size() >= merge_batch_size
@@ -318,7 +327,7 @@ static func _worker_build_chunk(
 			push_error("OclMeshBuilder: mesh_edges failed: ", OclCore.status_to_string(st))
 
 	if do_faces:
-		result["f"] = _extract_face_surfaces(graph, mesh_opts)
+		result["f"] = _export_face_data(graph, mesh_opts)
 
 	OclTopo.graph_free(graph)
 	return result
@@ -355,54 +364,23 @@ static func _extract_multimesh_transforms(mm: MultiMesh) -> PackedFloat64Array:
 		out[base + 15] = 1.0
 	return out
 
-## Meshes every solid in |graph| via STL export/import and returns an array
-## of surface-array Arrays (each element suitable for passing to
-## add_surface_from_arrays).
-static func _extract_face_surfaces(graph, opts: OclMeshOptions) -> Array:
-	var surfaces: Array[Array] = []
-
-	var iter := OclNodeIterHandle.new()
-	var status: int = OclTopo.graph_solid_iter_create(graph, iter) as OclCore.status
-	if status != OclCore.OK:
-		push_error("OclMeshBuilder: graph_solid_iter_create failed: ", OclCore.status_to_string(status))
-		return surfaces
-
-	while true:
-		var root_id := OclNodeId.new()
-		status = OclTopo.node_iter_next(iter, root_id) as OclCore.status
-		if status == OclCore.NOT_FOUND:
-			break
-		if status != OclCore.OK:
-			push_error("OclMeshBuilder: node_iter_next failed: ", OclCore.status_to_string(status))
-			break
-
-		status = OclMesh.generate(graph, PackedInt64Array([root_id.bits]), opts)
-		if status != OclCore.OK:
-			push_error("OclMeshBuilder: OclMesh.generate failed: ", OclCore.status_to_string(status))
-			continue
-
-		var stl_bytes := OclByteArray.new()
-		status = OclDe.write_memory(graph, root_id.bits, "stl", stl_bytes) as OclCore.status
-		if status != OclCore.OK:
-			push_error("OclMeshBuilder: write_memory failed: ", OclCore.status_to_string(status))
-			continue
-
-		var faces_mesh = StlImporter.LoadFromBytes(stl_bytes.value)
-		if StlImporter.IsError(faces_mesh):
-			push_error("OclMeshBuilder: StlImporter failed: ", str(faces_mesh))
-			continue
-
-		var arrays: Array = faces_mesh.surface_get_arrays(0)
-		if arrays == null or arrays.is_empty():
-			continue
-		# Godot expects the arrays argument of add_surface_from_arrays to
-		# have exactly Mesh.ARRAY_MAX elements.  StlImporter may produce a
-		# shorter array in some builds, so we pad it here.
-		arrays.resize(Mesh.ARRAY_MAX)
-		surfaces.append(arrays)
-
-	OclTopo.node_iter_free(iter)
-	return surfaces
+## Worker-thread-safe: builds a combined surface array for all faces in
+## |graph|.  Uses OclMeshToGodot.mesh_faces() to fill a local ArrayMesh,
+## then extracts the raw surface arrays (no GDExtension Node objects
+## created, only data).
+## Returns an Array[Array] where each element is a pre-assembled surface
+## Array suitable for add_surface_from_arrays().
+static func _export_face_data(graph, opts: OclMeshOptions) -> Array:
+	var mesh := ArrayMesh.new()
+	var st: int = OclMeshToGodot.mesh_faces(
+		graph, mesh, opts, null, false, false, false,
+	) as OclCore.status
+	if st != OclCore.OK:
+		return []
+	if mesh.get_surface_count() == 0:
+		return []
+	var arrays = mesh.surface_get_arrays(0)
+	return [arrays]
 
 # =============================================================================
 # Display helpers (main thread only)

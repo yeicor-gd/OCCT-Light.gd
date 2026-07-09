@@ -33,7 +33,16 @@
 #include <godot_cpp/variant/basis.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
 
+#include <BRep_Tool.hxx>
+#include <Poly_Triangulation.hxx>
+#include <Poly_Triangle.hxx>
+#include <TopExp_Explorer.hxx>
+#include <TopLoc_Location.hxx>
+#include <TopoDS.hxx>
+#include <TopoDS_Face.hxx>
 #include <gp_Pnt.hxx>
+#include <gp_Pnt2d.hxx>
+#include <gp_Trsf.hxx>
 #include <gp_Vec.hxx>
 #include <gp_Dir.hxx>
 
@@ -49,6 +58,7 @@
 // XXX: Internal OCCTL APIs / OpenCASCADE APIs
 #include "BRepGraph_ShapesView.hxx"
 #include "../OCCT-Light/src/topo/GraphHandle.hxx"
+#include "../OCCT-Light/src/topo/TopoMath.hxx"
 
 using namespace godot;
 
@@ -215,12 +225,22 @@ static std::vector<occtl_node_id_t> _resolve_vertex_ids(
 static bool _graph_has_mesh(occtl_graph_t* graph,
     const std::vector<occtl_node_id_t>& ids_vec)
 {
+    // Directly check via BRep_Tool::Triangulation on the internal BRepGraph faces.
+    // Matching the existing pattern, use non-const cast since BRepGraph_ShapesView
+    // may not expose a const Shape() overload (see lines 335-336 of old code).
+    if (!graph) return false;
+    auto* internal_graph = static_cast<struct occtl_graph*>(graph);
+
     for (auto fid : ids_vec) {
-        uint32_t count = 0;
-        if (occtl_mesh_face_triangulation_count(graph, fid, &count) == OCCTL_OK
-            && count > 0) {
-            return true;
-        }
+        const BRepGraph_NodeId node_id =
+            BRepGraph_NodeId::Typed<BRepGraph_NodeId::Kind::Face>(fid.bits);
+        const TopoDS_Shape shape = internal_graph->graph.Shapes().Shape(node_id);
+        if (shape.IsNull()) continue;
+        const TopoDS_Face face = TopoDS::Face(shape);
+        if (face.IsNull()) continue;
+        TopLoc_Location loc;
+        const Handle(Poly_Triangulation) tri = BRep_Tool::Triangulation(face, loc);
+        if (!tri.IsNull() && tri->NbTriangles() > 0) return true;
     }
     return false;
 }
@@ -268,10 +288,96 @@ static inline int _slices_from_angle(double angle) {
     double const safe = std::max(angle, 0.001);
     return std::max(4, static_cast<int>(std::round(Math_PI / safe)) + 2);
 }
+/// Build a map from face UID to whether the face is REVERSED within its
+/// root solid context, mirroring how the STL exporter (DESTL_Provider)
+/// determines orientation.
+///
+/// The STL exporter iterates faces via TopExp_Explorer on each root
+/// product shape.  Each face returned carries the accumulated orientation
+/// from the solid/shell hierarchy.  This function does the same and
+/// records the face's orientation (FORWARD/REVERSED) keyed by its
+/// persistent UID.
+///
+/// Uses #occtl_topo_child_explorer_create with target_kind=OCCTL_KIND_FACE
+/// to directly yield face node IDs with accumulated orientation, avoiding
+/// the fragile IsSame matching required by the earlier TopExp_Explorer
+/// approach.
+///
+/// If root products are not found (e.g. for graphs read with
+/// CreateAutoProduct=false, such as STL-imported graphs), falls back to
+/// iterating all solids, then all shells.  If nothing is found, returns
+/// an empty map (callers fall back to the face's own Orientation()).
+static std::unordered_map<uint64_t, bool> _build_accumulated_orientation_map(
+    occtl_graph_t* graph)
+{
+    std::unordered_map<uint64_t, bool> rev_map;
+    if (!graph) return rev_map;
 
-// ===========================================================================
-// Shared face data structures and helpers
-// ===========================================================================
+    // ---- Collect root product nodes (same as _ensure_mesh_generated) ----
+    std::vector<occtl_node_id_t> root_ids;
+    {
+        occtl_node_iter_t* iter = nullptr;
+        if (occtl_graph_root_product_iter_create(graph, &iter) == OCCTL_OK && iter) {
+            occtl_node_id_t nid;
+            while (occtl_node_iter_next(iter, &nid) == OCCTL_OK)
+                root_ids.push_back(nid);
+            occtl_node_iter_free(iter);
+        }
+    }
+
+    // Fallback: if no root products (e.g. STL-read graphs with
+    // CreateAutoProduct=false), try all solids.
+    if (root_ids.empty()) {
+        occtl_node_iter_t* iter = nullptr;
+        if (occtl_graph_solid_iter_create(graph, &iter) == OCCTL_OK && iter) {
+            occtl_node_id_t nid;
+            while (occtl_node_iter_next(iter, &nid) == OCCTL_OK)
+                root_ids.push_back(nid);
+            occtl_node_iter_free(iter);
+        }
+    }
+
+    // Fallback: if no solids either, try all shells.
+    if (root_ids.empty()) {
+        occtl_node_iter_t* iter = nullptr;
+        if (occtl_graph_shell_iter_create(graph, &iter) == OCCTL_OK && iter) {
+            occtl_node_id_t nid;
+            while (occtl_node_iter_next(iter, &nid) == OCCTL_OK)
+                root_ids.push_back(nid);
+            occtl_node_iter_free(iter);
+        }
+    }
+
+    if (root_ids.empty()) return rev_map;
+
+    // Use child explorer with target_kind=FACE to directly yield graph
+    // face node IDs with accumulated orientation — mirrors what
+    // TopExp_Explorer provides on the root TopoDS_Shape in the STL
+    // exporter code path, but without needing IsSame matching.
+    occtl_topo_child_explorer_config_t cfg = OCCTL_TOPO_CHILD_EXPLORER_CONFIG_INIT;
+    cfg.target_kind = OCCTL_KIND_FACE;
+    // accumulate_orientation defaults to 1 (enabled) via the INIT macro.
+
+    for (auto root_id : root_ids) {
+        occtl_topo_explorer_iter_t* iter = nullptr;
+        if (occtl_topo_child_explorer_create(
+                graph, root_id, &cfg, &iter) != OCCTL_OK || !iter)
+            continue;
+
+        occtl_node_id_t     face_id;
+        occtl_transform_t   xform;
+        occtl_orientation_t orient;
+        while (occtl_topo_explorer_iter_next(iter, &face_id, &xform, &orient) == OCCTL_OK) {
+            occtl_uid_t uid;
+            if (occtl_graph_uid_from_node_id(graph, face_id, &uid) == OCCTL_OK) {
+                rev_map[uid.bits] = (orient == OCCTL_ORIENTATION_REVERSED);
+            }
+        }
+        occtl_topo_explorer_iter_free(iter);
+    }
+
+    return rev_map;
+}
 
 
 /// Per-face triangulation data used by both ArrayMesh and collision paths.
@@ -283,6 +389,11 @@ struct TriFaceData {
 };
 
 /// Collect triangulation data for every face in @p ids_vec.
+///
+/// Uses classical OpenCASCADE BRep_Tool::Triangulation to extract the cached
+/// triangulation directly from the internal BRepGraph, bypassing the occtl
+/// mesh view layer.  This ensures correct face orientation handling and avoids
+/// the occtl library's winding quirks.
 static std::vector<TriFaceData> _collect_face_data(
     occtl_graph_t* graph,
     const std::vector<occtl_node_id_t>& ids_vec,
@@ -295,49 +406,110 @@ static std::vector<TriFaceData> _collect_face_data(
     out_total_verts = 0;
     out_total_tris  = 0;
 
-    for (auto fid : ids_vec) {
-        occtl_triangulation_view_t tv;
-        occtl_status_t st = occtl_mesh_face_triangulation(
-            graph, fid, &tv);
-        if (st != OCCTL_OK) continue;
+    // Access the internal BRepGraph structure (same trick used by the
+    // STL exporter which works correctly).
+    if (!graph) return face_data;
+    auto* internal_graph = static_cast<struct occtl_graph*>(graph);
 
-        size_t const nv = tv.node_count;
-        size_t const nt = tv.triangle_count;
+    // ---- Build accumulated orientation map (mirrors STL exporter strategy) ----
+    // Uses occtl_topo_child_explorer_create with target_kind=FACE to directly
+    // yield face node IDs with accumulated orientation from root products (or
+    // solids/shells as fallback).  Each face's accumulated orientation takes
+    // precedence over its own stored orientation, matching the STL exporter's
+    // TopExp_Explorer-based behaviour without the fragile IsSame matching.
+    auto const acc_orient = _build_accumulated_orientation_map(graph);
+
+    for (auto fid : ids_vec) {
+        const BRepGraph_NodeId node_id =
+            BRepGraph_NodeId::Typed<BRepGraph_NodeId::Kind::Face>(fid.bits);
+        const TopoDS_Shape shape = internal_graph->graph.Shapes().Shape(node_id);
+        if (shape.IsNull()) continue;
+
+        const TopoDS_Face face = TopoDS::Face(shape);
+        if (face.IsNull()) continue;
+
+        // Get triangulation via the classic OpenCASCADE API.
+        // BRepMesh_IncrementalMesh (invoked earlier by _ensure_mesh_generated)
+        // stores the triangulation on each face's TShape, so it is accessible
+        // here regardless of the occtl mesh cache.
+        TopLoc_Location loc;
+        const Handle(Poly_Triangulation) tri = BRep_Tool::Triangulation(face, loc);
+        if (tri.IsNull()) continue;
+
+        const size_t nv = static_cast<size_t>(tri->NbNodes());
+        const size_t nt = static_cast<size_t>(tri->NbTriangles());
         if (nv == 0 || nt == 0) continue;
+
+        // Determine face orientation — prefer accumulated (solid-context)
+        // orientation matching the STL exporter's approach, fall back to the
+        // face's own stored orientation.
+        bool reversed = (face.Orientation() == TopAbs_REVERSED);
+        if (!acc_orient.empty()) {
+            occtl_uid_t uid;
+            if (occtl_graph_uid_from_node_id(graph, fid, &uid) == OCCTL_OK) {
+                auto const it = acc_orient.find(uid.bits);
+                if (it != acc_orient.end()) {
+                    reversed = it->second;
+                }
+            }
+        }
 
         TriFaceData fd;
         fd.face_id = fid;
 
-        // Vertices
+        // ---- Vertices (apply face location to get global coords) ----
+        const bool has_loc = !loc.IsIdentity();
+        const gp_Trsf trsf = has_loc ? loc.Transformation() : gp_Trsf();
         fd.verts.reserve(nv);
-        for (size_t i = 0; i < nv; i++)
-            fd.verts.emplace_back(tv.nodes[3 * i],
-                                  tv.nodes[3 * i + 1],
-                                  tv.nodes[3 * i + 2]);
+        for (size_t i = 1; i <= nv; i++) {
+            gp_Pnt p = tri->Node(static_cast<int>(i));
+            if (has_loc) p.Transform(trsf);
+            fd.verts.emplace_back(p.X(), p.Y(), p.Z());
+        }
 
-        // Triangles (clamp out-of-range indices)
+        // ---- Triangles ----
+        //
+        // OCCT's Poly_Triangulation stores triangles with natural surface
+        // winding (right-handed FORWARD orientation).  Faces with REVERSED
+        // orientation carry the same triangulation but the winding must be
+        // flipped to produce outward-pointing normals.
+        //
+        // Additionally, Godot's winding convention is opposite to OCCT's for
+        // FORWARD faces (comment: "OpenCASCADE winds the opposite as Godot
+        // for all faces"), so we flip FORWARD faces.  REVERSED faces already
+        // have their winding inverted by the face orientation, so they end up
+        // correct for Godot without the extra flip.  The net effect matches
+        // the original occtl-based code.
         fd.indices.reserve(3 * nt);
-        for (size_t i = 0; i < 3 * nt; i++) {
-            uint32_t idx = tv.triangles[i];
-            if (idx >= nv) idx = 0;
-            fd.indices.push_back(static_cast<int>(idx));
+        for (size_t i = 1; i <= nt; i++) {
+            const Poly_Triangle& t = tri->Triangle(static_cast<int>(i));
+            int aA = 0, aB = 0, aC = 0;
+            t.Get(aA, aB, aC);
+            // Convert from 1-based to 0-based
+            aA--; aB--; aC--;
+
+            if (reversed) {
+                // REVERSED face: keep natural winding — the reversal has
+                // already inverted the triangle order, making it correct for
+                // Godot's opposite convention.
+                fd.indices.push_back(aA);
+                fd.indices.push_back(aB);
+                fd.indices.push_back(aC);
+            } else {
+                // FORWARD face: swap for Godot's opposite winding convention.
+                fd.indices.push_back(aA);
+                fd.indices.push_back(aC);
+                fd.indices.push_back(aB);
+            }
         }
 
-        // UVs
-        if (tv.uvs && include_uvs) {
+        // ---- UVs ----
+        if (include_uvs && tri->HasUVNodes()) {
             fd.uvs.reserve(nv);
-            for (size_t i = 0; i < nv; i++)
-                fd.uvs.emplace_back(tv.uvs[2 * i], tv.uvs[2 * i + 1]);
-        }
-
-        // ----- REVERSED-face correction -----
-        // XXX: Need access to internal opencascade graph, skipping the public OCCTL API for now.
-        const auto hacked_graph = static_cast<struct occtl_graph*>(graph);
-        bool reversed = hacked_graph->graph.Shapes().Shape(BRepGraph_NodeId::Typed<BRepGraph_NodeId::Kind::Face>(fid.bits)).Orientation() == TopAbs_REVERSED;
-        UtilityFunctions::push_error("Face " + String::num_int64(fid.bits) + " is " + (reversed ? "REVERSED" : "FORWARD") + " in OCCT graph");
-        if (!reversed) { // NOTE: OpenCASCADE winds the opposite as Godot for all faces, so negate the check.
-            for (size_t i = 0; i < nt; i++)
-                std::swap(fd.indices[3 * i + 1], fd.indices[3 * i + 2]);
+            for (size_t i = 1; i <= nv; i++) {
+                const gp_Pnt2d uv = tri->UVNode(static_cast<int>(i));
+                fd.uvs.emplace_back(uv.X(), uv.Y());
+            }
         }
 
         out_total_verts += static_cast<int>(nv);

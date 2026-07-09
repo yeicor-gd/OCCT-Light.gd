@@ -21,7 +21,7 @@ class_name MazePath
 
 ## Rest length of each rope segment. The PBD spring attempts to keep
 ## consecutive nodes this far apart.
-@export_range(0.001, 10.0) var segment_length: float = 0.1
+@export_range(0.001, 10.0) var segment_length: float = 0.5
 
 ## Curve sharpness. Higher values make the interpolated Catmull-Rom
 ## spline hug the node positions more tightly (lower = smoother / looser).
