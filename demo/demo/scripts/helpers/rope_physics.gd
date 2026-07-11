@@ -126,19 +126,38 @@ func init_rope(seed_value: int, outer_radius: float, margin: float):
 	nodes.clear()
 	nodes.append(RopeNode.new(fixed_start))
 	for i in range(1, node_count - 1):
-		var t = float(i) / (node_count - 1)
-		nodes.append(RopeNode.new(
-			fixed_start.lerp(fixed_end, t) + Vector3(
-				_rng.randf_range(-1.0, 1.0),
-				_rng.randf_range(-1.0, 1.0),
-				_rng.randf_range(-1.0, 1.0),
-			) * jitter_noise,
-		))
+		nodes.append(RopeNode.new(_random_point_in_shell(outer_radius, margin)))
 	nodes.append(RopeNode.new(fixed_end))
-
+	
 	var elapsed = (Time.get_ticks_usec() - start_time) / 1000.0
 	print("RopePhysics::init_rope took ", elapsed, " ms for ", nodes.size(), " nodes")
 
+func _random_point_in_shell(outer_radius: float, margin: float) -> Vector3:
+	var inner := margin
+	var outer := outer_radius - margin
+
+	var dir := Vector3(
+		_rng.randf_range(-1.0, 1.0),
+		_rng.randf_range(-1.0, 1.0),
+		_rng.randf_range(-1.0, 1.0),
+	)
+
+	# Extremely unlikely, but avoid normalizing a zero vector.
+	while dir.length_squared() < 1e-12:
+		dir = Vector3(
+			_rng.randf_range(-1.0, 1.0),
+			_rng.randf_range(-1.0, 1.0),
+			_rng.randf_range(-1.0, 1.0),
+		)
+
+	dir = dir.normalized()
+
+	# Uniform volume distribution in the shell.
+	var inner3 := inner * inner * inner
+	var outer3 := outer * outer * outer
+	var r := pow(_rng.randf_range(inner3, outer3), 1.0 / 3.0)
+
+	return dir * r
 
 func relax(inner_radius: float, outer_radius: float, margin: float):
 	var start_time := Time.get_ticks_usec()

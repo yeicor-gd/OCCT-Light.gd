@@ -467,11 +467,6 @@ static func delete_orphans(
 					OclCore.status_to_string(st),
 				]
 			)
-			print("Removed orphan %d (%s): %s" % [
-					id,
-					OclCore.node_kind_to_string(kind),
-					OclCore.status_to_string(st),
-				])
 
 			removed += 1
 

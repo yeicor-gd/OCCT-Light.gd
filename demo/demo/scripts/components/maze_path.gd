@@ -127,10 +127,9 @@ func _step(n: int):
 		if _rope.nodes.is_empty():
 			_rope.init_rope(_get_seed(), _get_outer_radius(), _get_tube_margin())
 		else:
-			var old_iters := relaxation_iters
-			relaxation_iters = n
+			_rope.relaxation_iters = n
 			_rope.relax(_get_inner_radius(), _get_outer_radius(), _get_tube_margin())
-			relaxation_iters = old_iters
+			_rope.relaxation_iters = relaxation_iters
 		var data := CurveUtils.precompute_curve_data(_rope.get_positions(), sharpness)
 		CurveUtils.apply_curve_data.call_deferred(curve, data)
 		WorkerThreadPool.wait_for_task_completion.call_deferred(self_task[0])
