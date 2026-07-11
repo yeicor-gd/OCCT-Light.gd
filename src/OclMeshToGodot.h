@@ -68,6 +68,22 @@ public:
         const Variant& vertex_ids = Variant(),
         double radius = 0.02
     );
+
+    // --- New methods for the improved OclManager ---
+
+    /// Merge multiple sets of surface arrays into one single surface array.
+    /// Each element in |surfaces| must be a Godot Mesh::ARRAY_MAX-sized Array
+    /// (as returned by ArrayMesh::surface_get_arrays).  All data is concatenated
+    /// into one set of arrays with indices remapped appropriately.
+    static Array merge_surface_arrays(const Array& surfaces);
+
+    /// Extract face triangle vertices as a single flat PackedVector3Array
+    /// (3 vertices per triangle, Godot winding, ready for ConcavePolygonShape3D).
+    static PackedVector3Array extract_face_triangles(
+        const Ref<OclGraphHandle>& graph,
+        const Ref<OclMeshOptions>& options = Ref<OclMeshOptions>(),
+        const Variant& face_ids = Variant()
+    );
 };
 
 #endif // OCLMESHTOGODOT_H

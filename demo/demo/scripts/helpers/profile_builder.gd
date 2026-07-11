@@ -4,12 +4,13 @@ extends RefCounted
 
 ## Builds sweep profiles (2D wire outlines) for OCCT pipe-shell sweeps.
 ##
-## Two strategies are available:
-##   - _fast:  boolean-cut rectangle in rectangle → single wire
-##   - _cool:  slot primitive → split by plane → trace → wire
+## The profile is a U-shaped cross-section built from line segments and
+## embedded arcs (fancy mode) or straight segments only (non-fancy).
+## No boolean cuts or fillet_2d are used — the wire is constructed
+## directly from its geometric primitives.
 ##
-## Both receive the same config parameters via a ConfigBundle so they stay
-## decoupled from specific node references.
+## When core_only is true, only the inner pathway wire is returned
+## (no walls, no face) — useful for efficient physics collision.
 
 
 class Config:
@@ -30,148 +31,77 @@ class Config:
 		wall_height = _wall_height
 
 
-static func build_profile_fast(
+## Build the sweep profile wire(s).
+static func build_profiles(
 		graph: OclGraphHandle,
 		cfg: Config,
 		xf: Transform3D,
+		fancy: bool,
+		core_only: bool,
 ) -> Array[OclNodeId]:
-	## Fast profile: two rectangles boolean-cut together.
-	## Returns [outer_wire].
+	# --- Derived dimensions ---
+	var br := cfg.ball_radius
+	var bd := 2.0 * br # Ball diameter
+	var pwh := br / cfg.ball_to_path_min_ratio # pathway half width
+	var pw := bd / cfg.ball_to_path_min_ratio  # pathway width
+	var wt := cfg.wall_thickness # Wall thickness
+	var wh := cfg.wall_height * bd  # wall height above pathway floor
+	var wr := cfg.wall_height == 1.0 # With extra roof sketch
+	# Radius of fancy fillets
+	var rt := wt/2 if fancy and not wr else 0.0 # top radius
+	var ri := minf(wh, br - rt) if fancy else 0.0 # inner radius
+	var ro := ri + wt if fancy else 0.0 # outer radius
+	var result: Array[OclNodeId] = []
+	var status: OclCore.status
+	
+	var wb := WireBuilder.new(graph, func(v2: Vector2): return xf.translated_local(Vector3(v2.x, v2.y, 0)).origin)
+	
+	wb.move_to(-pwh, -br + wh - rt) # Top-left of the inside (for easier core mode)
+	if not fancy: # Fast square bottom
+		wb.line_to(-pwh, -br)
+		wb.line_to(pwh, -br)
+		wb.line_to(pwh, -br + wh)
+	else: 
+		if wh > ri: # Straight vertical before the radius if too high
+			wb.line_to(-pwh, 0)
+		wb.arc(-pwh+ri, -br+ri, ri, 180, 270, true)
+		wb.line_to(pwh-ri, -br)
+		wb.arc(pwh-ri, -br+ri, ri, 270, 360, true)
+		if wh > ri: # Straight vertical before the radius if too high
+			wb.line_to(pwh, -br + wh - rt)
+	if not core_only: # Skip outside on core only mode (recommended for physics!)
+		if not fancy or wr:
+			wb.line_to(pwh + wt, -br + wh)
+			wb.line_to(pwh + wt, -br - wt)
+		else:
+			wb.arc(pwh+rt, -br + wh-rt, rt, 180, 0)
+			if wh > ri: # Straight vertical before the radius if too high
+				wb.line_to(pwh + wt, -br - wt + ro)
+		if not fancy:
+			wb.line_to(-pwh - wt, -br - wt)
+		else:
+			wb.arc(pwh + wt - ro, -br - wt + ro, ro, 360, 270)
+			wb.line_to(-pwh - wt + ro, -br - wt)
+			wb.arc(-pwh - wt + ro, -br - wt + ro, ro, 270, 180)
+		if not fancy or wr:
+			wb.line_to(-pwh - wt, -br + wh)
+			wb.line_to(-pwh, -br + wh)
+		else:
+			wb.line_to(-pwh-wt, -br + wh - rt)
+			wb.arc(-pwh-rt, -br + wh-rt, rt, 180, 0)
+	
+	result.append(wb.build())
+	
+	# --- Roof mode (wall_height >= 1.0) ---
+	if wr:
+		var roof_info := OclPrimRectangleInfo.new()
+		roof_info.width = pw + 2 * wt
+		roof_info.height = wt
+		var roof_xf := xf.translated_local(Vector3.UP * ((bd + wt)/2))
+		roof_info.placement = OcctConversionUtils.transform3d_to_occt_placement(roof_xf)
+		var roof_wire := OclNodeId.new()
+		status = OclPrimSketch.rectangle(graph, roof_info, roof_wire) as OclCore.status
+		assert(status == OclCore.OK, "Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
+		result.append(roof_wire)
 
-	var path_radius := cfg.ball_radius / cfg.ball_to_path_min_ratio
-
-	# Outer rectangle (wall outer boundary).
-	var rect1_info := OclPrimRectangleInfo.new()
-	rect1_info.width = path_radius * 2.0 + cfg.wall_thickness * 2.0
-	rect1_info.height = cfg.wall_thickness + cfg.wall_height * 2.0 * cfg.ball_radius
-	# Shift down in local frame so the profile sits at the right height.
-	var rect1_xf := xf.translated_local(Vector3.UP * (
-		-cfg.ball_radius - cfg.wall_thickness / 2.0 + (cfg.wall_height * 2.0 * cfg.ball_radius) / 2.0
-	))
-	rect1_info.placement = OcctConversionUtils.transform3d_to_occt_placement(rect1_xf)
-	var rect1 := OclNodeId.new()
-	var status := OclPrimSketch.rectangle(graph, rect1_info, rect1) as OclCore.status
-	assert(status == OclCore.OK, "Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
-
-	var rect1_face_info := OclPrimPlanarFaceInfo.new()
-	rect1_face_info.outer_wire = rect1.bits
-	var rect1_face := OclNodeId.new()
-	status = OclPrimSketch.planar_face(graph, rect1_face_info, rect1_face) as OclCore.status
-	assert(status == OclCore.OK, "Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
-
-	# Inner rectangle (the cut-out / pathway).
-	var rect2_info := OclPrimRectangleInfo.new()
-	rect2_info.width = rect1_info.width - 2.0 * cfg.wall_thickness
-	rect2_info.height = rect1_info.height - cfg.wall_thickness + cfg.ball_radius
-	var rect2_xf := xf.translated_local(Vector3.UP * (
-		-cfg.ball_radius + (cfg.wall_height * 2.0 * cfg.ball_radius) / 2.0 + cfg.ball_radius / 2.0
-	))
-	rect2_info.placement = OcctConversionUtils.transform3d_to_occt_placement(rect2_xf)
-	var rect2 := OclNodeId.new()
-	status = OclPrimSketch.rectangle(graph, rect2_info, rect2) as OclCore.status
-	assert(status == OclCore.OK, "Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
-
-	var rect2_face_info := OclPrimPlanarFaceInfo.new()
-	rect2_face_info.outer_wire = rect2.bits
-	var rect2_face := OclNodeId.new()
-	status = OclPrimSketch.planar_face(graph, rect2_face_info, rect2_face) as OclCore.status
-	assert(status == OclCore.OK, "Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
-
-	# Boolean cut: outer - inner.
-	var bool_opts := OclBoolOptions.new()
-	var track_profile := OclNodeId.new()
-	status = OclBool.cut(
-		graph,
-		PackedInt64Array([rect1_face.bits]),
-		PackedInt64Array([rect2_face.bits]),
-		bool_opts,
-		track_profile,
-	) as OclCore.status
-	assert(status == OclCore.OK, "Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
-
-	# Clean up temporary faces.
-	status = OclTopoBuild.topo_remove_subgraph(graph, rect1_face.bits) as OclCore.status
-	assert(status == OclCore.OK, "Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
-	status = OclTopoBuild.topo_remove_subgraph(graph, rect2_face.bits) as OclCore.status
-	assert(status == OclCore.OK, "Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
-
-	# Grab the single remaining wire.
-	var face_iter := OclNodeIterHandle.new()
-	status = OclTopo.graph_face_iter_create(graph, face_iter) as OclCore.status
-	assert(status == OclCore.OK, "Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
-	var mface := OclNodeId.new()
-	status = OclTopo.node_iter_next(face_iter, mface) as OclCore.status
-	assert(status == OclCore.OK, "Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
-	OclTopo.node_iter_free(face_iter)
-
-	var res_wire := OclNodeId.new()
-	status = OclTopo.topo_face_outer_wire(graph, mface.bits, res_wire) as OclCore.status
-	assert(status == OclCore.OK, "Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
-
-	return [res_wire]
-
-
-static func build_profile_cool(
-		graph: OclGraphHandle,
-		cfg: Config,
-		xf: Transform3D,
-) -> Array[OclNodeId]:
-	# Slot primitive → split by plane → trace → wire.
-
-	var path_radius := cfg.ball_radius / cfg.ball_to_path_min_ratio
-
-	# Outer rectangle (wall outer boundary).
-	var slot_info := OclPrimSlotInfo.new()
-	slot_info.length = path_radius * 2.0 + 2.0 * cfg.wall_thickness # Centers
-	slot_info.width = cfg.ball_radius * 2.0 + cfg.wall_thickness
-	slot_info.placement = OcctConversionUtils.transform3d_to_occt_placement(xf)
-
-	var slot_id := OclNodeId.new()
-	var status := OclPrimSketch.slot(graph, slot_info, slot_id) as OclCore.status
-	assert(status == OclCore.OK, "Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
-
-	# Split by plane (keep negative Y).
-	var split_info := OclTopoSplitByPlaneOptions.new()
-	split_info.root = slot_id.bits
-	split_info.keep = OclTopoAlgo.TOPO_SPLIT_KEEP_NEGATIVE
-	split_info.point = OcctConversionUtils.v3_to_p3(xf.translated_local(Vector3.UP * (-cfg.wall_thickness + (cfg.wall_height - 0.5) * cfg.ball_radius)).origin)
-	split_info.normal = OcctConversionUtils.v3_to_d3(xf.basis.y)
-	var split_id := OclNodeId.new()
-	status = OclTopoAlgo.make_split_by_plane(graph, split_info, graph, split_id) as OclCore.status
-	assert(status == OclCore.OK, "Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
-
-	# Iterate wires, trace one, clean up.
-	var wire_iter := OclNodeIterHandle.new()
-	status = OclTopo.graph_wire_iter_create(graph, wire_iter) as OclCore.status
-	assert(status == OclCore.OK, "Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
-	var mwire := OclNodeId.new()
-	status = OclTopo.node_iter_next(wire_iter, mwire) as OclCore.status
-	assert(status == OclCore.OK, "Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
-	OclTopo.node_iter_free(wire_iter)
-
-	# Trace to thicken the wire.
-	var trace_info := OclPrimTraceInfo.new()
-	trace_info.path = mwire.bits
-	trace_info.width = cfg.wall_thickness
-	var trace_id := OclNodeId.new()
-	status = OclPrimSketch.trace(graph, trace_info, trace_id) as OclCore.status
-	assert(status == OclCore.OK, "Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
-
-	# Remove temporary wire.
-	status = OclTopoBuild.topo_remove_subgraph(graph, mwire.bits) as OclCore.status
-	assert(status == OclCore.OK, "Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
-
-	# Get the resulting wire from trace.
-	wire_iter = OclNodeIterHandle.new()
-	status = OclTopo.graph_wire_iter_create(graph, wire_iter) as OclCore.status
-	assert(status == OclCore.OK, "Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
-	mwire = OclNodeId.new()
-	status = OclTopo.node_iter_next(wire_iter, mwire) as OclCore.status
-	assert(status == OclCore.OK, "Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
-	OclTopo.node_iter_free(wire_iter)
-
-	# Remove the temporary traced face.
-	status = OclTopoBuild.topo_remove(graph, trace_id.bits) as OclCore.status
-	assert(status == OclCore.OK, "Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
-
-	return [mwire]
+	return result

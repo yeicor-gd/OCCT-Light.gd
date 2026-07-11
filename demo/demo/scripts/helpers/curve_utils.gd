@@ -97,8 +97,8 @@ static func transform_at_baked(curve: Curve3D, baked_length: float, cubic_interp
 	if baked_length + 0.001 < curve.get_baked_length():
 		var from := curve.sample_baked(baked_length, cubic_interp)
 		res = res.translated(from)
-		var next_point := curve.sample_baked(baked_length + 0.001, cubic_interp)
-		var is_radial = abs(fmod((next_point - from).normalized().angle_to(from.normalized()), PI)) < 0.001
+		var next_point := curve.sample_baked(baked_length + 0.1, cubic_interp)
+		var is_radial = abs(fmod((next_point - from).normalized().angle_to(from.normalized()), PI)) < 0.1
 		if not is_radial:
 			res = res.looking_at(next_point, from.normalized())
 	return res

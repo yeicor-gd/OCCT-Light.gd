@@ -10,7 +10,8 @@ class_name MazeGenerator
 # -----------------------------------------------------------------------------
 
 ## Random seed for reproducible maze generation.
-@export var seed_value := 0
+@export var seed_source := "Default"
+@onready var seed_value := hash(seed_source)
 
 @export_group("Maze Dimensions")
 

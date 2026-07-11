@@ -40,6 +40,7 @@
 #include <TopLoc_Location.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Face.hxx>
+#include <TopoDS_Solid.hxx>
 #include <gp_Pnt.hxx>
 #include <gp_Pnt2d.hxx>
 #include <gp_Trsf.hxx>
@@ -56,7 +57,7 @@
 #include "occtl/occtl_mesh.h"
 
 // XXX: Internal OCCTL APIs / OpenCASCADE APIs
-#include "BRepGraph_ShapesView.hxx"
+#include "opencascade/BRepGraph_ShapesView.hxx"
 #include "../OCCT-Light/src/topo/GraphHandle.hxx"
 #include "../OCCT-Light/src/topo/TopoMath.hxx"
 
@@ -1186,6 +1187,16 @@ void OclMeshToGodot::_bind_methods() {
                         "vertex_ids", "radius"),
         &OclMeshToGodot::mesh_vertices_collision,
         DEFVAL(Ref<OclMeshOptions>()), DEFVAL(Variant()), DEFVAL(0.002));
+
+    // --- New merge/extract methods ---
+    godot::ClassDB::bind_static_method("OclMeshToGodot",
+        godot::D_METHOD("merge_surface_arrays", "surfaces"),
+        &OclMeshToGodot::merge_surface_arrays);
+
+    godot::ClassDB::bind_static_method("OclMeshToGodot",
+        godot::D_METHOD("extract_face_triangles", "graph", "options",
+                        "face_ids"),
+        &OclMeshToGodot::extract_face_triangles);
 }
 
 // ===========================================================================
@@ -1586,4 +1597,151 @@ int OclMeshToGodot::mesh_vertices_collision(
             body->get_owner() ? body->get_owner() : body);
     }
     return OCCTL_OK;
+}
+
+// ===========================================================================
+// merge_surface_arrays  —  merge multiple sets of arrays into one
+// ===========================================================================
+
+Array OclMeshToGodot::merge_surface_arrays(const Array& surfaces) {
+    // Accumulators
+    PackedVector3Array all_verts;
+    PackedInt32Array   all_indices;
+    PackedVector3Array all_normals;
+    PackedVector2Array all_uvs;
+    PackedColorArray   all_colors;
+    PackedFloat32Array all_tangents;
+    bool have_uvs      = false;
+    bool have_tangents = false;
+    bool have_colors   = false;
+
+    for (int si = 0; si < surfaces.size(); si++) {
+        Array arr = surfaces[si];
+        if (arr.size() < Mesh::ARRAY_VERTEX) continue;
+
+        PackedVector3Array verts = arr[Mesh::ARRAY_VERTEX];
+        if (verts.size() == 0) continue;
+
+        // Vertices
+        int base = all_verts.size();
+        all_verts.append_array(verts);
+
+        // Normals
+        if (arr.size() > Mesh::ARRAY_NORMAL) {
+            PackedVector3Array norms = arr[Mesh::ARRAY_NORMAL];
+            if (norms.size() > 0) {
+                all_normals.append_array(norms);
+            }
+        }
+
+        // UVs
+        if (arr.size() > Mesh::ARRAY_TEX_UV) {
+            PackedVector2Array uvs = arr[Mesh::ARRAY_TEX_UV];
+            if (uvs.size() > 0) {
+                all_uvs.append_array(uvs);
+                have_uvs = true;
+            }
+        }
+
+        // Colors
+        if (arr.size() > Mesh::ARRAY_COLOR) {
+            PackedColorArray cols = arr[Mesh::ARRAY_COLOR];
+            if (cols.size() > 0) {
+                all_colors.append_array(cols);
+                have_colors = true;
+            }
+        }
+
+        // Tangents
+        if (arr.size() > Mesh::ARRAY_TANGENT) {
+            PackedFloat32Array tans = arr[Mesh::ARRAY_TANGENT];
+            if (tans.size() > 0) {
+                all_tangents.append_array(tans);
+                have_tangents = true;
+            }
+        }
+
+        // Indices (remapped)
+        if (arr.size() > Mesh::ARRAY_INDEX) {
+            PackedInt32Array idx = arr[Mesh::ARRAY_INDEX];
+            for (int i = 0; i < idx.size(); i++) {
+                all_indices.push_back(idx[i] + base);
+            }
+        } else {
+            // No index array — assume non-indexed geometry
+            for (int i = 0; i < verts.size(); i++) {
+                all_indices.push_back(base + i);
+            }
+        }
+    }
+
+    // Build the merged surface array
+    Array result;
+    result.resize(Mesh::ARRAY_MAX);
+    result[Mesh::ARRAY_VERTEX] = all_verts;
+    result[Mesh::ARRAY_INDEX]  = all_indices;
+    result[Mesh::ARRAY_NORMAL] = all_normals;
+    if (have_uvs)
+        result[Mesh::ARRAY_TEX_UV] = all_uvs;
+    if (have_tangents)
+        result[Mesh::ARRAY_TANGENT] = all_tangents;
+    if (have_colors)
+        result[Mesh::ARRAY_COLOR] = all_colors;
+
+    return result;
+}
+
+// ===========================================================================
+// extract_face_triangles  —  collision data for ConcavePolygonShape3D
+// ===========================================================================
+
+PackedVector3Array OclMeshToGodot::extract_face_triangles(
+    const Ref<OclGraphHandle>& graph,
+    const Ref<OclMeshOptions>& options,
+    const Variant&             face_ids)
+{
+    PackedVector3Array tri_verts;
+    if (graph.is_null() || !graph->_handle) return tri_verts;
+
+    // ----- Options --------------------------------------------------------
+    occtl_mesh_options_t opts = OCCTL_MESH_OPTIONS_INIT;
+    if (options.is_valid()) opts = options->to_c();
+    double const deflection = opts.deflection;
+    double const angle      = opts.angle;
+
+    // ----- Resolve face IDs -----------------------------------------------
+    std::vector<occtl_node_id_t> ids_vec =
+        _resolve_face_ids(graph->_handle, face_ids);
+    if (ids_vec.empty()) return tri_verts;
+
+    // ----- Generate mesh --------------------------------------------------
+    {
+        occtl_status_t st = _ensure_mesh_generated(
+            graph->_handle, ids_vec, deflection, angle);
+        if (st != OCCTL_OK) return tri_verts;
+    }
+
+    // ----- Collect triangulation data -------------------------------------
+    int total_verts = 0, total_tris = 0;
+    std::vector<TriFaceData> face_data = _collect_face_data(
+        graph->_handle, ids_vec, false, total_verts, total_tris);
+    if (face_data.empty()) return tri_verts;
+
+    // ----- Concatenate all face triangles into one flat array -------------
+    // Count total triangles first.
+    size_t total_tri_count = 0;
+    for (const auto& fd : face_data)
+        total_tri_count += fd.indices.size() / 3;
+
+    tri_verts.resize(static_cast<int>(total_tri_count * 3));
+    int out_idx = 0;
+    for (const auto& fd : face_data) {
+        for (size_t i = 0; i + 2 < fd.indices.size(); i += 3) {
+            tri_verts[out_idx++] = fd.verts[fd.indices[i]];
+            tri_verts[out_idx++] = fd.verts[fd.indices[i + 1]];
+            tri_verts[out_idx++] = fd.verts[fd.indices[i + 2]];
+        }
+    }
+
+    return tri_verts;
 }

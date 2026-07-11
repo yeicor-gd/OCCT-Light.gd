@@ -30,6 +30,62 @@ static func make_bezier_curve(
 	return rep
 
 
+## Create a finite line curve between two points (trimmed from infinite line).
+static func make_line_curve(
+		graph: OclGraphHandle,
+		from: Vector3,
+		to: Vector3,
+) -> OclRepId:
+	var direction := (to - from).normalized()
+
+	var axis1 := OclAxis1Placement.new()
+	axis1.location = OcctConversionUtils.v3_to_p3(from)
+	axis1.direction = OcctConversionUtils.v3_to_d3(direction)
+
+	var line_rep := OclRepId.new()
+	var status := OclCurves.create_line(graph, axis1, line_rep) as OclCore.status
+	assert(status == OclCore.OK, "Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
+	
+	var u_start := OclDouble.new()
+	status = OclCurves.parameter_of_point(graph, line_rep.bits, OcctConversionUtils.v3_to_p3(from), u_start) as OclCore.status
+	assert(status == OclCore.OK, "Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
+	
+	var u_end := OclDouble.new()
+	status = OclCurves.parameter_of_point(graph, line_rep.bits, OcctConversionUtils.v3_to_p3(to), u_end) as OclCore.status
+	assert(status == OclCore.OK, "Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
+
+	var trimmed_info := OclCurveTrimmedCreateInfo.new()
+	trimmed_info.basis = line_rep.bits
+	trimmed_info.u_first = u_start.value
+	trimmed_info.u_last = u_end.value
+	trimmed_info.sense = 1
+
+	var out_rep := OclRepId.new()
+	status = OclCurves.create_trimmed(graph, trimmed_info, out_rep) as OclCore.status
+	assert(status == OclCore.OK, "Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
+	return out_rep
+
+
+## Create an arc curve through 3 points (start, via, end).
+## The arc goes from p1 through p2 to p3.
+static func make_arc_3pt(
+		graph: OclGraphHandle,
+		p1: Vector3,
+		p2: Vector3,
+		p3: Vector3,
+) -> OclRepId:
+	var arc_rep := OclRepId.new()
+	var status := OclCurves.create_arc_of_circle_3pt(
+		graph,
+		OcctConversionUtils.v3_to_p3(p1),
+		OcctConversionUtils.v3_to_p3(p2),
+		OcctConversionUtils.v3_to_p3(p3),
+		arc_rep,
+	) as OclCore.status
+	assert(status == OclCore.OK, "Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
+	return arc_rep
+
+
 ## Create a vertex at |point|.
 static func make_vertex(graph: OclGraphHandle, point: Vector3) -> OclNodeId:
 	var info := OclTopoMakeVertexInfo.new()

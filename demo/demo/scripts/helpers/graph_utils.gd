@@ -17,6 +17,20 @@ static func create_graph() -> OclGraphHandle:
 
 
 ## Print the count of a specific node kind in a graph.
+static func print_node_kind_of(
+		graph: OclGraphHandle,
+		node_id: OclNodeId,
+		hint: String = "",
+):
+	var out := OclInt32.new()
+	var status := OclTopo.graph_node_kind(graph, node_id.bits, out) as OclCore.status
+	assert(
+		status == OclCore.OK,
+		"Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())],
+	)
+	print("Node ID ", node_id.bits, " is of kind ", OclCore.node_kind_to_string(out.value))
+
+## Print the count of a specific node kind in a graph.
 static func print_node_kind_count(
 		graph: OclGraphHandle,
 		node_kind: OclCore.node_kind,

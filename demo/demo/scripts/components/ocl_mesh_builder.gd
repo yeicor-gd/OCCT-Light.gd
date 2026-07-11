@@ -6,29 +6,29 @@ class_name OclMeshBuilder
 ##
 ## Reads the main path (Path3D) and auxiliary path (Path3D), plans chunked
 ## segments via ChunkBuilder, then dispatches each chunk as a WorkerThreadPool
-## background task.  Results arrive out of order and are merged into the
-## display nodes on the main thread as they become ready.
+## background task.  Results arrive out of order and are assembled into a
+## per-chunk Node3D hierarchy on the main thread.
 ##
-## Design:
-##   - Each chunk gets its own independent OCCT graph.
-##   - Worker threads build, sweep, and mesh the graph, then pack the raw
-##     mesh data (transforms, surface arrays) into a Dictionary.
-##   - Results are submitted via TaskScheduler.submit_result() (Mutex-
-##     protected, direct call from worker thread) and collected by the
-##     main thread in a frame-by-frame poll loop.
-##   - After all results are collected, generated resources are persisted.
+## Chunk scene hierarchy:
+##   ChunkN (Node3D)
+##     Faces (StaticBody3D if physics enabled, Node3D otherwise)
+##       FacesCollision (CollisionShape3D, if physics)
+##       FacesMesh (MeshInstance3D, if display)
+##     Edges (StaticBody3D if physics enabled, Node3D otherwise)
+##       EdgesMesh (MultiMeshInstance3D, if display)
+##       _occtl_edge_N (CollisionShape3D, if physics)
+##     Vertices (StaticBody3D if physics enabled, Node3D otherwise)
+##       VerticesMesh (MultiMeshInstance3D, if display)
+##       _occtl_vertex_N (CollisionShape3D, if physics)
 ##
-## Thread safety:
-##   - GDExtension OCCT calls (OclGraphHandle operations, OclMesh.generate,
-##     OclMeshToGodot.mesh_vertices/edges) operate on per-task graph handles
-##     and are safe on worker threads.
-##   - Face mesh extraction uses the existing OclMeshToGodot.mesh_faces()
-##     API on the MAIN THREAD (via the submitted graph handle), because it
-##     calls add_surface_from_arrays() which requires main-thread access.
-##     The graph is built and meshed on the worker, so mesh_faces() on the
-##     main thread reads cached triangulation data without regenerating it.
-##   - Scene tree nodes (MultiMeshInstance3D, MeshInstance3D) are only
-##     touched on the main thread.
+## Chunk root is always a plain Node3D (not a static body).  Only the
+## feature sub-nodes (Vertices / Edges / Faces) MAY be StaticBody3D.
+##
+## Chunk subtrees are persisted as .scn (binary) PackedScene files for
+## clean caching.
+##
+## Display and physics each have independent OclMeshOptions and fancy
+## profile flags so you can tune quality vs. performance independently.
 
 # -----------------------------------------------------------------------------
 # Configuration
@@ -39,49 +39,67 @@ class_name OclMeshBuilder
 ## Auxiliary path node whose curve provides sweep orientation (offset curve).
 @export_node_path("Path3D") var aux_path_node: NodePath
 
-@export_group("Wall Profile")
+@export_group("Design")
 
 ## Thickness of the track walls.
 @export_range(0.0, 1.0) var wall_thickness := 0.05
-## Wall height relative to ball radius. 0.3 means walls are 0.3 * ball_radius tall.
+## Wall height relative to ball radius.
 @export_range(0.0, 1.0) var wall_height := 0.3
-
-## Profile strategy: 0 = fast (rectangle cut), 1 = cool (slot + trace).
-@export_enum("Fast", "Cool") var profile_strategy: int = 1
+## Whether to actually build the inner path (for debugging).
+@export var main_path := true
+## Add rounded end caps at the start and end of the track.
+@export var end_caps := true
 
 @export_group("Chunking")
 
-## Number of segments to merge into one OCCT graph. Higher values reduce sweep
-## operations at the cost of larger per-chunk graphs.
-## 1 = one graph per segment (original behaviour).
+## Number of segments to merge into one OCCT graph.
 @export_range(1, 200, 1) var chunk_size: int = 8
 
-## Maximum number of chunk results to accumulate before flushing to display
-## nodes.  Higher values reduce GPU draw-call count but increase per-frame
-## main-thread work.  0 = flush every result immediately.
+## Maximum number of chunk results to accumulate before flushing.
 @export_range(0, 200, 1) var merge_batch_size: int = 1
 
-## Maximum number of WorkerThreadPool tasks to run simultaneously.
-## 0 = unlimited (let the threadpool decide).  Set to 1 when the
-## worker callable uses a non-thread-safe library (e.g. OCCT) to
-## serialise calls while keeping the main thread responsive.
+## Maximum concurrent WorkerThreadPool tasks. 0 = unlimited.
 @export_range(0, 32, 1) var max_concurrent: int = 0
 
 @export_group("Display")
 
-## OCCT mesh tessellation options.
-@export var mesh_options := OclMeshOptions.new()
-## Show OCCT vertex points (spheres).
-@export var show_vertices := true
-## Show OCCT edge lines (cylinders).
-@export var show_edges := true
+## OCCT mesh tessellation options for DISPLAY (visual) geometry.
+@export var display_options := OclMeshOptions.new()
+## Apply 2D fillets to smooth profile corners (fancy mode) for display.
+@export var display_fancy := true
 ## Show tessellated face surfaces.
-@export var show_faces := true
+@export var display_show_faces := true
+## Show only the inside surfaces of the tube.
+@export var display_core_only := false
+## Display edges as cylinders (== 0 = disabled, <0 = fixed size).
+@export var display_edge_radius: float = 0.01
+## Display vertices as spheres (== 0 = disabled, <0 = fixed size).
+@export var display_vertex_radius: float = 0.02
+## Material for faces
+@export var display_faces_material: Material
+## Material for edges
+@export var display_edges_material: Material
+## Material for faces
+@export var display_vertices_material: Material
+
+@export_group("Physics")
+
+## OCCT mesh tessellation options for PHYSICS (collision) geometry.
+@export var physics_options := OclMeshOptions.new()
+## Apply 2D fillets to smooth profile corners (fancy mode) for physics.
+@export var physics_fancy := false
+## Generate collision shapes for faces.
+@export var physics_show_faces := true
+## Collide only with the inside surfaces of the tube.
+@export var physics_core_only := true
+## Generate collision shapes for edges (== 0 = disabled, <0 = fixed size).
+@export var physics_edge_radius: float = 0.01
+## Generate collision shapes for vertices (== 0 = disabled, <0 = fixed size).
+@export var physics_vertex_radius: float = 0.02
 
 @export_group("Persistence")
 
-## Base path for saving generated mesh resources (e.g. res://generated/maze_meshes).
-## Leave empty to keep resources in-memory only.
+## Base path for saving generated resources. Empty = memory-only.
 @export var resource_save_path := "res://demo/generated/maze_meshes"
 
 @export_group("Actions")
@@ -94,13 +112,9 @@ class_name OclMeshBuilder
 
 var _maze_generator: MazeGenerator
 var _profile_cfg: ProfileBuilder.Config
-
-## Guards against concurrent regenerate() calls.
 var _is_regenerating: bool = false
-
-## Reference to the current TaskScheduler so _exit_tree() can
-## wait for outstanding worker tasks when the node is torn down.
 var _scheduler: TaskScheduler = null
+var _chunk_results: Array[Dictionary] = []
 
 # -----------------------------------------------------------------------------
 # Initialisation
@@ -114,7 +128,6 @@ func _find_generator() -> MazeGenerator:
 		p = p.get_parent()
 	return null
 
-## Rebuild the profile config from current exported values.
 func _ensure_config() -> void:
 	if not _maze_generator or not is_instance_valid(_maze_generator):
 		_maze_generator = _find_generator()
@@ -145,19 +158,14 @@ func regenerate() -> void:
 		return
 
 	_ensure_config()
-
-	# Rebuild the auxiliary curve from the main path.
 	aux_path.curve = CurveUtils.build_auxiliary_curve(path.curve)
-
-	# Clear previous display meshes.
-	_clear_display()
+	_clear_all_chunks()
 
 	var segment_count: int = path.curve.point_count - 1
 	print("[OclMeshBuilder] Generating ", segment_count, " segment(s) with ",
 				"chunk_size=", chunk_size, ", merge_batch_size=", merge_batch_size,
 				", max_concurrent=", max_concurrent, " ...")
 
-	# Plan chunks.
 	var chunker := ChunkBuilder.new()
 	chunker.chunk_size = chunk_size
 	var chunks: Array = chunker.plan_chunks(segment_count)
@@ -166,188 +174,222 @@ func regenerate() -> void:
 		_is_regenerating = false
 		return
 
-	# Capture configuration once so worker closures don't re-evaluate member
-	# variables (which would require the main-thread-only GDScript binding).
+	# Capture config for worker threads (avoids main-thread-only bindings).
 	var captured_cfg: ProfileBuilder.Config = _profile_cfg
-	var captured_profile_strategy: int = profile_strategy
-	var captured_mesh_options: OclMeshOptions = mesh_options
-	var captured_show_vertices: bool = show_vertices
-	var captured_show_edges: bool = show_edges
-	var captured_show_faces: bool = show_faces
+	var captured_display_fancy: bool = display_fancy
+	var captured_physics_fancy: bool = physics_fancy
+	var captured_display_opts: OclMeshOptions = display_options
+	var captured_physics_opts: OclMeshOptions = physics_options
 	var captured_path_curve: Curve3D = path.curve
 	var captured_aux_curve: Curve3D = aux_path.curve
 
-	# Create scheduler and store it for cleanup.
+	var captured_main_path := main_path
+	var captured_end_caps: bool = end_caps
+
+	var captured_display_show_faces: bool = display_show_faces
+	var captured_display_edge_radius: float = display_edge_radius
+	var captured_display_vertex_radius: float = display_vertex_radius
+	var captured_display_core_only: bool = display_core_only
+	var captured_physics_show_faces: bool = physics_show_faces
+	var captured_physics_edge_radius: float = physics_edge_radius
+	var captured_physics_vertex_radius: float = physics_vertex_radius
+	var captured_physics_core_only: bool = physics_core_only
+
 	var scheduler := TaskScheduler.new()
 	scheduler.max_concurrent = max_concurrent
 	_scheduler = scheduler
+	_chunk_results.clear()
 
-	# Accumulators for batched merge ("chunks of chunks").
-	var vertex_batch: Array[PackedFloat64Array] = []
-	var edge_batch: Array[PackedFloat64Array] = []
-	var face_batch: Array[Array] = []
-
-	# --------------------------------------------------------------
 	# Dispatch every chunk as a background task.
-	# --------------------------------------------------------------
-	for chunk_cookie in chunks:
-		var c: ChunkBuilder.Chunk = chunk_cookie as ChunkBuilder.Chunk
+	var total_chunks := chunks.size()
+	for chunk_idx in range(total_chunks):
+		var c: ChunkBuilder.Chunk = chunks[chunk_idx] as ChunkBuilder.Chunk
+		var idx := chunk_idx
+		var is_first := idx == 0
+		var is_last := idx == total_chunks - 1
 		scheduler.dispatch_task(func():
-			# ---- runs on worker thread ----
 			var result: Dictionary = _worker_build_chunk(
-				c,
-				captured_path_curve,
-				captured_aux_curve,
+				idx, c,
+				captured_path_curve, captured_aux_curve,
 				captured_cfg,
-				captured_profile_strategy,
-				captured_mesh_options,
-				captured_show_vertices,
-				captured_show_edges,
-				captured_show_faces,
+				captured_display_fancy, captured_physics_fancy,
+				captured_display_opts, captured_physics_opts,
+				captured_display_show_faces, captured_display_edge_radius, captured_display_vertex_radius, captured_display_core_only,
+				captured_physics_show_faces, captured_physics_edge_radius, captured_physics_vertex_radius, captured_physics_core_only,
+				captured_main_path,
+				captured_end_caps,
+				is_first, is_last,
 			)
 			scheduler.submit_result(result)
 		, false, "OclChunk")
 
 	print("[OclMeshBuilder] Dispatched ", chunks.size(), " chunk(s). Polling...")
 
-	# --------------------------------------------------------------
-	# Helper: handle one result dictionary (main thread).
-	# --------------------------------------------------------------
-	var handle_result := func(result: Dictionary) -> void:
-		var v: PackedFloat64Array = result.get("v", PackedFloat64Array()) as PackedFloat64Array
-		var e: PackedFloat64Array = result.get("e", PackedFloat64Array()) as PackedFloat64Array
-		var f_data: Array = result.get("f", []) as Array
-
-		# Surface arrays are already pre-assembled on the worker thread.
-		var f_surfaces: Array[Array] = []
-		for sa_raw in f_data:
-			var sa: Array = sa_raw as Array
-			if sa.size() > 0:
-				f_surfaces.append(sa)
-
-		if merge_batch_size == 0:
-			# No batching — apply immediately.
-			if v.size() > 0:
-				_append_vertex_transforms(v)
-			if e.size() > 0:
-				_append_edge_transforms(e)
-			if f_surfaces.size() > 0:
-				_append_face_surfaces(f_surfaces)
-		else:
-			# Accumulate and flush when batch is full.
-			if v.size() > 0:
-				vertex_batch.append(v)
-			if e.size() > 0:
-				edge_batch.append(e)
-			if f_surfaces.size() > 0:
-				# Flatten: f_surfaces is Array[Array] (list of surface arrays).
-				# Append each surface array individually so _flush_batch
-				# can pass them directly to add_surface_from_arrays.
-				for s in f_surfaces:
-					face_batch.append(s as Array)
-
-			if (vertex_batch.size() >= merge_batch_size
-					or edge_batch.size() >= merge_batch_size
-					or face_batch.size() >= merge_batch_size):
-				_flush_batch(vertex_batch, edge_batch, face_batch)
-
-	# --------------------------------------------------------------
-	# Main-thread poll loop.
-	# --------------------------------------------------------------
 	while true:
 		scheduler.reap_completed()
 		for res in scheduler.collect_all():
-			handle_result.call(res as Dictionary)
+			_handle_result(res as Dictionary)
 		if not scheduler.is_busy():
 			break
 		await get_tree().process_frame
-		# If _exit_tree() cleaned up while we were waiting, bail out.
 		if not _is_regenerating:
 			return
 
-	# Final drain (any results submitted between last reap and loop exit).
 	for res in scheduler.collect_all():
-		handle_result.call(res as Dictionary)
+		_handle_result(res as Dictionary)
 
-	# Flush any remaining accumulated results.
-	if merge_batch_size > 0:
-		_flush_batch(vertex_batch, edge_batch, face_batch)
+	if merge_batch_size > 0 and not _chunk_results.is_empty():
+		_flush_batch()
 
-	print(
-		"[OclMeshBuilder] All ", segment_count,
-		" segments in ", chunks.size(), " chunk(s) generated in ",
-		(Time.get_ticks_usec() - total_start) / 1000.0, " ms",
-	)
+	print("[OclMeshBuilder] All ", segment_count, " segments in ", chunks.size(),
+			" chunk(s) generated in ", (Time.get_ticks_usec() - total_start) / 1000.0, " ms")
 
-	# Persist generated resources to disk.
 	_persist_resources()
-
 	_scheduler = null
 	_is_regenerating = false
 
 # =============================================================================
-# Worker helpers — run on thread-pool threads
+# Worker helpers  (thread-pool threads)
 # =============================================================================
 
-## Builds one chunk's graph, meshes it, and returns a Dictionary with
-## the raw mesh data.  Always returns a Dictionary (possibly empty) so
-## the scheduler never misses a submit_result call.
 static func _worker_build_chunk(
-	chunk: ChunkBuilder.Chunk,
-	path_curve: Curve3D,
-	aux_curve: Curve3D,
+	chunk_idx: int, chunk: ChunkBuilder.Chunk,
+	path_curve: Curve3D, aux_curve: Curve3D,
 	cfg: ProfileBuilder.Config,
-	p_strategy: int,
-	mesh_opts: OclMeshOptions,
-	do_vertices: bool,
-	do_edges: bool,
-	do_faces: bool,
+	display_fancy: bool, physics_fancy: bool,
+	display_opts: OclMeshOptions, physics_opts: OclMeshOptions,
+	do_display_faces: bool,
+	display_edge_radius: float, display_vertex_radius: float,
+	display_core_only: bool,
+	do_physics_faces: bool,
+	physics_edge_radius: float, physics_vertex_radius: float,
+	physics_core_only: bool,
+	do_main_path: bool,
+	do_end_caps: bool,
+	is_first_chunk: bool, is_last_chunk: bool,
 ) -> Dictionary:
 	var result: Dictionary = {
+		"idx": chunk_idx,
+		# Display
 		"v": PackedFloat64Array(),
 		"e": PackedFloat64Array(),
 		"f": [],
+		# Physics
+		"pv": PackedFloat64Array(),
+		"pe": PackedFloat64Array(),
+		"pf": PackedVector3Array(),
 	}
 
-	var chunker := ChunkBuilder.new()
-	chunker.chunk_size = 1
+	var has_display_edges := display_edge_radius != 0.0
+	var has_display_vertices := display_vertex_radius != 0.0
+	var has_physics_edges := physics_edge_radius != 0.0
+	var has_physics_vertices := physics_vertex_radius != 0.0
 
-	var graph = chunker.build_chunk_graph(
-		chunk, path_curve, aux_curve, cfg, p_strategy,
-	)
-	if graph == null:
-		push_error("OclMeshBuilder: build_chunk_graph returned null")
+	var any_display := do_display_faces or has_display_edges or has_display_vertices
+	var any_physics := do_physics_faces or has_physics_edges or has_physics_vertices
+	if not any_display and not any_physics:
 		return result
 
-	if do_vertices:
-		var mm := MultiMesh.new()
-		var st: int = OclMeshToGodot.mesh_vertices(graph, mm, mesh_opts, null, 0.02) as OclCore.status
-		if st == OclCore.OK:
-			result["v"] = _extract_multimesh_transforms(mm)
-		else:
-			push_error("OclMeshBuilder: mesh_vertices failed: ", OclCore.status_to_string(st))
+	# Only add end caps if enabled AND at global track ends.
+	var add_start_cap := do_end_caps and is_first_chunk
+	var add_end_cap := do_end_caps and is_last_chunk
 
-	if do_edges:
-		var mm := MultiMesh.new()
-		var st: int = OclMeshToGodot.mesh_edges(graph, mm, mesh_opts, null, 0.01) as OclCore.status
-		if st == OclCore.OK:
-			result["e"] = _extract_multimesh_transforms(mm)
-		else:
-			push_error("OclMeshBuilder: mesh_edges failed: ", OclCore.status_to_string(st))
+	# Build display graphs and extract display data.
+	var display_graphs: Array[OclGraphHandle] = []
+	if any_display:
+		display_graphs = _build_and_extract(
+			chunk, path_curve, aux_curve, cfg, display_fancy,
+			display_opts,
+			has_display_vertices, has_display_edges, do_display_faces,
+			display_vertex_radius, display_edge_radius, result, true,
+			do_main_path, add_start_cap, add_end_cap, display_core_only
+		)
 
-	if do_faces:
-		result["f"] = _export_face_data(graph, mesh_opts)
+	for g in display_graphs:
+		OclTopo.graph_free(g)
 
-	OclTopo.graph_free(graph)
+	# Physics extraction.
+	if not any_physics:
+		return result
+
+	# Assume different profile for physics -- build a separate graph array.
+	var phys_graphs := _build_and_extract(
+		chunk, path_curve, aux_curve, cfg, physics_fancy,
+		physics_opts,
+		has_physics_vertices, has_physics_edges, do_physics_faces,
+		physics_vertex_radius, physics_edge_radius, result, false,
+		do_main_path, add_start_cap, add_end_cap, physics_core_only
+	)
+	
+	for g in phys_graphs:
+		OclTopo.graph_free(g)
+		
 	return result
 
-## Extracts all instance transforms from a MultiMesh into a flat
-## PackedFloat64Array (16 floats per Transform3D, column-major).
+static func _build_and_extract(
+	chunk: ChunkBuilder.Chunk,
+	path_curve: Curve3D, aux_curve: Curve3D,
+	cfg: ProfileBuilder.Config, fancy: bool,
+	mesh_opts: OclMeshOptions,
+	do_vertices: bool, do_edges: bool, do_faces: bool,
+	v_radius: float, e_radius: float,
+	result: Dictionary, is_display: bool,
+	do_main_path: bool, add_start_cap: bool, add_end_cap: bool, core_only: bool
+) -> Array[OclGraphHandle]:
+	var prefix: String = "" if is_display else "p"
+
+	var chunker := ChunkBuilder.new()
+	var graphs := chunker.build_chunk_graphs(chunk, path_curve, aux_curve, cfg, fancy, do_main_path, add_start_cap, add_end_cap, core_only)
+	if graphs.is_empty():
+		push_error("OclMeshBuilder: build_chunk_graphs returned empty")
+		return graphs
+
+	for graph in graphs:
+		if do_vertices:
+			var mm := MultiMesh.new()
+			var st: int = OclMeshToGodot.mesh_vertices(graph, mm, mesh_opts, null, v_radius) as OclCore.status
+			if st == OclCore.OK:
+				var xforms := _extract_multimesh_transforms(mm)
+				var key := prefix + "v"
+				result[key] = (result.get(key, PackedFloat64Array()) as PackedFloat64Array) + xforms
+			else:
+				push_error("OclMeshBuilder: mesh_vertices failed: ", OclCore.status_to_string(st))
+
+		if do_edges:
+			var mm := MultiMesh.new()
+			var st: int = OclMeshToGodot.mesh_edges(graph, mm, mesh_opts, null, e_radius) as OclCore.status
+			if st == OclCore.OK:
+				var xforms := _extract_multimesh_transforms(mm)
+				var key := prefix + "e"
+				result[key] = (result.get(key, PackedFloat64Array()) as PackedFloat64Array) + xforms
+			else:
+				push_error("OclMeshBuilder: mesh_edges failed: ", OclCore.status_to_string(st))
+
+		if do_faces:
+			if is_display:
+				var face_arr := _export_face_data(graph, mesh_opts)
+				if not face_arr.is_empty():
+					result["f"] = (result.get("f", []) as Array) + face_arr
+			else:
+				var tris := OclMeshToGodot.extract_face_triangles(graph, mesh_opts, null)
+				result["pf"] = (result.get("pf", PackedVector3Array()) as PackedVector3Array) + tris
+
+	return graphs
+
+static func _export_face_data(graph, opts: OclMeshOptions) -> Array:
+	var mesh := ArrayMesh.new()
+	var st: int = OclMeshToGodot.mesh_faces(graph, mesh, opts, null, false, false, false) as OclCore.status
+	if st != OclCore.OK:
+		return []
+	if mesh.get_surface_count() == 0:
+		return []
+	var arrays = mesh.surface_get_arrays(0)
+	return [arrays]
+
 static func _extract_multimesh_transforms(mm: MultiMesh) -> PackedFloat64Array:
 	var n: int = mm.instance_count
 	if n == 0:
 		return PackedFloat64Array()
-
 	var out: PackedFloat64Array = PackedFloat64Array()
 	out.resize(n * 16)
 	for i in range(n):
@@ -373,51 +415,6 @@ static func _extract_multimesh_transforms(mm: MultiMesh) -> PackedFloat64Array:
 		out[base + 15] = 1.0
 	return out
 
-## Worker-thread-safe: builds a combined surface array for all faces in
-## |graph|.  Uses OclMeshToGodot.mesh_faces() to fill a local ArrayMesh,
-## then extracts the raw surface arrays (no GDExtension Node objects
-## created, only data).
-## Returns an Array[Array] where each element is a pre-assembled surface
-## Array suitable for add_surface_from_arrays().
-static func _export_face_data(graph, opts: OclMeshOptions) -> Array:
-	var mesh := ArrayMesh.new()
-	var st: int = OclMeshToGodot.mesh_faces(
-		graph, mesh, opts, null, false, false, false,
-	) as OclCore.status
-	if st != OclCore.OK:
-		return []
-	if mesh.get_surface_count() == 0:
-		return []
-	var arrays = mesh.surface_get_arrays(0)
-	return [arrays]
-
-# =============================================================================
-# Cleanup
-# =============================================================================
-
-func _exit_tree() -> void:
-	## If regeneration is in progress, wait for outstanding worker tasks
-	## before the node (and its scene tree) are torn down.  This prevents
-	## crashes where WorkerThreadPool tasks still reference objects that
-	## have already been freed.
-	if _scheduler != null and _scheduler.is_busy():
-		_scheduler.sync_and_discard()
-		_scheduler = null
-		_is_regenerating = false
-
-# =============================================================================
-# Display helpers (main thread only)
-# =============================================================================
-
-func _clear_display() -> void:
-	if show_vertices and has_node("Vertices"):
-		$Vertices.multimesh.instance_count = 0
-	if show_edges and has_node("Edges"):
-		$Edges.multimesh.instance_count = 0
-	if show_faces and has_node("Faces"):
-		$Faces.mesh = ArrayMesh.new()
-
-## Decode a Transform3D from column-major float16 layout.
 static func _decode_transform(data: PackedFloat64Array, index: int) -> Transform3D:
 	var base: int = index * 16
 	var mbasis := Basis(
@@ -428,165 +425,314 @@ static func _decode_transform(data: PackedFloat64Array, index: int) -> Transform
 	var origin := Vector3(data[base + 12], data[base + 13], data[base + 14])
 	return Transform3D(mbasis, origin)
 
-## Merges an array of transform-batches into the destination MultiMesh.
-##
-## NOTE: Godot's MultiMesh.instance_count setter may reset the entire
-## transform buffer, so we save and restore existing transforms.
-static func _merge_transform_batches(dst: MultiMesh, batches: Array[PackedFloat64Array]) -> void:
-	var total_instances: int = 0
-	for b in batches:
-		total_instances += int(b.size() / 16.0)
+# =============================================================================
+# Cleanup
+# =============================================================================
 
-	if total_instances == 0:
+func _exit_tree() -> void:
+	if _scheduler != null and _scheduler.is_busy():
+		_scheduler.sync_and_discard()
+		_scheduler = null
+		_is_regenerating = false
+
+func _clear_all_chunks() -> void:
+	var to_remove: Array[Node] = []
+	for child in get_children():
+		if child is Node3D and str(child.name).begins_with("Chunk"):
+			to_remove.append(child)
+	for n in to_remove:
+		n.queue_free()
+	_chunk_results.clear()
+
+# =============================================================================
+# Result handling (main thread)
+# =============================================================================
+
+func _handle_result(result: Dictionary) -> void:
+	_chunk_results.append(result)
+	if merge_batch_size == 0 or _chunk_results.size() >= merge_batch_size:
+		_flush_batch()
+
+func _flush_batch() -> void:
+	if _chunk_results.is_empty():
 		return
+	for result in _chunk_results:
+		_apply_chunk(result)
+	_chunk_results.clear()
 
-	var old_count: int = dst.instance_count
-	var new_count: int = old_count + total_instances
+func _apply_chunk(result: Dictionary) -> void:
+	var idx: int = result.get("idx", 0)
 
-	# Save existing transforms (instance_count setter may trash them).
-	var saved: Array[Transform3D] = []
-	saved.resize(old_count)
-	for i in range(old_count):
-		saved[i] = dst.get_instance_transform(i)
+	# Helper to get or create the per-chunk root node (plain Node3D).
+	var ensure_chunk_root := func() -> Node3D:
+		var node_name := "Chunk" + str(idx)
+		var existing := get_node_or_null(node_name) as Node3D
+		if existing != null:
+			return existing
 
-	# Increase instance count (may reset buffer).
-	dst.instance_count = new_count
+		var root: Node3D = Node3D.new()
+		root.name = node_name
+		add_child(root, true)
+		if Engine.is_editor_hint():
+			root.set_owner(get_tree().edited_scene_root)
+		return root
 
-	# Restore old transforms.
-	for i in range(old_count):
-		dst.set_instance_transform(i, saved[i])
+	# Helper to get or create a named child under the chunk root.
+	# The features child MAY be a StaticBody3D when physics is enabled,
+	# otherwise a plain Node3D.
+	var ensure_child := func(parent: Node, child_name: String, has_display: bool, has_physics: bool) -> Node3D:
+		var existing := parent.get_node_or_null(child_name) as Node3D
+		if existing != null:
+			return existing
 
-	# Write new transforms.
-	var idx: int = old_count
-	for b in batches:
-		var n: int = int(b.size() / 16.0)
-		for j in range(n):
-			dst.set_instance_transform(idx, _decode_transform(b, j))
-			idx += 1
+		var child: Node3D
+		if has_physics:
+			child = StaticBody3D.new()
+		else:
+			child = Node3D.new()
+		child.name = child_name
+		parent.add_child(child, true)
+		if Engine.is_editor_hint():
+			child.set_owner(get_tree().edited_scene_root)
+		return child
 
-## Appends raw vertex transforms to the display MultiMesh (no batch).
-##
-## NOTE: instance_count setter may reset buffer; saves/restores existing.
-func _append_vertex_transforms(data: PackedFloat64Array) -> void:
-	if not has_node("Vertices"):
-		return
-	var mm: MultiMesh = $Vertices.multimesh
-	var old_count: int = mm.instance_count
-	var n: int = int(data.size() / 16.0)
-	if n == 0:
-		return
+	var chunk_root: Node3D = ensure_chunk_root.call()
 
-	# Save existing transforms.
-	var saved: Array[Transform3D] = []
-	saved.resize(old_count)
-	for i in range(old_count):
-		saved[i] = mm.get_instance_transform(i)
+	# --- Faces ---
+	var f_surfaces: Array = result.get("f", []) as Array
+	var pf_tris: PackedVector3Array = result.get("pf", PackedVector3Array()) as PackedVector3Array
+	var has_faces_display := not f_surfaces.is_empty()
+	var has_faces_physics := pf_tris.size() >= 3
 
-	# Increase count (may reset buffer).
-	mm.instance_count = old_count + n
+	if has_faces_display or has_faces_physics:
+		var features_root: Node3D = ensure_child.call(chunk_root, "Faces", has_faces_display, has_faces_physics)
 
-	# Restore old transforms.
-	for i in range(old_count):
-		mm.set_instance_transform(i, saved[i])
+		# --- Face collision shape ---
+		if has_faces_physics:
+			var cs_name := "CollisionFaces"
+			var old_cs := features_root.get_node_or_null(cs_name) as CollisionShape3D
+			if old_cs != null:
+				old_cs.queue_free()
 
-	# Write new transforms.
-	for i in range(n):
-		mm.set_instance_transform(old_count + i, _decode_transform(data, i))
+			var shape := ConcavePolygonShape3D.new()
+			shape.set_faces(pf_tris)
+			var cs := CollisionShape3D.new()
+			cs.name = cs_name
+			cs.shape = shape
+			features_root.add_child(cs, true)
+			if Engine.is_editor_hint():
+				cs.set_owner(get_tree().edited_scene_root)
 
-## Appends raw edge transforms to the display MultiMesh (no batch).
-##
-## NOTE: instance_count setter may reset buffer; saves/restores existing.
-func _append_edge_transforms(data: PackedFloat64Array) -> void:
-	if not has_node("Edges"):
-		return
-	var mm: MultiMesh = $Edges.multimesh
-	var old_count: int = mm.instance_count
-	var n: int = int(data.size() / 16.0)
-	if n == 0:
-		return
+		# --- Face mesh ---
+		if has_faces_display:
+			var mesh_name := "FacesMesh"
+			var mi := features_root.get_node_or_null(mesh_name) as MeshInstance3D
+			if mi == null:
+				mi = MeshInstance3D.new()
+				mi.name = mesh_name
+				features_root.add_child(mi, true)
+				if Engine.is_editor_hint():
+					mi.set_owner(get_tree().edited_scene_root)
 
-	# Save existing transforms.
-	var saved: Array[Transform3D] = []
-	saved.resize(old_count)
-	for i in range(old_count):
-		saved[i] = mm.get_instance_transform(i)
-
-	# Increase count (may reset buffer).
-	mm.instance_count = old_count + n
-
-	# Restore old transforms.
-	for i in range(old_count):
-		mm.set_instance_transform(i, saved[i])
-
-	# Write new transforms.
-	for i in range(n):
-		mm.set_instance_transform(old_count + i, _decode_transform(data, i))
-
-## Appends raw face surfaces directly to the display ArrayMesh (no batch).
-func _append_face_surfaces(surfaces: Array) -> void:
-	if not has_node("Faces"):
-		return
-	for arrays in surfaces:
-		var arr: Array = arrays as Array
-		arr.resize(Mesh.ARRAY_MAX)
-		$Faces.mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
-
-## Merges all currently accumulated batch data into the display nodes and
-## clears the batches.
-func _flush_batch(
-	vertex_batch: Array[PackedFloat64Array],
-	edge_batch: Array[PackedFloat64Array],
-	face_batch: Array,
-) -> void:
-	if not vertex_batch.is_empty():
-		if has_node("Vertices"):
-			_merge_transform_batches($Vertices.multimesh, vertex_batch)
-		vertex_batch.clear()
-
-	if not edge_batch.is_empty():
-		if has_node("Edges"):
-			_merge_transform_batches($Edges.multimesh, edge_batch)
-		edge_batch.clear()
-
-	if not face_batch.is_empty():
-		if has_node("Faces"):
-			for arrays in face_batch:
-				var arr: Array = arrays as Array
+			if f_surfaces.size() == 1:
+				var arr: Array = f_surfaces[0] as Array
 				arr.resize(Mesh.ARRAY_MAX)
-				$Faces.mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
-		face_batch.clear()
+				var am := ArrayMesh.new()
+				am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+				mi.mesh = am
+			else:
+				# Merge multiple surfaces into one via C++.
+				var merged := OclMeshToGodot.merge_surface_arrays(f_surfaces)
+				merged.resize(Mesh.ARRAY_MAX)
+				var am := ArrayMesh.new()
+				am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, merged)
+				mi.mesh = am
+			mi.mesh.surface_set_material(0, display_faces_material)
+
+	# --- Edges ---
+	var e_transforms: PackedFloat64Array = result.get("e", PackedFloat64Array()) as PackedFloat64Array
+	var pe_transforms: PackedFloat64Array = result.get("pe", PackedFloat64Array()) as PackedFloat64Array
+	var has_edges_display := e_transforms.size() > 0
+	var has_edges_physics := pe_transforms.size() > 0
+
+	if has_edges_display or has_edges_physics:
+		var features_root: Node3D = ensure_child.call(chunk_root, "Edges", has_edges_display, has_edges_physics)
+
+		if has_edges_display:
+			var mm_name := "EdgesMesh"
+			var mmi := features_root.get_node_or_null(mm_name) as MultiMeshInstance3D
+			if mmi == null:
+				mmi = MultiMeshInstance3D.new()
+				mmi.name = mm_name
+				features_root.add_child(mmi, true)
+				if Engine.is_editor_hint():
+					mmi.set_owner(get_tree().edited_scene_root)
+
+			var existing_mm := mmi.multimesh
+			if existing_mm == null or not existing_mm.get_mesh().is_valid():
+				var mm := MultiMesh.new()
+				mm.transform_format = MultiMesh.TRANSFORM_3D
+				var slices := _slices_from_angle(display_options.angle)
+				var cyl := CylinderMesh.new()
+				cyl.height = 1.0
+				cyl.radial_segments = slices
+				cyl.rings = 1
+				cyl.cap_top = false
+				cyl.cap_bottom = false
+				mm.mesh = cyl
+				mmi.multimesh = mm
+				existing_mm = mm
+			existing_mm.mesh.surface_set_material(0, display_edges_material)
+
+			var n := int(e_transforms.size() / 16.0)
+			if n > 0:
+				existing_mm.instance_count = n
+				for i in range(n):
+					existing_mm.set_instance_transform(i, _decode_transform(e_transforms, i))
+
+		if has_edges_physics:
+			_clear_collision_children(features_root, "_occtl_edge_")
+			var n := int(pe_transforms.size() / 16.0)
+			for i in range(n):
+				var t := _decode_transform(pe_transforms, i)
+				var radius := t.basis.x.length()
+				var seg_len := t.basis.y.length()
+				if radius < 0.0001:
+					continue
+				var cs := CollisionShape3D.new()
+				var shape := CapsuleShape3D.new()
+				shape.radius = radius
+				shape.height = maxf(0.001, seg_len - 2.0 * radius)
+				cs.shape = shape
+				var basis := Basis(
+					t.basis.x.normalized(),
+					t.basis.y.normalized(),
+					t.basis.z.normalized(),
+				)
+				cs.transform = Transform3D(basis, t.origin)
+				cs.name = "_occtl_edge_" + str(i)
+				features_root.add_child(cs, true)
+				if Engine.is_editor_hint():
+					cs.set_owner(get_tree().edited_scene_root)
+
+	# --- Vertices ---
+	var v_transforms: PackedFloat64Array = result.get("v", PackedFloat64Array()) as PackedFloat64Array
+	var pv_transforms: PackedFloat64Array = result.get("pv", PackedFloat64Array()) as PackedFloat64Array
+	var has_vertices_display := v_transforms.size() > 0
+	var has_vertices_physics := pv_transforms.size() > 0
+
+	if has_vertices_display or has_vertices_physics:
+		var features_root: Node3D = ensure_child.call(chunk_root, "Vertices", has_vertices_display, has_vertices_physics)
+
+		if has_vertices_display:
+			var mm_name := "VerticesMesh"
+			var mmi := features_root.get_node_or_null(mm_name) as MultiMeshInstance3D
+			if mmi == null:
+				mmi = MultiMeshInstance3D.new()
+				mmi.name = mm_name
+				features_root.add_child(mmi, true)
+				if Engine.is_editor_hint():
+					mmi.set_owner(get_tree().edited_scene_root)
+
+			var existing_mm := mmi.multimesh
+			if existing_mm == null or not existing_mm.get_mesh().is_valid():
+				var mm := MultiMesh.new()
+				mm.transform_format = MultiMesh.TRANSFORM_3D
+				var slices := _slices_from_angle(display_options.angle)
+				var sph := SphereMesh.new()
+				sph.radius = 1.0
+				sph.radial_segments = slices
+				sph.rings = maxi(slices / 2, 2)
+				mm.mesh = sph
+				mmi.multimesh = mm
+				existing_mm = mm
+			existing_mm.mesh.surface_set_material(0, display_vertices_material)
+
+			var n := int(v_transforms.size() / 16.0)
+			if n > 0:
+				existing_mm.instance_count = n
+				for i in range(n):
+					existing_mm.set_instance_transform(i, _decode_transform(v_transforms, i))
+
+		if has_vertices_physics:
+			_clear_collision_children(features_root, "_occtl_vertex_")
+			var n := int(pv_transforms.size() / 16.0)
+			for i in range(n):
+				var t := _decode_transform(pv_transforms, i)
+				var radius := t.basis.x.length()
+				if radius < 0.0001:
+					continue
+				var cs := CollisionShape3D.new()
+				var shape := SphereShape3D.new()
+				shape.radius = radius
+				cs.shape = shape
+				cs.transform = Transform3D(Basis.IDENTITY, t.origin)
+				cs.name = "_occtl_vertex_" + str(i)
+				features_root.add_child(cs, true)
+				if Engine.is_editor_hint():
+					cs.set_owner(get_tree().edited_scene_root)
+
+func _clear_collision_children(parent: Node, prefix: String) -> void:
+	var to_remove: Array[Node] = []
+	for child in parent.get_children():
+		if child is CollisionShape3D and str(child.name).begins_with(prefix):
+			to_remove.append(child)
+	for n in to_remove:
+		n.queue_free()
+
+static func _slices_from_angle(angle: float) -> int:
+	var safe := maxf(angle, 0.001)
+	return maxi(4, int(roundf(PI / safe)) + 2)
 
 # -----------------------------------------------------------------------------
-# Resource persistence (save-as-file pattern)
+# Resource persistence
 # -----------------------------------------------------------------------------
-
-func _save_resource(resource: Resource, path: String) -> bool:
-	var dir: String = path.get_base_dir()
-	DirAccess.make_dir_recursive_absolute(dir)
-
-	var err: int = ResourceSaver.save(resource, path, ResourceSaver.FLAG_COMPRESS)
-	if err != OK:
-		push_error("Failed to save %s: %s" % [path, error_string(err)])
-		return false
-	return true
 
 func _persist_resources() -> void:
 	if resource_save_path.is_empty():
 		return
 
 	var base: String = resource_save_path.trim_suffix("/")
+	var dir_abs := ProjectSettings.globalize_path(base)
+	DirAccess.make_dir_recursive_absolute(dir_abs)
 
-	if show_faces and has_node("Faces") and $Faces.mesh:
-		var p: String = base + "/faces.res"
-		if _save_resource($Faces.mesh, p):
-			$Faces.mesh = load(p)
+	for branch in get_children().duplicate():
+		if not (branch is Node3D and str(branch.name).begins_with("Chunk")):
+			push_warning("Unexpected child of OclManager", branch)
+			continue
 
-	if show_vertices and has_node("Vertices") and $Vertices.multimesh:
-		var p: String = base + "/vertices.res"
-		if _save_resource($Vertices.multimesh, p):
-			$Vertices.multimesh = load(p)
+		var path: String = base + "/" + str(branch.name) + ".scn"
+		
+		save_branch(branch, path)
+		
+		var parent = branch.get_parent()
+		var index = branch.get_index()
+		var name = branch.name
 
-	if show_edges and has_node("Edges") and $Edges.multimesh:
-		var p: String = base + "/edges.res"
-		if _save_resource($Edges.multimesh, p):
-			$Edges.multimesh = load(p)
+		var packed = load(path) as PackedScene
+		var instance := packed.instantiate()
+
+		instance.name = name
+
+		parent.remove_child(branch)
+		parent.add_child(instance)
+		parent.move_child(instance, index)
+
+		instance.owner = parent.owner # or whatever is appropriate
+
+func save_branch(branch: Node, path: String) -> Error:
+	for child in branch.get_children():
+		_set_owner_recursive(child, branch)
+
+	var packed := PackedScene.new()
+	var err := packed.pack(branch)
+	if err != OK:
+		return err
+
+	return ResourceSaver.save(packed, path)
+
+
+func _set_owner_recursive(node: Node, owner: Node):
+	node.owner = owner
+	for child in node.get_children():
+		_set_owner_recursive(child, owner)
