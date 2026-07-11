@@ -49,7 +49,7 @@ static func build_profiles(
 	var wr := cfg.wall_height == 1.0 # With extra roof sketch
 	# Radius of fancy fillets
 	var rt := wt/2 if fancy and not wr else 0.0 # top radius
-	var ri := minf(wh, br - rt) if fancy else 0.0 # inner radius
+	var ri := minf(wh, br) - rt if fancy else 0.0 # inner radius
 	var ro := ri + wt if fancy else 0.0 # outer radius
 	var result: Array[OclNodeId] = []
 	var status: OclCore.status
@@ -62,32 +62,23 @@ static func build_profiles(
 		wb.line_to(pwh, -br)
 		wb.line_to(pwh, -br + wh)
 	else: 
-		if wh > ri: # Straight vertical before the radius if too high
-			wb.line_to(-pwh, 0)
 		wb.arc(-pwh+ri, -br+ri, ri, 180, 270, true)
-		wb.line_to(pwh-ri, -br)
 		wb.arc(pwh-ri, -br+ri, ri, 270, 360, true)
-		if wh > ri: # Straight vertical before the radius if too high
-			wb.line_to(pwh, -br + wh - rt)
 	if not core_only: # Skip outside on core only mode (recommended for physics!)
 		if not fancy or wr:
 			wb.line_to(pwh + wt, -br + wh)
 			wb.line_to(pwh + wt, -br - wt)
 		else:
 			wb.arc(pwh+rt, -br + wh-rt, rt, 180, 0)
-			if wh > ri: # Straight vertical before the radius if too high
-				wb.line_to(pwh + wt, -br - wt + ro)
 		if not fancy:
 			wb.line_to(-pwh - wt, -br - wt)
 		else:
 			wb.arc(pwh + wt - ro, -br - wt + ro, ro, 360, 270)
-			wb.line_to(-pwh - wt + ro, -br - wt)
 			wb.arc(-pwh - wt + ro, -br - wt + ro, ro, 270, 180)
 		if not fancy or wr:
 			wb.line_to(-pwh - wt, -br + wh)
 			wb.line_to(-pwh, -br + wh)
 		else:
-			wb.line_to(-pwh-wt, -br + wh - rt)
 			wb.arc(-pwh-rt, -br + wh-rt, rt, 180, 0)
 	
 	result.append(wb.build())

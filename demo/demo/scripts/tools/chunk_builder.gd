@@ -100,6 +100,9 @@ func build_chunk_graphs(
 		# Build profile for the sweep.
 		var start_xf := CurveUtils.transform_at_index(path_curve, chunk.start_segment)
 		var profiles := ProfileBuilder.build_profiles(graph, profile_cfg, start_xf, fancy, core_only)
+		
+		if Engine.is_editor_hint() and graph != null:
+			GraphUtils.check_graph(graph)
 
 		# Sweep the multi-edge spine wire with the profile wire(s).
 		for p in profiles:
@@ -112,15 +115,8 @@ func build_chunk_graphs(
 			sweep_info.make_solid = 1
 			var sweep_id := OclNodeId.new()
 			status = OclPrimSweep.pipe_shell(graph, sweep_info, sweep_id) as OclCore.status
-			assert(status == OclCore.OK,
-				"Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())],
-			)
-			
-			if fancy: # XXX: Fancy profile results in reversed solid, so re-reverse it here.
-				status = OclMeshToGodot.reverse_solid(graph, sweep_id.bits) as OclCore.status
-				assert(status == OclCore.OK,
-					"Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())],
-				)
+			assert(status == OclCore.OK, "Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
+			GraphUtils.delete_orphans(graph, [OclCore.KIND_SHELL], [OclCore.KIND_EDGE, OclCore.KIND_WIRE])
 
 		# Clean up temporary sketches.
 		for bits in spine_edges[0]:
@@ -189,19 +185,20 @@ static func _build_cap_graph(
 		
 		var half_face := _cut_face_in_half(graph, face, xf, cfg)
 
-		var axis_origin := xf.origin + xf.basis.y * 0.0001
+		var axis_origin := xf.origin + xf.basis.y * 0.0001 # No clue why this offset is needed to avoid an error, but it does not affect the result...
 		var axis := OcctConversionUtils.v3_to_axis1(axis_origin, xf.basis.y)
 		var revol_info := OclPrimRevolInfo.new()
 		revol_info.profile = half_face.bits
 		revol_info.axis = axis
 		revol_info.angle = PI if is_start else -PI
+		revol_info.copy = 1
 		var cap := OclNodeId.new()
 		status = OclPrimSweep.revol(graph, revol_info, cap) as OclCore.status
 		assert(status == OclCore.OK, "Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
-		#TODO: OclTopoBuild.topo_make_solid()
 
 		status = OclTopoBuild.topo_remove_subgraph(graph, half_face.bits) as OclCore.status
 		assert(status == OclCore.OK, "Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
+		GraphUtils.delete_orphans(graph, [OclCore.KIND_SHELL], [OclCore.KIND_EDGE, OclCore.KIND_WIRE])
 
 	if Engine.is_editor_hint():
 		GraphUtils.check_graph(graph)

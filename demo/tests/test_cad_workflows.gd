@@ -99,7 +99,7 @@ static func _make_two_overlapping_boxes() -> Dictionary:
 static func _collect_ids(graph: OclGraphHandle, kind: int) -> Array:
 	var ids = []
 	var out_iter := OclNodeIterHandle.new()
-	var status: int
+	var status: OclCore.status
 	match kind:
 		OclCore.KIND_SOLID:
 			status = OclTopo.graph_solid_iter_create(graph, out_iter)
@@ -121,14 +121,15 @@ static func _collect_ids(graph: OclGraphHandle, kind: int) -> Array:
 			status = OclTopo.graph_coedge_iter_create(graph, out_iter)
 		_:
 			return []
-	if status != 0 or out_iter == null:
-		return []
+	assert(status == OclCore.OK, "Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
 	var out_id = OclNodeId.new()
 	while true:
-		status = OclTopo.node_iter_next(out_iter, out_id)
-		if status != 0:
+		status = OclTopo.node_iter_next(out_iter, out_id) as OclCore.status
+		if status == OclCore.NOT_FOUND:
 			break
+		assert(status == OclCore.OK, "Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
 		ids.append(out_id.get_bits())
+	OclTopo.node_iter_free(out_iter)
 	return ids
 
 

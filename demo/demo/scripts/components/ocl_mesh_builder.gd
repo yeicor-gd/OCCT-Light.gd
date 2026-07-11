@@ -344,7 +344,8 @@ static func _build_and_extract(
 		push_error("OclMeshBuilder: build_chunk_graphs returned empty")
 		return graphs
 
-	for graph in graphs:
+	for graph_i in range(graphs.size()):
+		var graph := graphs[graph_i]
 		if do_vertices:
 			var mm := MultiMesh.new()
 			var st: int = OclMeshToGodot.mesh_vertices(graph, mm, mesh_opts, null, v_radius) as OclCore.status
@@ -367,6 +368,7 @@ static func _build_and_extract(
 
 		if do_faces:
 			if is_display:
+				# FIXME(bad profile): XXX: Need to reverse faces in case of first graph and fancy mode.
 				var face_arr := _export_face_data(graph, mesh_opts)
 				if not face_arr.is_empty():
 					result["f"] = (result.get("f", []) as Array) + face_arr
@@ -378,7 +380,7 @@ static func _build_and_extract(
 
 static func _export_face_data(graph, opts: OclMeshOptions) -> Array:
 	var mesh := ArrayMesh.new()
-	var st: int = OclMeshToGodot.mesh_faces(graph, mesh, opts, null, false, false, false) as OclCore.status
+	var st: int = OclMeshToGodot.mesh_faces(graph, mesh, opts, null, true, true, true) as OclCore.status
 	if st != OclCore.OK:
 		return []
 	if mesh.get_surface_count() == 0:
@@ -547,6 +549,7 @@ func _apply_chunk(result: Dictionary) -> void:
 				var am := ArrayMesh.new()
 				am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, merged)
 				mi.mesh = am
+
 			mi.mesh.surface_set_material(0, display_faces_material)
 
 	# --- Edges ---
