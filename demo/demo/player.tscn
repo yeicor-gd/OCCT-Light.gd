@@ -1,31 +1,36 @@
-[gd_scene format=3 uid="uid://w2pdi66a2pia"]
+[gd_scene format=3 uid="uid://82gc63fkl5p2"]
 
 [ext_resource type="Script" uid="uid://bdlaqlmg2sjav" path="res://demo/scripts/player/ball.gd" id="1_2bd7h"]
-[ext_resource type="Script" uid="uid://dd8xba3t4b6sx" path="res://demo/scripts/player/camera_3d.gd" id="2_yff8i"]
+[ext_resource type="Script" uid="uid://is6jonx3psx6" path="res://demo/scripts/player/player.gd" id="1_uuw2b"]
+[ext_resource type="Script" uid="uid://dd8xba3t4b6sx" path="res://demo/scripts/player/camera_rig.gd" id="2_yff8i"]
+[ext_resource type="Material" uid="uid://db44qt2qwxtiq" path="res://demo/materials/glass.tres" id="2_yji6d"]
 
 [sub_resource type="SphereShape3D" id="SphereShape3D_0e071"]
 
 [node name="Player" type="Node3D" unique_id=1584742121]
+script = ExtResource("1_uuw2b")
 
-[node name="Ball" type="RigidBody3D" parent="." unique_id=766000929]
+[node name="Ball" type="RigidBody3D" parent="." unique_id=766000929 node_paths=PackedStringArray("camera_rig")]
 script = ExtResource("1_2bd7h")
-gravity = 9.81
-acceleration = 5.0
-max_speed = 3.0
-move_virtual_joystick = NodePath("../CanvasLayer/VirtualJoystick")
+acceleration = 9.81
+max_speed = 9.81
+camera_rig = NodePath("../CameraRig")
 
 [node name="CSGSphere3D" type="CSGSphere3D" parent="Ball" unique_id=582683701]
-radial_segments = 24
-rings = 12
+material_override = ExtResource("2_yji6d")
+radial_segments = 48
+rings = 24
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="Ball" unique_id=954789459]
 shape = SubResource("SphereShape3D_0e071")
 
-[node name="CameraRig" type="Node3D" parent="." unique_id=490886763]
+[node name="CameraRig" type="Node3D" parent="." unique_id=490886763 node_paths=PackedStringArray("target")]
 script = ExtResource("2_yff8i")
-follow_distance = 1.0
+target = NodePath("../Ball")
+focus_height = 0.0
 
 [node name="SpringArm3D" type="SpringArm3D" parent="CameraRig" unique_id=939715335]
+spring_length = 1.5
 
 [node name="Camera3D" type="Camera3D" parent="CameraRig/SpringArm3D" unique_id=457548193]
 current = true
@@ -40,3 +45,4 @@ anchor_bottom = 1.0
 offset_top = 0.11993408
 offset_right = 0.06399536
 grow_vertical = 0
+metadata/_edit_use_anchors_ = true

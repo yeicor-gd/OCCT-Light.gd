@@ -81,7 +81,6 @@ func build_chunk_graphs(
 	do_main_path: bool,
 	add_start_cap: bool,
 	add_end_cap: bool,
-	core_only: bool,
 ) -> Array[OclGraphHandle]:
 	var graphs: Array[OclGraphHandle] = []
 	var status: OclCore.status
@@ -99,7 +98,7 @@ func build_chunk_graphs(
 
 		# Build profile for the sweep.
 		var start_xf := CurveUtils.transform_at_index(path_curve, chunk.start_segment)
-		var profiles := ProfileBuilder.build_profiles(graph, profile_cfg, start_xf, fancy, core_only)
+		var profiles := ProfileBuilder.build_profiles(graph, profile_cfg, start_xf, fancy)
 		
 		if Engine.is_editor_hint() and graph != null:
 			GraphUtils.check_graph(graph)
@@ -116,7 +115,8 @@ func build_chunk_graphs(
 			var sweep_id := OclNodeId.new()
 			status = OclPrimSweep.pipe_shell(graph, sweep_info, sweep_id) as OclCore.status
 			assert(status == OclCore.OK, "Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
-			GraphUtils.delete_orphans(graph, [OclCore.KIND_SHELL], [OclCore.KIND_EDGE, OclCore.KIND_WIRE])
+		
+		GraphUtils.delete_orphans(graph, [OclCore.KIND_SHELL], [OclCore.KIND_EDGE, OclCore.KIND_WIRE])
 
 		# Clean up temporary sketches.
 		for bits in spine_edges[0]:
@@ -138,13 +138,13 @@ func build_chunk_graphs(
 	# Add caps as separate standalone graphs (no fuse/clone needed).
 	if add_start_cap:
 		var start_xf2 := CurveUtils.transform_at_index(path_curve, chunk.start_segment)
-		var cap_graph := _build_cap_graph(profile_cfg, start_xf2, true, fancy, core_only)
+		var cap_graph := _build_cap_graph(profile_cfg, start_xf2, true, fancy)
 		if cap_graph != null:
 			graphs.append(cap_graph)
 
 	if add_end_cap:
 		var end_xf := CurveUtils.transform_at_index(path_curve, chunk.end_segment)
-		var cap_graph := _build_cap_graph(profile_cfg, end_xf, false, fancy, core_only)
+		var cap_graph := _build_cap_graph(profile_cfg, end_xf, false, fancy)
 		if cap_graph != null:
 			graphs.append(cap_graph)
 
@@ -171,10 +171,9 @@ static func _build_cap_graph(
 	xf: Transform3D,
 	is_start: bool,
 	fancy: bool,
-	core_only: bool,
 ) -> OclGraphHandle:
 	var graph := GraphUtils.create_graph()
-	var profiles := ProfileBuilder.build_profiles(graph, cfg, xf, fancy, core_only)
+	var profiles := ProfileBuilder.build_profiles(graph, cfg, xf, fancy)
 
 	for profile in profiles:
 		var face_info := OclPrimPlanarFaceInfo.new()
@@ -198,7 +197,8 @@ static func _build_cap_graph(
 
 		status = OclTopoBuild.topo_remove_subgraph(graph, half_face.bits) as OclCore.status
 		assert(status == OclCore.OK, "Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
-		GraphUtils.delete_orphans(graph, [OclCore.KIND_SHELL], [OclCore.KIND_EDGE, OclCore.KIND_WIRE])
+	
+	GraphUtils.delete_orphans(graph, [OclCore.KIND_SHELL], [OclCore.KIND_EDGE, OclCore.KIND_WIRE])
 
 	if Engine.is_editor_hint():
 		GraphUtils.check_graph(graph)
@@ -214,7 +214,7 @@ static func _cut_face_in_half(
 	xf: Transform3D,
 	cfg: ProfileBuilder.Config
 ) -> OclNodeId:
-	var box_width := ((cfg.ball_radius / cfg.ball_to_path_min_ratio / 2) + cfg.wall_thickness) * 2
+	var box_width := ((cfg.ball_radius / cfg.ball_to_path_min_ratio.x / 2) + cfg.wall_thickness) * 2
 
 	var box_cut_info := OclPrimBoxInfo.new()
 	box_cut_info.placement = OcctConversionUtils.transform3d_to_occt_placement(xf.translated_local(

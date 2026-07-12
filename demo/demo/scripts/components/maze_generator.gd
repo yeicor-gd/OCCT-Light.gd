@@ -21,8 +21,8 @@ class_name MazeGenerator
 @export_range(0.0, 5.0) var maze_inner_radius := 0.5
 ## Radius of the ball that will traverse the maze.
 @export_range(0.1, 1.0) var ball_radius := 0.5
-## Minimum ratio of path width to ball radius.
-@export_range(0.5, 1.0) var ball_to_path_min_ratio := 0.75
+## Minimum ratio of path width and height to ball radius.
+@export var ball_to_path_min_ratio := Vector2(0.75, 0.9)
 
 @export_group("Actions")
 

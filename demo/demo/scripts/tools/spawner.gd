@@ -1,5 +1,9 @@
 @tool
 extends Node3D
+class_name Spawner
+
+var PlayerScene := preload("res://demo/player.tscn")
+var current_player: Player = null
 
 func _ready():
 	if Engine.is_editor_hint():
@@ -10,7 +14,14 @@ func _ready():
 		timer.start(0.0)
 	else:
 		_sync_from_parent()
-		add_child(preload("res://demo/player.tscn").instantiate())
+		respawn()
+
+func respawn():
+	if current_player != null:
+		current_player.queue_free()
+	current_player = PlayerScene.instantiate()
+	current_player.set_radius($"..".ball_radius)
+	add_child(current_player)
 
 func _sync_from_parent():
 	var parent = get_parent_node_3d()

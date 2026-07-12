@@ -28,7 +28,7 @@ static func print_node_kind_of(
 		status == OclCore.OK,
 		"Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())],
 	)
-	print("Node ID ", node_id.bits, " is of kind ", OclCore.node_kind_to_string(out.value))
+	print("Node ID ", node_id.bits, " is of kind ", OclCore.node_kind_to_string(out.value), " [", hint, "]")
 
 ## Print the count of a specific node kind in a graph.
 static func print_node_kind_count(
@@ -124,28 +124,27 @@ static func _iter_ids(iter: OclNodeIterHandle) -> Array[int]:
 
 # Helper: collect node ids of a given kind from a graph
 static func _collect_ids(graph: OclGraphHandle, kind: int) -> Array:
-	var ids = []
 	var out_iter := OclNodeIterHandle.new()
 	var status: OclCore.status
 	match kind:
 		OclCore.KIND_SOLID:
-			status = OclTopo.graph_solid_iter_create(graph, out_iter)
+			status = OclTopo.graph_solid_iter_create(graph, out_iter) as OclCore.status
 		OclCore.KIND_SHELL:
-			status = OclTopo.graph_shell_iter_create(graph, out_iter)
+			status = OclTopo.graph_shell_iter_create(graph, out_iter) as OclCore.status
 		OclCore.KIND_FACE:
-			status = OclTopo.graph_face_iter_create(graph, out_iter)
+			status = OclTopo.graph_face_iter_create(graph, out_iter) as OclCore.status
 		OclCore.KIND_WIRE:
-			status = OclTopo.graph_wire_iter_create(graph, out_iter)
+			status = OclTopo.graph_wire_iter_create(graph, out_iter) as OclCore.status
 		OclCore.KIND_EDGE:
-			status = OclTopo.graph_edge_iter_create(graph, out_iter)
+			status = OclTopo.graph_edge_iter_create(graph, out_iter) as OclCore.status
 		OclCore.KIND_VERTEX:
-			status = OclTopo.graph_vertex_iter_create(graph, out_iter)
+			status = OclTopo.graph_vertex_iter_create(graph, out_iter) as OclCore.status
 		OclCore.KIND_COMPOUND:
-			status = OclTopo.graph_compound_iter_create(graph, out_iter)
+			status = OclTopo.graph_compound_iter_create(graph, out_iter) as OclCore.status
 		OclCore.KIND_COMPSOLID:
-			status = OclTopo.graph_compsolid_iter_create(graph, out_iter)
+			status = OclTopo.graph_compsolid_iter_create(graph, out_iter) as OclCore.status
 		OclCore.KIND_COEDGE:
-			status = OclTopo.graph_coedge_iter_create(graph, out_iter)
+			status = OclTopo.graph_coedge_iter_create(graph, out_iter) as OclCore.status
 		_:
 			return []
 	assert(status == OclCore.OK, "Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
@@ -413,8 +412,6 @@ static func delete_orphans(
 	}
 
 	# Traverse every solid exactly like dump_graph_tree().
-	var iter := OclNodeIterHandle.new()
-		
 	for kind in roots:
 		match kind:
 			OclCore.KIND_SOLID:

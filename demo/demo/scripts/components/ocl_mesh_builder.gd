@@ -69,8 +69,6 @@ class_name OclMeshBuilder
 @export var display_fancy := true
 ## Show tessellated face surfaces.
 @export var display_show_faces := true
-## Show only the inside surfaces of the tube.
-@export var display_core_only := false
 ## Display edges as cylinders (== 0 = disabled, <0 = fixed size).
 @export var display_edge_radius: float = 0.01
 ## Display vertices as spheres (== 0 = disabled, <0 = fixed size).
@@ -90,8 +88,6 @@ class_name OclMeshBuilder
 @export var physics_fancy := false
 ## Generate collision shapes for faces.
 @export var physics_show_faces := true
-## Collide only with the inside surfaces of the tube.
-@export var physics_core_only := true
 ## Generate collision shapes for edges (== 0 = disabled, <0 = fixed size).
 @export var physics_edge_radius: float = 0.01
 ## Generate collision shapes for vertices (== 0 = disabled, <0 = fixed size).
@@ -129,11 +125,10 @@ func _find_generator() -> MazeGenerator:
 	return null
 
 func _ensure_config() -> void:
-	if not _maze_generator or not is_instance_valid(_maze_generator):
-		_maze_generator = _find_generator()
+	_maze_generator = _find_generator()
 	_profile_cfg = ProfileBuilder.Config.new(
-		_maze_generator.ball_radius if _maze_generator else 0.5,
-		_maze_generator.ball_to_path_min_ratio if _maze_generator else 0.9,
+		_maze_generator.ball_radius,
+		_maze_generator.ball_to_path_min_ratio,
 		wall_thickness,
 		wall_height,
 	)
@@ -189,11 +184,9 @@ func regenerate() -> void:
 	var captured_display_show_faces: bool = display_show_faces
 	var captured_display_edge_radius: float = display_edge_radius
 	var captured_display_vertex_radius: float = display_vertex_radius
-	var captured_display_core_only: bool = display_core_only
 	var captured_physics_show_faces: bool = physics_show_faces
 	var captured_physics_edge_radius: float = physics_edge_radius
 	var captured_physics_vertex_radius: float = physics_vertex_radius
-	var captured_physics_core_only: bool = physics_core_only
 
 	var scheduler := TaskScheduler.new()
 	scheduler.max_concurrent = max_concurrent
@@ -214,8 +207,8 @@ func regenerate() -> void:
 				captured_cfg,
 				captured_display_fancy, captured_physics_fancy,
 				captured_display_opts, captured_physics_opts,
-				captured_display_show_faces, captured_display_edge_radius, captured_display_vertex_radius, captured_display_core_only,
-				captured_physics_show_faces, captured_physics_edge_radius, captured_physics_vertex_radius, captured_physics_core_only,
+				captured_display_show_faces, captured_display_edge_radius, captured_display_vertex_radius,
+				captured_physics_show_faces, captured_physics_edge_radius, captured_physics_vertex_radius,
 				captured_main_path,
 				captured_end_caps,
 				is_first, is_last,
@@ -256,14 +249,12 @@ static func _worker_build_chunk(
 	chunk_idx: int, chunk: ChunkBuilder.Chunk,
 	path_curve: Curve3D, aux_curve: Curve3D,
 	cfg: ProfileBuilder.Config,
-	display_fancy: bool, physics_fancy: bool,
+	cdisplay_fancy: bool, cphysics_fancy: bool,
 	display_opts: OclMeshOptions, physics_opts: OclMeshOptions,
 	do_display_faces: bool,
-	display_edge_radius: float, display_vertex_radius: float,
-	display_core_only: bool,
+	cdisplay_edge_radius: float, cdisplay_vertex_radius: float,
 	do_physics_faces: bool,
-	physics_edge_radius: float, physics_vertex_radius: float,
-	physics_core_only: bool,
+	cphysics_edge_radius: float, cphysics_vertex_radius: float,
 	do_main_path: bool,
 	do_end_caps: bool,
 	is_first_chunk: bool, is_last_chunk: bool,
@@ -280,10 +271,10 @@ static func _worker_build_chunk(
 		"pf": PackedVector3Array(),
 	}
 
-	var has_display_edges := display_edge_radius != 0.0
-	var has_display_vertices := display_vertex_radius != 0.0
-	var has_physics_edges := physics_edge_radius != 0.0
-	var has_physics_vertices := physics_vertex_radius != 0.0
+	var has_display_edges := cdisplay_edge_radius != 0.0
+	var has_display_vertices := cdisplay_vertex_radius != 0.0
+	var has_physics_edges := cphysics_edge_radius != 0.0
+	var has_physics_vertices := cphysics_vertex_radius != 0.0
 
 	var any_display := do_display_faces or has_display_edges or has_display_vertices
 	var any_physics := do_physics_faces or has_physics_edges or has_physics_vertices
@@ -298,11 +289,11 @@ static func _worker_build_chunk(
 	var display_graphs: Array[OclGraphHandle] = []
 	if any_display:
 		display_graphs = _build_and_extract(
-			chunk, path_curve, aux_curve, cfg, display_fancy,
+			chunk, path_curve, aux_curve, cfg, cdisplay_fancy,
 			display_opts,
 			has_display_vertices, has_display_edges, do_display_faces,
-			display_vertex_radius, display_edge_radius, result, true,
-			do_main_path, add_start_cap, add_end_cap, display_core_only
+			cdisplay_vertex_radius, cdisplay_edge_radius, result, true,
+			do_main_path, add_start_cap, add_end_cap
 		)
 
 	for g in display_graphs:
@@ -314,11 +305,11 @@ static func _worker_build_chunk(
 
 	# Assume different profile for physics -- build a separate graph array.
 	var phys_graphs := _build_and_extract(
-		chunk, path_curve, aux_curve, cfg, physics_fancy,
+		chunk, path_curve, aux_curve, cfg, cphysics_fancy,
 		physics_opts,
 		has_physics_vertices, has_physics_edges, do_physics_faces,
-		physics_vertex_radius, physics_edge_radius, result, false,
-		do_main_path, add_start_cap, add_end_cap, physics_core_only
+		cphysics_vertex_radius, cphysics_edge_radius, result, false,
+		do_main_path, add_start_cap, add_end_cap
 	)
 	
 	for g in phys_graphs:
@@ -334,12 +325,12 @@ static func _build_and_extract(
 	do_vertices: bool, do_edges: bool, do_faces: bool,
 	v_radius: float, e_radius: float,
 	result: Dictionary, is_display: bool,
-	do_main_path: bool, add_start_cap: bool, add_end_cap: bool, core_only: bool
+	do_main_path: bool, add_start_cap: bool, add_end_cap: bool
 ) -> Array[OclGraphHandle]:
 	var prefix: String = "" if is_display else "p"
 
 	var chunker := ChunkBuilder.new()
-	var graphs := chunker.build_chunk_graphs(chunk, path_curve, aux_curve, cfg, fancy, do_main_path, add_start_cap, add_end_cap, core_only)
+	var graphs := chunker.build_chunk_graphs(chunk, path_curve, aux_curve, cfg, fancy, do_main_path, add_start_cap, add_end_cap)
 	if graphs.is_empty():
 		push_error("OclMeshBuilder: build_chunk_graphs returned empty")
 		return graphs
@@ -482,7 +473,7 @@ func _apply_chunk(result: Dictionary) -> void:
 	# Helper to get or create a named child under the chunk root.
 	# The features child MAY be a StaticBody3D when physics is enabled,
 	# otherwise a plain Node3D.
-	var ensure_child := func(parent: Node, child_name: String, has_display: bool, has_physics: bool) -> Node3D:
+	var ensure_child := func(parent: Node, child_name: String, _has_display: bool, has_physics: bool) -> Node3D:
 		var existing := parent.get_node_or_null(child_name) as Node3D
 		if existing != null:
 			return existing
@@ -607,12 +598,12 @@ func _apply_chunk(result: Dictionary) -> void:
 				shape.radius = radius
 				shape.height = maxf(0.001, seg_len - 2.0 * radius)
 				cs.shape = shape
-				var basis := Basis(
+				var mbasis := Basis(
 					t.basis.x.normalized(),
 					t.basis.y.normalized(),
 					t.basis.z.normalized(),
 				)
-				cs.transform = Transform3D(basis, t.origin)
+				cs.transform = Transform3D(mbasis, t.origin)
 				cs.name = "_occtl_edge_" + str(i)
 				features_root.add_child(cs, true)
 				if Engine.is_editor_hint():
@@ -645,7 +636,7 @@ func _apply_chunk(result: Dictionary) -> void:
 				var sph := SphereMesh.new()
 				sph.radius = 1.0
 				sph.radial_segments = slices
-				sph.rings = maxi(slices / 2, 2)
+				sph.rings = maxi(int(slices / 2.0), 2)
 				mm.mesh = sph
 				mmi.multimesh = mm
 				existing_mm = mm
@@ -710,12 +701,12 @@ func _persist_resources() -> void:
 		
 		var parent = branch.get_parent()
 		var index = branch.get_index()
-		var name = branch.name
+		var bname = branch.name
 
 		var packed = load(path) as PackedScene
 		var instance := packed.instantiate()
 
-		instance.name = name
+		instance.name = bname
 
 		parent.remove_child(branch)
 		parent.add_child(instance)
@@ -735,7 +726,7 @@ func save_branch(branch: Node, path: String) -> Error:
 	return ResourceSaver.save(packed, path)
 
 
-func _set_owner_recursive(node: Node, owner: Node):
-	node.owner = owner
+func _set_owner_recursive(node: Node, mowner: Node):
+	node.owner = mowner
 	for child in node.get_children():
-		_set_owner_recursive(child, owner)
+		_set_owner_recursive(child, mowner)
