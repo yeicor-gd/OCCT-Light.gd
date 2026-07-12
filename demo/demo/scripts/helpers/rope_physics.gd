@@ -2,8 +2,8 @@
 class_name RopePhysics
 extends Resource
 
-@export var node_count := 100
-@export var segment_length := 0.5
+@export var node_count := 200
+@export var segment_length := 1.0
 
 @export var iterations := 2000
 @export var init_attempts := 10

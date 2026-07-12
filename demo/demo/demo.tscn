@@ -82,10 +82,8 @@ _data = {
 }
 point_count = 200
 
-[sub_resource type="Resource" id="Resource_vkopi"]
+[sub_resource type="Resource" id="Resource_5de16"]
 script = ExtResource("5_qvfii")
-node_count = 200
-segment_length = 1.0
 metadata/_custom_type_script = "uid://ccu1ojv0gnm2x"
 
 [sub_resource type="Curve3D" id="Curve3D_5de16"]
@@ -156,7 +154,7 @@ shape = SubResource("SphereShape3D_0e071")
 [node name="MainPath" type="Path3D" parent="Maze/Paths" unique_id=544553542]
 curve = SubResource("Curve3D_dar0o")
 script = ExtResource("2_ytiva")
-rope_physics = SubResource("Resource_vkopi")
+rope_physics = SubResource("Resource_5de16")
 
 [node name="MazePathFollow" type="PathFollow3D" parent="Maze/Paths/MainPath" unique_id=435211787]
 transform = Transform3D(0.99999994, 0, 0, 0, 0.99999994, 0, 0, 0, 0.99999994, 0, 0, 8.666667)
@@ -194,55 +192,55 @@ physics_options = SubResource("OclMeshOptions_onvmd")
 physics_edge_radius = 0.0
 physics_vertex_radius = 0.0
 
-[node name="Chunk16" type="Node3D" parent="Maze/OclManager" unique_id=451422904 instance=ExtResource("13_norpd")]
+[node name="Chunk3" type="Node3D" parent="Maze/OclManager" unique_id=1165710395 instance=ExtResource("15_ntps4")]
 
-[node name="Chunk8" type="Node3D" parent="Maze/OclManager" unique_id=1206814505 instance=ExtResource("18_5t1n4")]
+[node name="Chunk2" type="Node3D" parent="Maze/OclManager" unique_id=2131332934 instance=ExtResource("17_1d2gs")]
 
-[node name="Chunk2" type="Node3D" parent="Maze/OclManager" unique_id=1588284865 instance=ExtResource("17_1d2gs")]
+[node name="Chunk9" type="Node3D" parent="Maze/OclManager" unique_id=1965168903 instance=ExtResource("14_7eb7w")]
 
-[node name="Chunk9" type="Node3D" parent="Maze/OclManager" unique_id=1439683452 instance=ExtResource("14_7eb7w")]
+[node name="Chunk17" type="Node3D" parent="Maze/OclManager" unique_id=319877423 instance=ExtResource("16_urb6m")]
 
-[node name="Chunk7" type="Node3D" parent="Maze/OclManager" unique_id=1977727881 instance=ExtResource("25_qu3ut")]
+[node name="Chunk8" type="Node3D" parent="Maze/OclManager" unique_id=2120612689 instance=ExtResource("18_5t1n4")]
 
-[node name="Chunk3" type="Node3D" parent="Maze/OclManager" unique_id=1461443048 instance=ExtResource("15_ntps4")]
+[node name="Chunk7" type="Node3D" parent="Maze/OclManager" unique_id=1700403386 instance=ExtResource("25_qu3ut")]
 
-[node name="Chunk10" type="Node3D" parent="Maze/OclManager" unique_id=1490789684 instance=ExtResource("20_hycpn")]
+[node name="Chunk6" type="Node3D" parent="Maze/OclManager" unique_id=422470789 instance=ExtResource("11_h5sl1")]
 
-[node name="Chunk17" type="Node3D" parent="Maze/OclManager" unique_id=635743570 instance=ExtResource("16_urb6m")]
+[node name="Chunk11" type="Node3D" parent="Maze/OclManager" unique_id=1950576979 instance=ExtResource("10_5de16")]
 
-[node name="Chunk11" type="Node3D" parent="Maze/OclManager" unique_id=2111820623 instance=ExtResource("10_5de16")]
+[node name="Chunk13" type="Node3D" parent="Maze/OclManager" unique_id=514132121 instance=ExtResource("26_o113w")]
 
-[node name="Chunk12" type="Node3D" parent="Maze/OclManager" unique_id=728112031 instance=ExtResource("19_f73r4")]
+[node name="Chunk15" type="Node3D" parent="Maze/OclManager" unique_id=1290075417 instance=ExtResource("17_ha3dm")]
 
-[node name="Chunk6" type="Node3D" parent="Maze/OclManager" unique_id=1056300357 instance=ExtResource("11_h5sl1")]
+[node name="Chunk16" type="Node3D" parent="Maze/OclManager" unique_id=558570992 instance=ExtResource("13_norpd")]
 
-[node name="Chunk14" type="Node3D" parent="Maze/OclManager" unique_id=2089451342 instance=ExtResource("21_mj7pe")]
+[node name="Chunk5" type="Node3D" parent="Maze/OclManager" unique_id=1656992047 instance=ExtResource("22_t8a6q")]
 
-[node name="Chunk4" type="Node3D" parent="Maze/OclManager" unique_id=1840352249 instance=ExtResource("23_5eeob")]
+[node name="Chunk12" type="Node3D" parent="Maze/OclManager" unique_id=1424754170 instance=ExtResource("19_f73r4")]
 
-[node name="Chunk15" type="Node3D" parent="Maze/OclManager" unique_id=1090775097 instance=ExtResource("17_ha3dm")]
+[node name="Chunk4" type="Node3D" parent="Maze/OclManager" unique_id=1357924748 instance=ExtResource("23_5eeob")]
 
-[node name="Chunk5" type="Node3D" parent="Maze/OclManager" unique_id=2112040927 instance=ExtResource("22_t8a6q")]
+[node name="Chunk1" type="Node3D" parent="Maze/OclManager" unique_id=1217104420 instance=ExtResource("14_mosls")]
 
-[node name="Chunk13" type="Node3D" parent="Maze/OclManager" unique_id=269842607 instance=ExtResource("26_o113w")]
+[node name="Chunk10" type="Node3D" parent="Maze/OclManager" unique_id=2075514548 instance=ExtResource("20_hycpn")]
 
-[node name="Chunk1" type="Node3D" parent="Maze/OclManager" unique_id=1975223331 instance=ExtResource("14_mosls")]
+[node name="Chunk14" type="Node3D" parent="Maze/OclManager" unique_id=768436923 instance=ExtResource("21_mj7pe")]
 
-[node name="Chunk0" type="Node3D" parent="Maze/OclManager" unique_id=1470130618 instance=ExtResource("8_onvmd")]
+[node name="Chunk0" type="Node3D" parent="Maze/OclManager" unique_id=1450834042 instance=ExtResource("8_onvmd")]
 
-[node name="Chunk19" type="Node3D" parent="Maze/OclManager" unique_id=1625213045 instance=ExtResource("28_t273m")]
+[node name="Chunk23" type="Node3D" parent="Maze/OclManager" unique_id=2010661005 instance=ExtResource("33_7wt08")]
 
-[node name="Chunk21" type="Node3D" parent="Maze/OclManager" unique_id=527681622 instance=ExtResource("29_s3mnc")]
+[node name="Chunk22" type="Node3D" parent="Maze/OclManager" unique_id=1921023258 instance=ExtResource("32_wsdiv")]
 
-[node name="Chunk23" type="Node3D" parent="Maze/OclManager" unique_id=977926070 instance=ExtResource("33_7wt08")]
+[node name="Chunk19" type="Node3D" parent="Maze/OclManager" unique_id=378342287 instance=ExtResource("28_t273m")]
 
-[node name="Chunk18" type="Node3D" parent="Maze/OclManager" unique_id=1676708885 instance=ExtResource("30_lt2r8")]
+[node name="Chunk21" type="Node3D" parent="Maze/OclManager" unique_id=1634052940 instance=ExtResource("29_s3mnc")]
 
-[node name="Chunk22" type="Node3D" parent="Maze/OclManager" unique_id=1193307608 instance=ExtResource("32_wsdiv")]
+[node name="Chunk20" type="Node3D" parent="Maze/OclManager" unique_id=1797809139 instance=ExtResource("34_euc6p")]
 
-[node name="Chunk20" type="Node3D" parent="Maze/OclManager" unique_id=709646681 instance=ExtResource("34_euc6p")]
+[node name="Chunk18" type="Node3D" parent="Maze/OclManager" unique_id=1221320363 instance=ExtResource("30_lt2r8")]
 
-[node name="Chunk24" type="Node3D" parent="Maze/OclManager" unique_id=324879590 instance=ExtResource("31_fk3ew")]
+[node name="Chunk24" type="Node3D" parent="Maze/OclManager" unique_id=45309105 instance=ExtResource("31_fk3ew")]
 
 [node name="Spawner" type="Node3D" parent="Maze" unique_id=785222550]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 9)

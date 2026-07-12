@@ -15,7 +15,7 @@ compatibility/default_parent_skeleton_in_mesh_instance_3d=true
 [application]
 
 config/name="GDExtension Tests"
-run/main_scene="uid://cdpxyy5g6myu7"
+run/main_scene="uid://c7nshix38qqm4"
 config/features=PackedStringArray("4.7", "Forward Plus")
 config/icon="uid://b7vnvr4j6bh3r"
 
