@@ -66,7 +66,7 @@ func _step(n: int):
 	var self_task: Array[int] = [-1]
 	self_task[0] = WorkerThreadPool.add_task(func():
 		var start_time := Time.get_ticks_usec()
-		if rope_physics.nodes.is_empty():
+		if not rope_physics.is_initialized():
 			rope_physics.inner_radius = _get_inner_radius() + _get_tube_margin()
 			rope_physics.outer_radius = _get_outer_radius() - _get_tube_margin()
 			rope_physics.collision_radius = 2.5 * _get_tube_margin() # Extra to avoid inter-node collisions as much as possible
