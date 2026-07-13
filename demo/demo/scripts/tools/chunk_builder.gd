@@ -385,6 +385,8 @@ static func _apply_junction_cuts(
 			status = OclTopoBuild.topo_remove_subgraph(graph, bits) as OclCore.status
 		for bits in wire_bits:
 			status = OclTopoBuild.topo_remove_subgraph(graph, bits) as OclCore.status
+		
+		GraphUtils.delete_orphans(graph, [OclCore.KIND_SHELL], [OclCore.KIND_EDGE, OclCore.KIND_WIRE])
 
 		# The result becomes the new main solid for subsequent ops.
 		sweep_solid = result

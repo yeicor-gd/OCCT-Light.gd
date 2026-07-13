@@ -130,33 +130,33 @@ physics_options = SubResource("OclMeshOptions_onvmd")
 physics_edge_radius = 0.0
 physics_vertex_radius = 0.0
 
-[node name="Shortcut0_Chunk4" type="Node3D" parent="Maze/Meshes" unique_id=831151117 instance=ExtResource("6_8rfdr")]
+[node name="Chunk2" type="Node3D" parent="Maze/Meshes" unique_id=170076223 instance=ExtResource("9_p1aj5")]
 
-[node name="Chunk3" type="Node3D" parent="Maze/Meshes" unique_id=1014602622 instance=ExtResource("8_mosls")]
+[node name="Chunk3" type="Node3D" parent="Maze/Meshes" unique_id=408195250 instance=ExtResource("8_mosls")]
 
-[node name="Chunk2" type="Node3D" parent="Maze/Meshes" unique_id=1933506134 instance=ExtResource("9_p1aj5")]
+[node name="Shortcut0_Chunk1" type="Node3D" parent="Maze/Meshes" unique_id=1867445985 instance=ExtResource("10_1d2gs")]
 
-[node name="Shortcut0_Chunk2" type="Node3D" parent="Maze/Meshes" unique_id=623157745 instance=ExtResource("13_xam2y")]
+[node name="Shortcut0_Chunk2" type="Node3D" parent="Maze/Meshes" unique_id=393710992 instance=ExtResource("13_xam2y")]
 
-[node name="Chunk1" type="Node3D" parent="Maze/Meshes" unique_id=1443642700 instance=ExtResource("8_h5sl1")]
+[node name="Shortcut0_Chunk4" type="Node3D" parent="Maze/Meshes" unique_id=703911702 instance=ExtResource("6_8rfdr")]
 
-[node name="Shortcut0_Chunk1" type="Node3D" parent="Maze/Meshes" unique_id=1594120263 instance=ExtResource("10_1d2gs")]
+[node name="Shortcut0_Chunk3" type="Node3D" parent="Maze/Meshes" unique_id=2044160423 instance=ExtResource("14_fla3q")]
 
-[node name="Shortcut0_Chunk3" type="Node3D" parent="Maze/Meshes" unique_id=936546300 instance=ExtResource("14_fla3q")]
+[node name="Chunk1" type="Node3D" parent="Maze/Meshes" unique_id=533310954 instance=ExtResource("8_h5sl1")]
 
-[node name="Chunk0" type="Node3D" parent="Maze/Meshes" unique_id=593309007 instance=ExtResource("21_o113w")]
+[node name="Chunk0" type="Node3D" parent="Maze/Meshes" unique_id=977026920 instance=ExtResource("21_o113w")]
 
-[node name="Shortcut0_Chunk6" type="Node3D" parent="Maze/Meshes" unique_id=1693987144 instance=ExtResource("5_qvfii")]
+[node name="Shortcut0_Chunk6" type="Node3D" parent="Maze/Meshes" unique_id=55077294 instance=ExtResource("5_qvfii")]
 
-[node name="Chunk5" type="Node3D" parent="Maze/Meshes" unique_id=1601747940 instance=ExtResource("11_jv588")]
+[node name="Chunk5" type="Node3D" parent="Maze/Meshes" unique_id=455570991 instance=ExtResource("11_jv588")]
 
-[node name="Shortcut0_Chunk5" type="Node3D" parent="Maze/Meshes" unique_id=389877466 instance=ExtResource("7_6ihnu")]
+[node name="Shortcut0_Chunk5" type="Node3D" parent="Maze/Meshes" unique_id=71763861 instance=ExtResource("7_6ihnu")]
 
-[node name="Chunk6" type="Node3D" parent="Maze/Meshes" unique_id=929705661 instance=ExtResource("4_vkopi")]
+[node name="Chunk6" type="Node3D" parent="Maze/Meshes" unique_id=1872567736 instance=ExtResource("4_vkopi")]
 
-[node name="Chunk4" type="Node3D" parent="Maze/Meshes" unique_id=1496852230 instance=ExtResource("15_a0ng0")]
+[node name="Chunk4" type="Node3D" parent="Maze/Meshes" unique_id=108465264 instance=ExtResource("15_a0ng0")]
 
-[node name="Shortcut0_Chunk0" type="Node3D" parent="Maze/Meshes" unique_id=854963858 instance=ExtResource("31_norpd")]
+[node name="Shortcut0_Chunk0" type="Node3D" parent="Maze/Meshes" unique_id=515509825 instance=ExtResource("31_norpd")]
 
 [node name="Spawner" type="Node3D" parent="Maze" unique_id=785222550]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 9)
