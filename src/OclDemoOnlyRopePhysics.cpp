@@ -5,7 +5,13 @@
 #include <cstdint>
 #include <cstring>
 
-static __attribute__((always_inline)) inline float fast_rsqrt(float x) {
+#if defined(_MSC_VER)
+    #define FORCE_INLINE __forceinline
+#else
+    #define FORCE_INLINE inline __attribute__((always_inline))
+#endif
+
+static FORCE_INLINE float fast_rsqrt(float x) {
 	union { float f; int32_t i; } conv;
 	conv.f = x;
 	conv.i = 0x5f3759df - (conv.i >> 1);
@@ -14,7 +20,7 @@ static __attribute__((always_inline)) inline float fast_rsqrt(float x) {
 	return y;
 }
 
-static __attribute__((always_inline)) inline float fast_abs(float x) {
+static FORCE_INLINE float fast_abs(float x) {
 	union { float f; uint32_t u; } v;
 	v.f = x;
 	v.u &= 0x7FFFFFFFu;
