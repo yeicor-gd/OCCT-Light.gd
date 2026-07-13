@@ -75,6 +75,7 @@ public:
 	int add_shortcut(int anchor_start, int anchor_end, int segments, float seg_length = -1.0f);
 	int get_rope_count() const;
 	PackedVector3Array get_rope_positions(int rope_index);
+	int find_main_node_at_fraction(float fraction) const;
 
 	// --- Internal types ---
 	struct Node {
@@ -123,6 +124,7 @@ private:
 	std::vector<int> cell_offsets_;
 	std::vector<int> cell_data_;
 	std::vector<int> grid_used_;
+	std::vector<uint32_t> bifurcation_mask_;
 
 	// Profiling
 	int64_t last_collision_checks_ = 0;
@@ -139,7 +141,7 @@ private:
 	void solve_bend_distance(int a, int b, float rest_length);
 	void solve_self_collisions();
 	void solve_endpoint_tangents();
-	void solve_endpoint_tangent(int anchor, int node_idx);
+	void solve_endpoint_tangent(int anchor, int node_idx, float target_dist, float blending);
 	void pin_anchors();
 	void solve_rope_constraints(int rope_start, int rope_count, float sl, float sl_sq, float bend_stiff);
 	void project_rope_nodes(int rope_start, int rope_count);

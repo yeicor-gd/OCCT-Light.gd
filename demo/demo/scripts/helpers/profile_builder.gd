@@ -8,6 +8,10 @@ extends RefCounted
 ## embedded arcs (fancy mode) or straight segments only (non-fancy).
 ## No boolean cuts or fillet_2d are used — the wire is constructed
 ## directly from its geometric primitives.
+##
+## An optional inner profile can be built for clean-shortcuts mode:
+## a closed solid representing the hollow interior, used as a boolean
+## cutter at shortcut junction points.
 
 
 class Config:
@@ -34,6 +38,7 @@ static func build_profiles(
 		cfg: Config,
 		xf: Transform3D,
 		fancy: bool,
+		inner: bool
 ) -> Array[OclNodeId]:
 	# --- Derived dimensions ---
 	var br := cfg.ball_radius
@@ -61,21 +66,26 @@ static func build_profiles(
 	else: 
 		wb.arc(-pwh+ri, -br+ri, ri, 180, 270, true)
 		wb.arc(pwh-ri, -br+ri, ri, 270, 360, true)
-	if not fancy or wr:
-		wb.line_to(pwh + wt, -br + wh)
-		wb.line_to(pwh + wt, -br - wt)
-	else:
-		wb.arc(pwh+rt, -br + wh-rt, rt, 180, 0)
-	if not fancy:
-		wb.line_to(-pwh - wt, -br - wt)
-	else:
-		wb.arc(pwh + wt - ro, -br - wt + ro, ro, 360, 270)
-		wb.arc(-pwh - wt + ro, -br - wt + ro, ro, 270, 180)
-	if not fancy or wr:
-		wb.line_to(-pwh - wt, -br + wh)
-		wb.line_to(-pwh, -br + wh)
-	else:
-		wb.arc(-pwh-rt, -br + wh-rt, rt, 180, 0)
+	if inner: # Just close the inside
+		wb.line_to(pwh, -br+wth)
+		wb.line_to(-pwh, -br+wth)
+		wb.line_to(-pwh, -br + wh - rt) # Start point
+	else: # Go around the outside making a proper thick solid (could be done with occt apis instead)
+		if not fancy or wr:
+			wb.line_to(pwh + wt, -br + wh)
+			wb.line_to(pwh + wt, -br - wt)
+		else:
+			wb.arc(pwh+rt, -br + wh-rt, rt, 180, 0)
+		if not fancy:
+			wb.line_to(-pwh - wt, -br - wt)
+		else:
+			wb.arc(pwh + wt - ro, -br - wt + ro, ro, 360, 270)
+			wb.arc(-pwh - wt + ro, -br - wt + ro, ro, 270, 180)
+		if not fancy or wr:
+			wb.line_to(-pwh - wt, -br + wh)
+			wb.line_to(-pwh, -br + wh)
+		else:
+			wb.arc(-pwh-rt, -br + wh-rt, rt, 180, 0)
 	
 	result.append(wb.build())
 	

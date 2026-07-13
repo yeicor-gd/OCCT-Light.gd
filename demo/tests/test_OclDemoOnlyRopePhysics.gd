@@ -216,8 +216,9 @@ static func test_shortcut_within_shell() -> String:
 	var shortcut = rope.get_rope_positions(1)
 	for i in range(1, shortcut.size() - 1):
 		var d = shortcut[i].length()
-		if d < 0.99 or d > 2.01:
-			return "Shortcut node %d at distance %.3f not in shell" % [i, d]
+		if d > 2.01:
+			return "Shortcut node %d at distance %.3f outside outer radius" % [i, d]
+		# Shortcuts may pass through the interior (d < inner_radius is OK).
 	return "OK"
 
 static func test_shortcut_chained() -> String:

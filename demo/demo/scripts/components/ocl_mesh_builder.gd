@@ -4,10 +4,14 @@ class_name OclMeshBuilder
 
 ## OCCT-based mesh builder for maze segments, parallelised via TaskScheduler.
 ##
-## Reads the main path (Path3D) and auxiliary path (Path3D), plans chunked
-## segments via ChunkBuilder, then dispatches each chunk as a WorkerThreadPool
-## background task.  Results arrive out of order and are assembled into a
-## per-chunk Node3D hierarchy on the main thread.
+## Reads path pairs (Path3D + auxiliary Path3D) from the MazePaths/Curves
+## node, plans chunked segments via ChunkBuilder, then dispatches each chunk
+## as a WorkerThreadPool background task.  Results arrive out of order and
+## are assembled into a per-chunk Node3D hierarchy on the main thread.
+##
+## Path pairs are always auto-discovered from the scene tree:
+##   MainPath + MainPathBinormal  (primary pair)
+##   Shortcut0 + Shortcut0Binormal, ... (additional pairs when sweep_shortcuts)
 ##
 ## Chunk scene hierarchy:
 ##   ChunkN (Node3D)
@@ -34,11 +38,6 @@ class_name OclMeshBuilder
 # Configuration
 # -----------------------------------------------------------------------------
 
-## Main path node (MazePath) whose curve provides the sweep spine.
-@export_node_path("Path3D") var main_path_node: NodePath
-## Auxiliary path node whose curve provides sweep orientation (offset curve).
-@export_node_path("Path3D") var aux_path_node: NodePath
-
 @export_group("Design")
 
 ## Thickness of the track walls.
@@ -49,6 +48,18 @@ class_name OclMeshBuilder
 @export var main_path := true
 ## Add rounded end caps at the start and end of the track.
 @export var end_caps := true
+
+@export_group("Paths")
+
+## Sweep all generated shortcut / longcut paths in addition to the main path.
+@export var sweep_shortcuts: bool = false
+
+## When true, build an inner hollow profile for each path and perform
+## boolean cuts at shortcut junction points so the interior is connected.
+@export var clean_shortcuts: bool = false
+
+## Debug: fuse cutter solids instead of cutting so they remain visible.
+@export var debug_fuse_junctions: bool = false
 
 @export_group("Chunking")
 
@@ -100,7 +111,7 @@ class_name OclMeshBuilder
 
 @export_group("Actions")
 
-@export_tool_button("Regenerate") var regenerate_ = regenerate
+@export_tool_button("Regenerate") var regenerate_ = func(): await regenerate(false)
 
 # -----------------------------------------------------------------------------
 # State
@@ -147,6 +158,181 @@ func _scene_root() -> Node:
 	return n
 
 # -----------------------------------------------------------------------------
+# Path-pair discovery (always auto-detect from scene tree)
+# -----------------------------------------------------------------------------
+
+## Collect all path + auxiliary pairs to sweep.
+##
+## Path pairs are auto-discovered from the MazePaths node:
+##   MainPath + MainPathBinormal  → primary pair
+##   ShortcutN + ShortcutNBinormal → additional pairs (if sweep_shortcuts)
+##
+## Returns an array of dictionaries:
+##   { "name": String, "path": Path3D, "aux": Path3D, "junctions": Array }
+##
+## When clean_shortcuts is true, both the main path and each shortcut carry
+## bidirectional junction data for boolean-cutting walls at intersection points.
+## Each shortcut produces TWO junction entries (one for start, one for end):
+##   { "other_curve": Curve3D, "other_aux_curve": Curve3D,
+##     "other_segment_start": int, "other_segment_end": int,
+##     "junction_frac": float }
+func _collect_path_pairs() -> Array[Dictionary]:
+	var pairs: Array[Dictionary] = []
+
+	var gen := _find_generator()
+	if not gen:
+		return pairs
+
+	var paths: Node3D = gen.get_node_or_null("Paths") as Node3D
+	if not paths:
+		return pairs
+
+	# --- Primary (main) path pair ---
+	var path: Path3D = paths.get_node_or_null("MainPath") as Path3D
+	var aux_path: Path3D = paths.get_node_or_null("MainPathBinormal") as Path3D
+	if path and aux_path:
+		pairs.append({ "name": "", "path": path, "aux": aux_path, "junctions": [] })
+
+	# --- Shortcut pairs ---
+	if sweep_shortcuts:
+		var main_curve: Curve3D = path.curve if path else null
+		var main_baked_len: float = main_curve.get_baked_length() if main_curve else 0.0
+		var main_aux_curve: Curve3D = aux_path.curve if aux_path else null
+
+		for child in paths.get_children():
+			if not child is Path3D:
+				continue
+			var cn := str(child.name)
+			if cn.begins_with("Shortcut") and not cn.ends_with("Binormal"):
+				var sc_aux: Path3D = paths.get_node_or_null(cn + "Binormal")
+				if not sc_aux:
+					continue
+
+				var sc_curve: Curve3D = child.curve
+				if sc_curve == null or sc_curve.point_count < 2:
+					continue
+
+				var sc_start := sc_curve.get_point_position(0)
+				var sc_end := sc_curve.get_point_position(sc_curve.point_count - 1)
+
+				var start_frac := _find_closest_fraction(main_curve, sc_start, main_baked_len)
+				var end_frac := _find_closest_fraction(main_curve, sc_end, main_baked_len)
+
+				# --- Shortcut pair junction data (cut shortcut wall with main interior) ---
+				var shortcut_junctions: Array = []
+				if clean_shortcuts:
+					var pathway_hw := _profile_cfg.ball_radius / _profile_cfg.ball_to_path_min_ratio.x + _profile_cfg.wall_thickness
+					var sc_num_segs := sc_curve.point_count - 1
+					# Start junction: main path cutter centered on start_frac
+					var start_seg := _fraction_to_segment(start_frac, main_curve.point_count)
+					var start_section := _compute_cutter_section(main_curve, start_seg, pathway_hw)
+					shortcut_junctions.append({
+						"other_curve": main_curve,
+						"other_aux_curve": main_aux_curve,
+						"other_name": "",
+						"other_segment_start": start_section[0],
+						"other_segment_end": start_section[1],
+						"junction_frac": 0.0,
+					})
+					# End junction: main path cutter centered on end_frac
+					var end_seg := _fraction_to_segment(end_frac, main_curve.point_count)
+					var end_section := _compute_cutter_section(main_curve, end_seg, pathway_hw)
+					shortcut_junctions.append({
+						"other_curve": main_curve,
+						"other_aux_curve": main_aux_curve,
+						"other_name": "",
+						"other_segment_start": end_section[0],
+						"other_segment_end": end_section[1],
+						"junction_frac": 1.0 if sc_num_segs <= 0 else float(sc_num_segs - 1) / float(sc_num_segs),
+					})
+				pairs.append({ "name": cn + "_", "path": child, "aux": sc_aux, "junctions": shortcut_junctions })
+
+				# --- Main path junction data (cut main wall with shortcut interior) ---
+				if clean_shortcuts and not pairs.is_empty():
+					var pathway_hw := _profile_cfg.ball_radius / _profile_cfg.ball_to_path_min_ratio.x + _profile_cfg.wall_thickness
+					var main_junctions: Array = pairs[0].get("junctions", []) as Array
+					# Start junction: shortcut cutter centred on segment 0
+					var sc_start_section := _compute_cutter_section(sc_curve, 0, pathway_hw)
+					main_junctions.append({
+						"other_curve": sc_curve,
+						"other_aux_curve": sc_aux.curve,
+						"other_name": cn + "_",
+						"other_segment_start": sc_start_section[0],
+						"other_segment_end": sc_start_section[1],
+						"junction_frac": start_frac,
+					})
+					# End junction: shortcut cutter centred on last segment
+					var sc_last_seg := sc_curve.point_count - 2
+					var sc_end_section := _compute_cutter_section(sc_curve, maxi(0, sc_last_seg), pathway_hw)
+					main_junctions.append({
+						"other_curve": sc_curve,
+						"other_aux_curve": sc_aux.curve,
+						"other_name": cn + "_",
+						"other_segment_start": sc_end_section[0],
+						"other_segment_end": sc_end_section[1],
+						"junction_frac": end_frac,
+					})
+					pairs[0]["junctions"] = main_junctions
+
+	return pairs
+
+
+## Convert a parametric fraction (0–1) to a segment index on a curve.
+static func _fraction_to_segment(frac: float, point_count: int) -> int:
+	var total_segments := point_count - 1
+	return clampi(int(frac * total_segments), 0, maxi(total_segments - 1, 0))
+
+
+## Compute a segment range on |other_curve| centred on |center_segment|
+## wide enough to span the pathway half-width (plus wall thickness margin).
+static func _compute_cutter_section(
+	other_curve: Curve3D,
+	center_segment: int,
+	pathway_half_width: float,
+) -> Array:
+	var num_segments := other_curve.point_count - 1
+	if num_segments <= 0:
+		return [0, 0]
+	var baked_len := other_curve.get_baked_length()
+	var avg_seg_len := baked_len / float(num_segments)
+	var segments_each_side := int(ceil(pathway_half_width / avg_seg_len)) # + 1
+	var seg_start := maxi(0, center_segment - segments_each_side)
+	var seg_end := mini(num_segments, center_segment + segments_each_side) #  + 1
+	return [seg_start, seg_end]
+
+
+## Find the parametric fraction (0–1) along |curve| closest to |target_pos|.
+func _find_closest_fraction(curve: Curve3D, target_pos: Vector3, baked_len: float) -> float:
+	if curve == null or baked_len < 0.001:
+		return 0.0
+
+	# Sample at regular intervals and pick the closest.
+	var best_frac := 0.0
+	var best_dist := INF
+	var steps := 32
+	for i in range(steps + 1):
+		var frac := float(i) / float(steps)
+		var pos := curve.sample_baked(frac * baked_len)
+		var d := pos.distance_squared_to(target_pos)
+		if d < best_dist:
+			best_dist = d
+			best_frac = frac
+
+	# Refine with a local search around the best sample.
+	var lo := clampf(best_frac - 1.0 / float(steps), 0.0, 1.0)
+	var hi := clampf(best_frac + 1.0 / float(steps), 0.0, 1.0)
+	var refine_steps := 16
+	for i in range(refine_steps + 1):
+		var frac := lerpf(lo, hi, float(i) / float(refine_steps))
+		var pos := curve.sample_baked(frac * baked_len)
+		var d := pos.distance_squared_to(target_pos)
+		if d < best_dist:
+			best_dist = d
+			best_frac = frac
+
+	return best_frac
+
+# -----------------------------------------------------------------------------
 # Entry point (async)
 # -----------------------------------------------------------------------------
 
@@ -158,27 +344,12 @@ func regenerate(sync: bool) -> void:
 
 	var total_start: int = Time.get_ticks_usec()
 
-	var path: Path3D = get_node(main_path_node) if main_path_node else get_parent().get_node("Paths/MainPath")
-	var aux_path: Path3D = get_node(aux_path_node) if aux_path_node else get_parent().get_node("Paths/MainPathBinormal")
-	if not path or not aux_path:
-		push_error("OclMeshBuilder: missing path references")
-		_is_regenerating = false
-		return
-
 	_ensure_config()
-	aux_path.curve = CurveUtils.build_auxiliary_curve(path.curve)
 	_clear_all_chunks()
 
-	var segment_count: int = path.curve.point_count - 1
-	print("[OclMeshBuilder] Generating ", segment_count, " segment(s) with ",
-				"chunk_size=", chunk_size, ", merge_batch_size=", merge_batch_size,
-				", max_concurrent=", max_concurrent, " ...")
-
-	var chunker := ChunkBuilder.new()
-	chunker.chunk_size = chunk_size
-	var chunks: Array = chunker.plan_chunks(segment_count)
-	if chunks.is_empty():
-		print("[OclMeshBuilder] No segments to generate.")
+	var path_pairs := _collect_path_pairs()
+	if path_pairs.is_empty():
+		push_error("OclMeshBuilder: no path pairs found to sweep")
 		_is_regenerating = false
 		return
 
@@ -188,11 +359,11 @@ func regenerate(sync: bool) -> void:
 	var captured_physics_fancy: bool = physics_fancy
 	var captured_display_opts: OclMeshOptions = display_options
 	var captured_physics_opts: OclMeshOptions = physics_options
-	var captured_path_curve: Curve3D = path.curve
-	var captured_aux_curve: Curve3D = aux_path.curve
 
 	var captured_main_path := main_path
 	var captured_end_caps: bool = end_caps
+	var captured_clean_shortcuts: bool = clean_shortcuts
+	var captured_debug_fuse: bool = debug_fuse_junctions
 
 	var captured_display_show_faces: bool = display_show_faces
 	var captured_display_edge_radius: float = display_edge_radius
@@ -206,30 +377,55 @@ func regenerate(sync: bool) -> void:
 	_scheduler = scheduler
 	_chunk_results.clear()
 
-	# Dispatch every chunk as a background task.
-	var total_chunks := chunks.size()
-	for chunk_idx in range(total_chunks):
-		var c: ChunkBuilder.Chunk = chunks[chunk_idx] as ChunkBuilder.Chunk
-		var idx := chunk_idx
-		var is_first := idx == 0
-		var is_last := idx == total_chunks - 1
-		scheduler.dispatch_task(func():
-			var result: Dictionary = _worker_build_chunk(
-				idx, c,
-				captured_path_curve, captured_aux_curve,
-				captured_cfg,
-				captured_display_fancy, captured_physics_fancy,
-				captured_display_opts, captured_physics_opts,
-				captured_display_show_faces, captured_display_edge_radius, captured_display_vertex_radius,
-				captured_physics_show_faces, captured_physics_edge_radius, captured_physics_vertex_radius,
-				captured_main_path,
-				captured_end_caps,
-				is_first, is_last,
-			)
-			scheduler.submit_result(result)
-		, false, "OclChunk")
+	var total_segments := 0
 
-	print("[OclMeshBuilder] Dispatched ", chunks.size(), " chunk(s). Polling...")
+	for pair in path_pairs:
+		var pair_name: String = pair["name"]
+		var pair_path: Path3D = pair["path"]
+		var pair_aux: Path3D = pair["aux"]
+		var pair_junctions: Array = pair["junctions"]
+
+		var seg_count: int = pair_path.curve.point_count - 1
+		if seg_count <= 0:
+			continue
+		total_segments += seg_count
+
+		var chunker := ChunkBuilder.new()
+		chunker.chunk_size = chunk_size
+		var chunks: Array = chunker.plan_chunks(seg_count)
+
+		var captured_path_curve: Curve3D = pair_path.curve
+		var captured_aux_curve: Curve3D = pair_aux.curve
+		var captured_pair_name := pair_name
+		var captured_pair_junctions: Array = pair_junctions
+
+		var total_chunks := chunks.size()
+		for chunk_idx in range(total_chunks):
+			var c: ChunkBuilder.Chunk = chunks[chunk_idx] as ChunkBuilder.Chunk
+			var idx := chunk_idx
+			var is_first := idx == 0
+			var is_last := idx == total_chunks - 1
+			scheduler.dispatch_task(func():
+				var result: Dictionary = _worker_build_chunk(
+					idx, c,
+					captured_path_curve, captured_aux_curve,
+					captured_cfg,
+					captured_display_fancy, captured_physics_fancy,
+					captured_display_opts, captured_physics_opts,
+					captured_display_show_faces, captured_display_edge_radius, captured_display_vertex_radius,
+					captured_physics_show_faces, captured_physics_edge_radius, captured_physics_vertex_radius,
+					captured_main_path,
+					captured_end_caps,
+					is_first, is_last,
+					captured_pair_name,
+					captured_pair_junctions if captured_clean_shortcuts else [],
+					captured_debug_fuse,
+				)
+				scheduler.submit_result(result)
+			, false, "OclChunk")
+
+	print("[OclMeshBuilder] Dispatched tasks for ", path_pairs.size(), " path pair(s), ",
+			total_segments, " total segment(s). Polling...")
 
 	while true:
 		scheduler.reap_completed()
@@ -247,8 +443,8 @@ func regenerate(sync: bool) -> void:
 	if merge_batch_size > 0 and not _chunk_results.is_empty():
 		_flush_batch()
 
-	print("[OclMeshBuilder] All ", segment_count, " segments in ", chunks.size(),
-			" chunk(s) generated in ", (Time.get_ticks_usec() - total_start) / 1000.0, " ms")
+	print("[OclMeshBuilder] All ", total_segments, " segments generated in ",
+			(Time.get_ticks_usec() - total_start) / 1000.0, " ms")
 
 	_persist_resources()
 	_scheduler = null
@@ -271,9 +467,13 @@ static func _worker_build_chunk(
 	do_main_path: bool,
 	do_end_caps: bool,
 	is_first_chunk: bool, is_last_chunk: bool,
+	pair_name: String = "",
+	pair_junctions_to_clean: Array = [],
+	pdebug_fuse_junctions: bool = false,
 ) -> Dictionary:
 	var result: Dictionary = {
 		"idx": chunk_idx,
+		"prefix": pair_name,
 		# Display
 		"v": PackedFloat64Array(),
 		"e": PackedFloat64Array(),
@@ -295,8 +495,21 @@ static func _worker_build_chunk(
 		return result
 
 	# Only add end caps if enabled AND at global track ends.
-	var add_start_cap := do_end_caps and is_first_chunk
-	var add_end_cap := do_end_caps and is_last_chunk
+	var is_shortcut := not pair_name.is_empty()
+	var add_start_cap := do_end_caps and is_first_chunk and not is_shortcut
+	var add_end_cap := do_end_caps and is_last_chunk and not is_shortcut
+
+	# Filter junctions to those whose cutter tube may overlap this chunk.
+	# Margin: the cutter tube extends ~pathway_hw from the junction point.
+	var chunk_junctions: Array = []
+	if not pair_junctions_to_clean.is_empty():
+		var margin_frac := cfg.ball_radius / cfg.ball_to_path_min_ratio.x / path_curve.get_baked_length()
+		var chunk_start_frac := float(chunk.start_segment) / float(path_curve.point_count - 1)
+		var chunk_end_frac := float(chunk.end_segment) / float(path_curve.point_count - 1)
+		for junc in pair_junctions_to_clean:
+			var jf: float = junc["junction_frac"]
+			if jf >= chunk_start_frac - margin_frac and jf <= chunk_end_frac + margin_frac:
+				chunk_junctions.append(junc)
 
 	# Build display graphs and extract display data.
 	var display_graphs: Array[OclGraphHandle] = []
@@ -306,7 +519,9 @@ static func _worker_build_chunk(
 			display_opts,
 			has_display_vertices, has_display_edges, do_display_faces,
 			cdisplay_vertex_radius, cdisplay_edge_radius, result, true,
-			do_main_path, add_start_cap, add_end_cap
+			do_main_path, add_start_cap, add_end_cap,
+			chunk_junctions,
+			pdebug_fuse_junctions,
 		)
 
 	for g in display_graphs:
@@ -322,12 +537,14 @@ static func _worker_build_chunk(
 		physics_opts,
 		has_physics_vertices, has_physics_edges, do_physics_faces,
 		cphysics_vertex_radius, cphysics_edge_radius, result, false,
-		do_main_path, add_start_cap, add_end_cap
+		do_main_path, add_start_cap, add_end_cap,
+		chunk_junctions,
+		pdebug_fuse_junctions,
 	)
-	
+
 	for g in phys_graphs:
 		OclTopo.graph_free(g)
-		
+
 	return result
 
 static func _build_and_extract(
@@ -338,12 +555,15 @@ static func _build_and_extract(
 	do_vertices: bool, do_edges: bool, do_faces: bool,
 	v_radius: float, e_radius: float,
 	result: Dictionary, is_display: bool,
-	do_main_path: bool, add_start_cap: bool, add_end_cap: bool
+	do_main_path: bool, add_start_cap: bool, add_end_cap: bool,
+	chunk_junctions: Array,
+	pdebug_fuse_junctions: bool = false,
 ) -> Array[OclGraphHandle]:
 	var prefix: String = "" if is_display else "p"
 
 	var chunker := ChunkBuilder.new()
-	var graphs := chunker.build_chunk_graphs(chunk, path_curve, aux_curve, cfg, fancy, do_main_path, add_start_cap, add_end_cap)
+	chunker.debug_fuse_junctions = pdebug_fuse_junctions
+	var graphs := chunker.build_chunk_graphs(chunk, path_curve, aux_curve, cfg, fancy, do_main_path, add_start_cap, add_end_cap, chunk_junctions)
 	if graphs.is_empty():
 		push_error("OclMeshBuilder: build_chunk_graphs returned empty")
 		return graphs
@@ -444,7 +664,7 @@ func _exit_tree() -> void:
 func _clear_all_chunks() -> void:
 	var to_remove: Array[Node] = []
 	for child in get_children():
-		if child is Node3D and str(child.name).begins_with("Chunk"):
+		if child is Node3D and "Chunk" in str(child.name):
 			to_remove.append(child)
 	for n in to_remove:
 		n.queue_free()
@@ -468,10 +688,11 @@ func _flush_batch() -> void:
 
 func _apply_chunk(result: Dictionary) -> void:
 	var idx: int = result.get("idx", 0)
+	var prefix: String = result.get("prefix", "")
 
 	# Helper to get or create the per-chunk root node (plain Node3D).
 	var ensure_chunk_root := func() -> Node3D:
-		var node_name := "Chunk" + str(idx)
+		var node_name := prefix + "Chunk" + str(idx)
 		var existing := get_node_or_null(node_name) as Node3D
 		if existing != null:
 			return existing
@@ -704,14 +925,14 @@ func _persist_resources() -> void:
 	DirAccess.make_dir_recursive_absolute(dir_abs)
 
 	for branch in get_children().duplicate():
-		if not (branch is Node3D and str(branch.name).begins_with("Chunk")):
+		if not (branch is Node3D and "Chunk" in str(branch.name)):
 			push_warning("Unexpected child of OclManager", branch)
 			continue
 
 		var path: String = base + "/" + str(branch.name) + ".scn"
-		
+
 		save_branch(branch, path)
-		
+
 		var parent = branch.get_parent()
 		var index = branch.get_index()
 		var bname = branch.name

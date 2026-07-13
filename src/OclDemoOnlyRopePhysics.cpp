@@ -218,15 +218,14 @@ int OclDemoOnlyRopePhysics::add_shortcut(int anchor_start, int anchor_end, int s
 	int rope_start = (int)nodes_.size();
 	int rope_count = segments + 1;
 
-	// Create inner nodes by linearly interpolating + random jitter
-	nodes_.push_back({ p_start, 1.0f }); // first node (pinned to anchor_start during solve)
+	// Create inner nodes by linearly interpolating (through the interior).
+	nodes_.push_back({ p_start, 0.0f }); // first node (pinned to anchor_start during solve)
 	for (int i = 1; i < segments; i++) {
 		float t = (float)i / (float)(segments);
 		Vector3 p = p_start.lerp(p_end, t);
-		p = project_to_shell(p);
 		nodes_.push_back({ p, 1.0f });
 	}
-	nodes_.push_back({ p_end, 1.0f }); // last node (pinned to anchor_end during solve)
+	nodes_.push_back({ p_end, 0.0f }); // last node (pinned to anchor_end during solve)
 
 	ropes_.push_back({ rope_start, rope_count });
 	anchor_start_.push_back(anchor_start);
@@ -250,6 +249,12 @@ PackedVector3Array OclDemoOnlyRopePhysics::get_rope_positions(int rope_index) {
 		result[i] = nodes_[r.start + i].pos;
 	}
 	return result;
+}
+
+int OclDemoOnlyRopePhysics::find_main_node_at_fraction(float fraction) const {
+	if (ropes_.empty()) return 0;
+	int main_n = ropes_[0].count;
+	return std::clamp((int)std::round(fraction * (main_n - 1)), 0, main_n - 1);
 }
 
 // ---------------------------------------------------------------------------
@@ -340,13 +345,15 @@ void OclDemoOnlyRopePhysics::solve_rope_constraints(int rope_start, int rope_cou
 	int n = rope_count;
 	float sl_sq_val = sl_sq;
 
-	// --- Length constraints (even/odd passes) ---
+	// --- Length constraints (even/odd passes) — always full strength ---
 	{
 		Node *nd = nodes_.data();
 		for (int pass = 0; pass < 2; pass++) {
 			for (int i = pass; i < n - 1; i += 2) {
-				Node &a = nd[rope_start + i];
-				Node &b = nd[rope_start + i + 1];
+				int ai = rope_start + i;
+				int bi = rope_start + i + 1;
+				Node &a = nd[ai];
+				Node &b = nd[bi];
 				float dx = b.pos.x - a.pos.x;
 				float dy = b.pos.y - a.pos.y;
 				float dz = b.pos.z - a.pos.z;
@@ -360,13 +367,13 @@ void OclDemoOnlyRopePhysics::solve_rope_constraints(int rope_start, int rope_cou
 				if (w == 0.0f) continue;
 				float c = err * inv_len / w;
 				float aw = a.inv_mass * c;
-				float bw = b.inv_mass * c;
+				float bw_a = b.inv_mass * c;
 				a.pos.x += dx * aw;
 				a.pos.y += dy * aw;
 				a.pos.z += dz * aw;
-				b.pos.x -= dx * bw;
-				b.pos.y -= dy * bw;
-				b.pos.z -= dz * bw;
+				b.pos.x -= dx * bw_a;
+				b.pos.y -= dy * bw_a;
+				b.pos.z -= dz * bw_a;
 			}
 		}
 	}
@@ -380,8 +387,10 @@ void OclDemoOnlyRopePhysics::solve_rope_constraints(int rope_start, int rope_cou
 			float rest = sl * (float)spacing;
 			for (int pass = 0; pass < bend_passes_; pass++) {
 				for (int i = 0; i + spacing < n; i++) {
-					Node &a = nd[rope_start + i];
-					Node &b = nd[rope_start + i + spacing];
+					int ai = rope_start + i;
+					int bi = rope_start + i + spacing;
+					Node &a = nd[ai];
+					Node &b = nd[bi];
 					float dx = b.pos.x - a.pos.x;
 					float dy = b.pos.y - a.pos.y;
 					float dz = b.pos.z - a.pos.z;
@@ -396,13 +405,13 @@ void OclDemoOnlyRopePhysics::solve_rope_constraints(int rope_start, int rope_cou
 					if (w == 0.0f) continue;
 					float c = err * bend_stiff * inv_d / w;
 					float aw = a.inv_mass * c;
-					float bw = b.inv_mass * c;
+					float bw_a = b.inv_mass * c;
 					a.pos.x += dx * aw;
 					a.pos.y += dy * aw;
 					a.pos.z += dz * aw;
-					b.pos.x -= dx * bw;
-					b.pos.y -= dy * bw;
-					b.pos.z -= dz * bw;
+					b.pos.x -= dx * bw_a;
+					b.pos.y -= dy * bw_a;
+					b.pos.z -= dz * bw_a;
 				}
 			}
 		}
@@ -418,6 +427,7 @@ void OclDemoOnlyRopePhysics::solve_shell_constraints() {
 void OclDemoOnlyRopePhysics::project_rope_nodes(int rope_start, int rope_count) {
 	Node *nd = nodes_.data();
 	for (int i = 1; i + 1 < rope_count; i++) {
+		if (nd[rope_start + i].inv_mass == 0.0f) continue;
 		Vector3 &p = nd[rope_start + i].pos;
 		float d_sq = p.x * p.x + p.y * p.y + p.z * p.z;
 		if (d_sq < 0.000001f) {
@@ -521,6 +531,9 @@ void OclDemoOnlyRopePhysics::solve_self_collisions() {
 							int j = cell_data_[k];
 							if (j <= i) continue;
 							if (j - i <= min_sep) continue;
+							// Skip pairs inside the same bifurcation zone
+							if (bifurcation_mask_[i] != 0 && bifurcation_mask_[j] != 0 &&
+								(bifurcation_mask_[i] & bifurcation_mask_[j]) != 0) continue;
 							total_checks++;
 							float cdx = nodes_[j].pos.x - pi.x;
 							float cdy = nodes_[j].pos.y - pi.y;
@@ -552,7 +565,7 @@ void OclDemoOnlyRopePhysics::solve_self_collisions() {
 	last_collision_checks_ = total_checks;
 }
 
-void OclDemoOnlyRopePhysics::solve_endpoint_tangent(int anchor_index, int node_index) {
+void OclDemoOnlyRopePhysics::solve_endpoint_tangent(int anchor_index, int node_index, float target_dist, float blending) {
 	const Node &anchor = nodes_[anchor_index];
 	Node &node = nodes_[node_index];
 
@@ -577,21 +590,79 @@ void OclDemoOnlyRopePhysics::solve_endpoint_tangent(int anchor_index, int node_i
 
 	float inv_t = fast_rsqrt(t_len_sq);
 	float nx = tx * inv_t, ny = ty * inv_t, nz = tz * inv_t;
-	float target_x = ax + nx * segment_length_;
-	float target_y = ay + ny * segment_length_;
-	float target_z = az + nz * segment_length_;
+	float target_x = ax + nx * target_dist;
+	float target_y = ay + ny * target_dist;
+	float target_z = az + nz * target_dist;
 
-	float f = endpoint_flatness_;
-	node.pos.x += (target_x - node.pos.x) * f;
-	node.pos.y += (target_y - node.pos.y) * f;
-	node.pos.z += (target_z - node.pos.z) * f;
+	node.pos.x += (target_x - node.pos.x) * blending;
+	node.pos.y += (target_y - node.pos.y) * blending;
+	node.pos.z += (target_z - node.pos.z) * blending;
 }
 
 void OclDemoOnlyRopePhysics::solve_endpoint_tangents() {
+	const int main_count = ropes_.empty() ? (int)nodes_.size() : ropes_[0].start + ropes_[0].count;
+	const int range = std::min(endpoint_flatness_passes_, (main_count - 2) / 2);
+	if (range <= 0 && anchor_start_.empty()) return;
 	for (int pass = 0; pass < endpoint_flatness_passes_; pass++) {
-		solve_endpoint_tangent(0, 1);
-		int last = (int)nodes_.size() - 1;
-		solve_endpoint_tangent(last, last - 1);
+		// Main rope endpoints
+		for (int k = 1; k <= range; k++) {
+			float t = (float)k / (float)std::max(range, 1);
+			float fade = endpoint_flatness_ * (1.0f - t * t);
+			solve_endpoint_tangent(0, k, k * segment_length_, fade);
+			solve_endpoint_tangent(main_count - 1, main_count - 1 - k, k * segment_length_, fade);
+		}
+		// Shortcut endpoints — depart perpendicular to both radial
+		// and the main-rope tangent so the ball can pick either path.
+		for (int s = 0; s < (int)anchor_start_.size(); s++) {
+			const Rope &rope = ropes_[1 + s];
+
+			for (int side = 0; side < 2; side++) {
+				int ai   = (side == 0) ? anchor_start_[s] : anchor_end_[s];
+				int base = (side == 0) ? rope.start : (rope.start + rope.count - 1);
+				int ndir = (side == 0) ? 1 : -1;
+
+				Vector3 ap = nodes_[ai].pos;
+				float ar = ap.length();
+				if (ar < 1e-6f) continue;
+				Vector3 radial = ap / ar;
+
+				// Main-rope tangent at the anchor
+				Vector3 tangent;
+				if (ai > 0 && ai < main_count - 1)
+					tangent = nodes_[ai + 1].pos - nodes_[ai - 1].pos;
+				else if (ai == 0)
+					tangent = nodes_[1].pos - nodes_[0].pos;
+				else
+					tangent = nodes_[ai].pos - nodes_[ai - 1].pos;
+				tangent = tangent.normalized();
+
+				// Departure = cross(radial, tangent), sided by initial node position
+				Vector3 depart = radial.cross(tangent);
+				if (depart.length_squared() < 1e-12f) {
+					// Parallel — fall back to tangent-plane projection
+					for (int k = 1; k <= range; k++) {
+						float t = (float)k / (float)std::max(range, 1);
+						float fade = endpoint_flatness_ * (1.0f - t * t);
+						solve_endpoint_tangent(ai, base + ndir * k, k * segment_length_, fade);
+					}
+					continue;
+				}
+				depart = depart.normalized();
+
+				// Pick the side that matches the initial node placement
+				Vector3 init_dir = nodes_[base + ndir].pos - nodes_[base].pos;
+				if (init_dir.dot(depart) < 0.0f) depart = -depart;
+
+				for (int k = 1; k <= range; k++) {
+					float t = (float)k / (float)std::max(range, 1);
+					float fade = endpoint_flatness_ * (1.0f - t * t);
+					Node &node = nodes_[base + ndir * k];
+					node.pos.x += (ap.x + depart.x * k * segment_length_ - node.pos.x) * fade;
+					node.pos.y += (ap.y + depart.y * k * segment_length_ - node.pos.y) * fade;
+					node.pos.z += (ap.z + depart.z * k * segment_length_ - node.pos.z) * fade;
+				}
+			}
+		}
 	}
 }
 
@@ -600,6 +671,15 @@ void OclDemoOnlyRopePhysics::pin_anchors() {
 	if (!ropes_.empty()) {
 		const Rope &main = ropes_[0];
 		nodes_[main.start + main.count - 1].pos = fixed_end_;
+	}
+	// --- Re-pin shortcut anchors after shell projection ---
+	for (int s = 0; s < (int)anchor_start_.size(); s++) {
+		int shortcut_idx = ropes_.size() - (int)anchor_start_.size() + s;
+		const Rope &rope = ropes_[shortcut_idx];
+		int as = anchor_start_[s];
+		int ae = anchor_end_[s];
+		nodes_[rope.start].pos = nodes_[as].pos;
+		nodes_[rope.start + rope.count - 1].pos = nodes_[ae].pos;
 	}
 }
 
@@ -620,113 +700,55 @@ void OclDemoOnlyRopePhysics::relax() {
 
 	const float sl = segment_length_;
 	const float bend_stiff = bend_stiffness_;
-	const float ep_flat = endpoint_flatness_;
-	const int main_n = ropes_[0].count;
+
+	// Pre-compute bifurcation masks: two nodes sharing a set bit must NOT
+	// collide so that the shortcut can diverge cleanly from the main rope
+	// near each anchor without an oscillating push/pull.
+	const int num_shortcuts = (int)anchor_start_.size();
+	const int main_count = ropes_[0].count;
+	const int N = (num_shortcuts > 0 && collision_radius_ > 0.0f)
+			? (int)std::ceil(collision_radius_ / segment_length_)
+			: 0;
+	bifurcation_mask_.assign(total_count, 0);
+	for (int s = 0; s < num_shortcuts && 2 * s + 1 < 32; s++) {
+		uint32_t start_bit = 1u << (2 * s);
+		uint32_t end_bit   = 1u << (2 * s + 1);
+		int as = anchor_start_[s];
+		int ae = anchor_end_[s];
+
+		// Main rope nodes near the start anchor
+		for (int i = std::max(0, as - N); i <= std::min(main_count - 1, as + N); i++) {
+			bifurcation_mask_[i] |= start_bit;
+		}
+		// Main rope nodes near the end anchor
+		for (int i = std::max(0, ae - N); i <= std::min(main_count - 1, ae + N); i++) {
+			bifurcation_mask_[i] |= end_bit;
+		}
+
+		// Shortcut nodes near its own start anchor
+		const Rope &rope = ropes_[1 + s];
+		for (int j = 0; j <= std::min(rope.count - 1, N); j++) {
+			bifurcation_mask_[rope.start + j] |= start_bit;
+		}
+		// Shortcut nodes near its own end anchor
+		for (int j = std::max(0, rope.count - 1 - N); j < rope.count; j++) {
+			bifurcation_mask_[rope.start + j] |= end_bit;
+		}
+	}
 
 	for (int iter = 0; iter < iterations_; iter++) {
-
-		// --- Solve all rope constraints (main + shortcuts) ---
 		for (int r = 0; r < rope_count; r++) {
 			const Rope &rope = ropes_[r];
 			float r_sl_sq = sl * sl;
 			solve_rope_constraints(rope.start, rope.count, sl, r_sl_sq, bend_stiff);
 		}
 
-		// --- Endpoint tangents (main rope only) ---
-		{
-			Node *nd = nodes_.data();
-			for (int pass = 0; pass < endpoint_flatness_passes_; pass++) {
-				// Tangent at start
-				{
-					const Node &anchor = nd[0];
-					Node &node = nd[1];
-					float ax = anchor.pos.x, ay = anchor.pos.y, az = anchor.pos.z;
-					float len_r = std::sqrt(ax * ax + ay * ay + az * az);
-					if (len_r >= 1e-6f) {
-						float inv_r = 1.0f / len_r;
-						float rnx = ax * inv_r, rny = ay * inv_r, rnz = az * inv_r;
-						float tx = node.pos.x - ax;
-						float ty = node.pos.y - ay;
-						float tz = node.pos.z - az;
-						float dot = tx * rnx + ty * rny + tz * rnz;
-						tx -= rnx * dot;
-						ty -= rny * dot;
-						tz -= rnz * dot;
-						float tlsq = tx * tx + ty * ty + tz * tz;
-						if (tlsq >= 0.000001f) {
-							float inv_t = fast_rsqrt(tlsq);
-							float tnx = tx * inv_t, tny = ty * inv_t, tnz = tz * inv_t;
-							float tgt_x = ax + tnx * sl;
-							float tgt_y = ay + tny * sl;
-							float tgt_z = az + tnz * sl;
-							node.pos.x += (tgt_x - node.pos.x) * ep_flat;
-							node.pos.y += (tgt_y - node.pos.y) * ep_flat;
-							node.pos.z += (tgt_z - node.pos.z) * ep_flat;
-						}
-					}
-				}
-				// Tangent at end
-				{
-					const Node &anchor = nd[main_n - 1];
-					Node &node = nd[main_n - 2];
-					float ax = anchor.pos.x, ay = anchor.pos.y, az = anchor.pos.z;
-					float len_r = std::sqrt(ax * ax + ay * ay + az * az);
-					if (len_r >= 1e-6f) {
-						float inv_r = 1.0f / len_r;
-						float rnx = ax * inv_r, rny = ay * inv_r, rnz = az * inv_r;
-						float tx = node.pos.x - ax;
-						float ty = node.pos.y - ay;
-						float tz = node.pos.z - az;
-						float dot = tx * rnx + ty * rny + tz * rnz;
-						tx -= rnx * dot;
-						ty -= rny * dot;
-						tz -= rnz * dot;
-						float tlsq = tx * tx + ty * ty + tz * tz;
-						if (tlsq >= 0.000001f) {
-							float inv_t = fast_rsqrt(tlsq);
-							float tnx = tx * inv_t, tny = ty * inv_t, tnz = tz * inv_t;
-							float tgt_x = ax + tnx * sl;
-							float tgt_y = ay + tny * sl;
-							float tgt_z = az + tnz * sl;
-							node.pos.x += (tgt_x - node.pos.x) * ep_flat;
-							node.pos.y += (tgt_y - node.pos.y) * ep_flat;
-							node.pos.z += (tgt_z - node.pos.z) * ep_flat;
-						}
-					}
-				}
-			}
-		}
-
-		// --- Pin shortcut anchors to their attachment points ---
-		for (int s = 0; s < (int)anchor_start_.size(); s++) {
-			int shortcut_idx = ropes_.size() - (int)anchor_start_.size() + s;
-			const Rope &rope = ropes_[shortcut_idx];
-			int as = anchor_start_[s];
-			int ae = anchor_end_[s];
-			nodes_[rope.start].pos = nodes_[as].pos;
-			nodes_[rope.start + rope.count - 1].pos = nodes_[ae].pos;
-		}
-
-		// --- Self-collisions (all nodes together) ---
 		solve_self_collisions();
 
-		// --- Project all rope nodes into shell ---
-		for (int r = 0; r < rope_count; r++) {
-			const Rope &rope = ropes_[r];
-			project_rope_nodes(rope.start, rope.count);
-		}
+		solve_endpoint_tangents();
 
-		// --- Re-pin shortcut anchors after shell projection ---
-		for (int s = 0; s < (int)anchor_start_.size(); s++) {
-			int shortcut_idx = ropes_.size() - (int)anchor_start_.size() + s;
-			const Rope &rope = ropes_[shortcut_idx];
-			int as = anchor_start_[s];
-			int ae = anchor_end_[s];
-			nodes_[rope.start].pos = nodes_[as].pos;
-			nodes_[rope.start + rope.count - 1].pos = nodes_[ae].pos;
-		}
+		project_rope_nodes(0, total_count);
 
-		// --- Pin main rope anchors ---
 		pin_anchors();
 	}
 }
@@ -821,4 +843,5 @@ void OclDemoOnlyRopePhysics::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("add_shortcut", "anchor_start", "anchor_end", "segments", "seg_length"), &OclDemoOnlyRopePhysics::add_shortcut, DEFVAL(-1.0f));
 	ClassDB::bind_method(D_METHOD("get_rope_count"), &OclDemoOnlyRopePhysics::get_rope_count);
 	ClassDB::bind_method(D_METHOD("get_rope_positions", "rope_index"), &OclDemoOnlyRopePhysics::get_rope_positions);
+	ClassDB::bind_method(D_METHOD("find_main_node_at_fraction", "fraction"), &OclDemoOnlyRopePhysics::find_main_node_at_fraction);
 }

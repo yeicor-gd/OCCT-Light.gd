@@ -16,11 +16,11 @@ class_name MazeGenerator
 @export_group("Maze Dimensions")
 
 ## Outer radius of the spherical shell.
-@export_range(1.0, 50.0) var maze_outer_radius := 5.0
+@export_range(1.0, 50.0) var maze_outer_radius := 10.0
 ## Inner radius of the spherical shell (central void).
-@export_range(0.0, 5.0) var maze_inner_radius := 0.5
+@export_range(0.0, 5.0) var maze_inner_radius := 2.0
 ## Radius of the ball that will traverse the maze.
-@export_range(0.1, 1.0) var ball_radius := 0.5
+@export_range(0.1, 2.0) var ball_radius := 1.0
 ## Minimum ratio of path width and height to ball radius.
 @export var ball_to_path_min_ratio := Vector2(0.75, 0.9)
 
@@ -33,18 +33,15 @@ var regenerate_all_ := func(): await regenerate_all(false)
 # Actions
 # -----------------------------------------------------------------------------
 
-## Regenerate everything: path + auxiliary curve + OCCT mesh.
+## Regenerate everything: paths (main + shortcuts) + OCCT mesh.
 func regenerate_all(sync: bool):
 	var start_time := Time.get_ticks_usec()
 	
-	# 1. Regenerate the main path (rope simulation).
-	if not sync: await $Paths/MainPath.regenerate(sync)
-	else: $Paths/MainPath.regenerate(sync)
+	# 1. Regenerate all paths (main, binormal, shortcuts).
+	if not sync: await $Paths.regenerate(sync)
+	else: $Paths.regenerate(sync)
 
-	# 2. Regenerate auxiliary curve (offset).
-	$Paths/MainPathBinormal.regenerate()
-
-	# 3. Regenerate OCCT mesh.
+	# 2. Regenerate OCCT mesh.
 	if not sync: await $Meshes.regenerate(sync)
 	else: $Meshes.regenerate(sync)
 
