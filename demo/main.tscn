@@ -17,7 +17,7 @@ size_flags_horizontal = 3
 size_flags_vertical = 3
 script = ExtResource("1_ig7tw")
 tests_scene = ExtResource("2_h2yge")
-demo_scene = ExtResource("3_1bvp3")
+ball_game_scene = ExtResource("3_1bvp3")
 
 [node name="Panel" type="VBoxContainer" parent="." unique_id=1861824163]
 layout_mode = 2
@@ -27,7 +27,7 @@ metadata/_edit_use_anchors_ = true
 
 [node name="Label" type="Label" parent="Panel" unique_id=735035985]
 layout_mode = 2
-text = "My GDExtension"
+text = "OCCT-Light GDExtension"
 label_settings = SubResource("LabelSettings_0e071")
 
 [node name="TestsButton" type="Button" parent="Panel" unique_id=947654445]
@@ -35,10 +35,17 @@ layout_mode = 2
 theme_override_font_sizes/font_size = 24
 text = "TESTS"
 
-[node name="DemoButton" type="Button" parent="Panel" unique_id=635901278]
+[node name="BallGameButton" type="Button" parent="Panel" unique_id=635901278]
 layout_mode = 2
 theme_override_font_sizes/font_size = 24
-text = "DEMO"
+text = "BALL GAME"
+
+[node name="FlagBenchmarkButton" type="Button" parent="Panel" unique_id=1187031809]
+layout_mode = 2
+theme_override_font_sizes/font_size = 24
+disabled = true
+text = "FLAG BENCHMARK"
 
 [connection signal="pressed" from="Panel/TestsButton" to="." method="_on_tests_button_pressed"]
-[connection signal="pressed" from="Panel/DemoButton" to="." method="_on_demo_button_pressed"]
+[connection signal="pressed" from="Panel/BallGameButton" to="." method="_on_ball_game_button_pressed"]
+[connection signal="pressed" from="Panel/FlagBenchmarkButton" to="." method="_on_demo_button_pressed"]

@@ -27,23 +27,25 @@ class_name MazeGenerator
 @export_group("Actions")
 
 @export_tool_button("Regenerate All")
-var regenerate_all_ := regenerate_all
+var regenerate_all_ := func(): await regenerate_all(false)
 
 # -----------------------------------------------------------------------------
 # Actions
 # -----------------------------------------------------------------------------
 
 ## Regenerate everything: path + auxiliary curve + OCCT mesh.
-func regenerate_all():
+func regenerate_all(sync: bool):
 	var start_time := Time.get_ticks_usec()
 	
 	# 1. Regenerate the main path (rope simulation).
-	await $Paths/MainPath.regenerate(true)
+	if not sync: await $Paths/MainPath.regenerate(sync)
+	else: $Paths/MainPath.regenerate(sync)
 
 	# 2. Regenerate auxiliary curve (offset).
 	$Paths/MainPathBinormal.regenerate()
 
 	# 3. Regenerate OCCT mesh.
-	await $OclManager.regenerate()
+	if not sync: await $Meshes.regenerate(sync)
+	else: $Meshes.regenerate(sync)
 
 	print("[Maze] Total generation time: ", (Time.get_ticks_usec() - start_time) / 1000.0, "ms")

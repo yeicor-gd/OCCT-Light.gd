@@ -497,6 +497,13 @@ jobs:
           include-templates: true
           cache: false # Bypassing cache for this simple download to ensure the API dump and other sources stays cached.
 
+      - name: Generate autowrapper bindings (to generate tests)
+        shell: bash
+        run: |
+          set -e
+          cd OCCT-Light.gd-autowrapper
+          ./generate.sh
+
       - name: Run demo test
         shell: bash
         if: matrix.target.export_name == 'Linux' || matrix.target.export_name == 'Windows Desktop' || matrix.target.export_name == 'macOS'
@@ -537,6 +544,32 @@ jobs:
           name: ${{ github.event.repository.name }}-${{ env.MODIFIED_REF }}-addon
           path: addon-export
 
+  deploy-pages:
+    runs-on: ubuntu-24.04
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Download web demo artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: demo-export-web-release
+          path: web
+
+      - name: Upload pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: web
+
+      - name: Deploy to GitHub Pages
+        uses: actions/deploy-pages@v4
+
   release:
     runs-on: ubuntu-24.04
     needs: test
@@ -565,32 +598,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-
-  deploy-pages:
-    runs-on: ubuntu-24.04
-    needs: test
-    if: github.ref_type == 'tag'
-    permissions:
-      contents: read
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Download web demo artifact
-        uses: actions/download-artifact@v8
-        with:
-          name: demo-export-web-release
-          path: web
-
-      - name: Upload pages artifact
-        uses: actions/upload-pages-artifact@v4
-        with:
-          path: web
-
-      - name: Deploy to GitHub Pages
-        uses: actions/deploy-pages@v4
 
   success: # For auto-merging rules
     needs: test

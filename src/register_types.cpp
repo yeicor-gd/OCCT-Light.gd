@@ -11,7 +11,7 @@
 #include "OclMeshToGodot.h"
 
 // Hand-written rope physics solver
-#include "OclRopePhysics.h"
+#include "OclDemoOnlyRopePhysics.h"
 
 // OCCT-Light core runtime
 #include <occtl/occtl_core.h>
@@ -93,7 +93,7 @@ static void occtl_light_gd_initialize(ModuleInitializationLevel p_level) {
 
     // Register hand-written helper classes
     GDREGISTER_CLASS(OclMeshToGodot);
-    GDREGISTER_CLASS(OclRopePhysics);
+    GDREGISTER_CLASS(OclDemoOnlyRopePhysics);
 
     // Register an atexit handler as a safety net: if Godot calls exit()
     // directly (bypassing GDExtension uninitialize), this ensures OCCT's

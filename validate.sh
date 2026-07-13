@@ -237,8 +237,20 @@ _timeout_cmd() {
         return 0  # --preserve-status equivalent on timeout: don't fail just for timing out
     fi
 }
-_timeout_cmd $((GODOT_TEST_RUNNER_TIMEOUT * 2 / 1000)) "$GODOT_BIN" --path "$SCRIPT_DIR/demo" --headless 2>&1 | tee -a "$RUNTIME_LOG"
-RUNTIME_EXIT=${PIPESTATUS[0]}
+USE_PERF="${USE_PERF:-0}"
+if [ "$USE_PERF" = "1" ] || [ "$USE_PERF" = "true" ]; then
+    echo "Running with perf record..."
+    PERF_DATA="$SCRIPT_DIR/perf.data"
+    rm -f "$PERF_DATA"
+    timeout $((GODOT_TEST_RUNNER_TIMEOUT * 2 / 1000)) \
+        perf record -g --no-compress -o "$PERF_DATA" --call-graph dwarf \
+        "$GODOT_BIN" --path "$SCRIPT_DIR/demo" --headless 2>&1 | tee -a "$RUNTIME_LOG"
+    RUNTIME_EXIT=${PIPESTATUS[0]}
+    echo "perf data written to $PERF_DATA"
+else
+    _timeout_cmd $((GODOT_TEST_RUNNER_TIMEOUT * 2 / 1000)) "$GODOT_BIN" --path "$SCRIPT_DIR/demo" --headless 2>&1 | tee -a "$RUNTIME_LOG"
+    RUNTIME_EXIT=${PIPESTATUS[0]}
+fi
 if [ $RUNTIME_EXIT -ne 0 ]; then
     echo "✗ Runtime execution failed - exit code $RUNTIME_EXIT" >> "$RUNTIME_LOG"
     cat $RUNTIME_LOG

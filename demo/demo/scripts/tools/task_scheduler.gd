@@ -42,6 +42,7 @@ extends RefCounted
 
 var _mutex: Mutex
 var _result_queue: Array[Variant] = []
+var _sync: bool
 
 ## Task IDs dispatched to WorkerThreadPool but not yet reaped as completed.
 var _pending_ids: Array[int] = []
@@ -75,8 +76,10 @@ var max_concurrent: int:
 # Initialisation
 # -----------------------------------------------------------------------------
 
-func _init():
+func _init(sync: bool):
 	_mutex = Mutex.new()
+	_sync = sync
+	if _sync: _max_concurrent = 1
 
 # -----------------------------------------------------------------------------
 # Dispatch
@@ -111,11 +114,15 @@ func dispatch_task(action: Callable, high_priority: bool = false, description: S
 
 ## Actually submits a task to WorkerThreadPool and records the ID.
 func _dispatch_now(action: Callable, high_priority: bool, description: String) -> int:
-	var tid := WorkerThreadPool.add_task(action, high_priority, description)
-	_pending_ids.append(tid)
-	_pending_count += 1
-	_total_remaining += 1
-	return tid
+	if _sync:
+		action.call()
+		return -1
+	else:
+		var tid := WorkerThreadPool.add_task(action, high_priority, description)
+		_pending_ids.append(tid)
+		_pending_count += 1
+		_total_remaining += 1
+		return tid
 
 # -----------------------------------------------------------------------------
 # Submission (worker thread)

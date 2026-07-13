@@ -1,5 +1,5 @@
-#ifndef OCLROPEPHYSICS_H
-#define OCLROPEPHYSICS_H
+#ifndef OCLDEMOONLYROPEPHYSICS_H
+#define OCLDEMOONLYROPEPHYSICS_H
 
 #include <godot_cpp/classes/resource.hpp>
 #include <godot_cpp/core/class_db.hpp>
@@ -9,16 +9,16 @@
 
 using namespace godot;
 
-class OclRopePhysics : public godot::Resource {
-	GDCLASS(OclRopePhysics, godot::Resource)
+class OclDemoOnlyRopePhysics : public godot::Resource {
+	GDCLASS(OclDemoOnlyRopePhysics, godot::Resource)
 protected:
 	static void _bind_methods();
 
 public:
-	OclRopePhysics();
-	~OclRopePhysics();
+	OclDemoOnlyRopePhysics();
+	~OclDemoOnlyRopePhysics();
 
-	// Exported properties
+	// --- Configuration properties ---
 	int get_node_count() const { return node_count_; }
 	void set_node_count(int v) { node_count_ = v; }
 
@@ -55,7 +55,6 @@ public:
 	float get_radial_bias() const { return radial_bias_; }
 	void set_radial_bias(float v) { radial_bias_ = v; }
 
-	// Non-exported but settable properties
 	float get_inner_radius() const { return inner_radius_; }
 	void set_inner_radius(float v) { inner_radius_ = v; inner_radius_sq_ = v * v; }
 
@@ -65,16 +64,27 @@ public:
 	float get_collision_radius() const { return collision_radius_; }
 	void set_collision_radius(float v) { collision_radius_ = v; }
 
-	// Methods
+	// --- Public API ---
 	void clear();
 	void init_rope(int64_t _seed, Vector3 start = Vector3(-1, 0, 0), Vector3 end = Vector3(1, 0, 0));
 	void relax();
 	PackedVector3Array get_positions();
 	bool is_initialized() const;
 
+	// --- Shortcut API ---
+	int add_shortcut(int anchor_start, int anchor_end, int segments, float seg_length = -1.0f);
+	int get_rope_count() const;
+	PackedVector3Array get_rope_positions(int rope_index);
+
+	// --- Internal types ---
 	struct Node {
 		Vector3 pos;
 		float inv_mass;
+	};
+
+	struct Rope {
+		int start;  // start index in nodes_
+		int count;  // number of nodes in this rope
 	};
 
 private:
@@ -99,14 +109,23 @@ private:
 
 	// Simulation state
 	std::vector<Node> nodes_;
+	std::vector<Rope> ropes_;
+	std::vector<int> anchor_start_;  // per-shortcut: absolute node index
+	std::vector<int> anchor_end_;    // per-shortcut: absolute node index
 	Vector3 fixed_start_;
 	Vector3 fixed_end_;
 	float bend_rest_length_ = 0.0f;
 	uint32_t rng_state_ = 1;
 
-	// Collision detection scratch buffer
-	struct SortEntry { float x; int idx; };
-	std::vector<SortEntry> collision_buf_;
+	// Collision detection scratch buffers
+	std::vector<int> cell_head_;
+	std::vector<int> cell_next_;
+	std::vector<int> cell_offsets_;
+	std::vector<int> cell_data_;
+	std::vector<int> grid_used_;
+
+	// Profiling
+	int64_t last_collision_checks_ = 0;
 
 	// Internal methods
 	float randf();
@@ -115,16 +134,15 @@ private:
 	Vector3 project_to_shell(Vector3 p, float target_radius = -1.0f) const;
 	bool is_valid_initial_position(Vector3 position) const;
 	Vector3 find_next_position(Vector3 from);
-	void project_all_nodes();
-	void solve_distance(int a, int b);
-	void solve_length_constraints();
+	void solve_distance(int a, int b, float sl);
 	void solve_shell_constraints();
-	void solve_bending_constraints();
 	void solve_bend_distance(int a, int b, float rest_length);
 	void solve_self_collisions();
 	void solve_endpoint_tangents();
 	void solve_endpoint_tangent(int anchor, int node_idx);
 	void pin_anchors();
+	void solve_rope_constraints(int rope_start, int rope_count, float sl, float sl_sq, float bend_stiff);
+	void project_rope_nodes(int rope_start, int rope_count);
 };
 
-#endif // OCLROPEPHYSICS_H
+#endif // OCLDEMOONLYROPEPHYSICS_H

@@ -8,13 +8,13 @@ class_name MazePath
 ## The rope starts as a straight chord and relaxes under segment-length,
 ## shell-containment, radial-alignment-penalty, and self-repulsion constraints.
 ##
-## All simulation logic is delegated to RopePhysics (scripts/helpers/).
+## All simulation logic is delegated to OclDemoOnlyRopePhysics (native C++ GDExtension).
 
 # -----------------------------------------------------------------------------
 # Configuration
 # -----------------------------------------------------------------------------
 
-@export var rope_physics := RopePhysics.new()
+@export var rope_physics := OclDemoOnlyRopePhysics.new()
 
 @export var sharpness := 5.0
 
@@ -69,7 +69,7 @@ func _step(n: int):
 		if not rope_physics.is_initialized():
 			rope_physics.inner_radius = _get_inner_radius() + _get_tube_margin()
 			rope_physics.outer_radius = _get_outer_radius() - _get_tube_margin()
-			rope_physics.collision_radius = 2.5 * _get_tube_margin() # Extra to avoid inter-node collisions as much as possible
+			rope_physics.collision_radius = 3 * _get_tube_margin() # Extra to avoid inter-node collisions as much as possible
 			rope_physics.init_rope(_get_seed(), Vector3.BACK * (_get_outer_radius() - _get_tube_margin()), Vector3.FORWARD * (_get_outer_radius() - _get_tube_margin()))
 		else:
 			var old_iterations := rope_physics.iterations
@@ -83,27 +83,29 @@ func _step(n: int):
 		WorkerThreadPool.wait_for_task_completion.call_deferred(self_task[0])
 	)
 
-func regenerate(do_await: bool):
+func regenerate(sync: bool):
 	_reset()
-	var self_task: Array[int] = [-1]
-	self_task[0] = WorkerThreadPool.add_task(func():
+	var task := func ():
 		var start_time := Time.get_ticks_usec()
 		rope_physics.inner_radius = _get_inner_radius() + _get_tube_margin()
 		rope_physics.outer_radius = _get_outer_radius() - _get_tube_margin()
-		rope_physics.collision_radius = 2.5 * _get_tube_margin() # Extra to avoid inter-node collisions as much as possible
+		rope_physics.collision_radius = 3 * _get_tube_margin() # Extra to avoid inter-node collisions as much as possible
 		rope_physics.init_rope(_get_seed(), Vector3.BACK * (_get_outer_radius() - _get_tube_margin()), Vector3.FORWARD * (_get_outer_radius() - _get_tube_margin()))
 		rope_physics.relax()
 		var elapsed := (Time.get_ticks_usec() - start_time) / 1000.0
-		print("MainPath::_step took ", elapsed, " ms for ", rope_physics.iterations, " steps")
-		var data := CurveUtils.precompute_curve_data(rope_physics.get_positions(), sharpness)
-		CurveUtils.apply_curve_data.call_deferred(curve, data)
-		if !do_await:
-			WorkerThreadPool.wait_for_task_completion(self_task[0])
-	)
-	if do_await:
+		return CurveUtils.precompute_curve_data(rope_physics.get_positions(), sharpness)
+	if sync:
+		CurveUtils.apply_curve_data(curve, task.call())
+	else:
+		var self_task: Array[int] = [-1]
+		var curve_data: Array = [[]]
+		self_task[0] = WorkerThreadPool.add_task(func():
+			curve_data[0] = task.call())
 		while !WorkerThreadPool.is_task_completed(self_task[0]):
 			await get_tree().create_timer(0.2).timeout
-		WorkerThreadPool.wait_for_task_completion(self_task[0])
+		var res := WorkerThreadPool.wait_for_task_completion(self_task[0])
+		assert(res == OK)
+		CurveUtils.apply_curve_data(curve, curve_data[0])
 
 
 # -----------------------------------------------------------------------------

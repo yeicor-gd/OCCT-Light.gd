@@ -133,11 +133,24 @@ func _ensure_config() -> void:
 		wall_height,
 	)
 
+## Return the scene root for setting node owners.
+##
+## In the editor tree this is get_tree().edited_scene_root.
+## During export the instantiated nodes are not in the tree, so we walk up
+## to the topmost ancestor (the instantiated PackedScene root).
+func _scene_root() -> Node:
+	if is_inside_tree():
+		return get_tree().edited_scene_root
+	var n: Node = get_parent()
+	while n and n.get_parent():
+		n = n.get_parent()
+	return n
+
 # -----------------------------------------------------------------------------
 # Entry point (async)
 # -----------------------------------------------------------------------------
 
-func regenerate() -> void:
+func regenerate(sync: bool) -> void:
 	if _is_regenerating:
 		push_warning("OclMeshBuilder: regeneration already in progress, skipping.")
 		return
@@ -188,7 +201,7 @@ func regenerate() -> void:
 	var captured_physics_edge_radius: float = physics_edge_radius
 	var captured_physics_vertex_radius: float = physics_vertex_radius
 
-	var scheduler := TaskScheduler.new()
+	var scheduler := TaskScheduler.new(sync)
 	scheduler.max_concurrent = max_concurrent
 	_scheduler = scheduler
 	_chunk_results.clear()
@@ -467,7 +480,7 @@ func _apply_chunk(result: Dictionary) -> void:
 		root.name = node_name
 		add_child(root, true)
 		if Engine.is_editor_hint():
-			root.set_owner(get_tree().edited_scene_root)
+			root.set_owner(_scene_root())
 		return root
 
 	# Helper to get or create a named child under the chunk root.
@@ -486,7 +499,7 @@ func _apply_chunk(result: Dictionary) -> void:
 		child.name = child_name
 		parent.add_child(child, true)
 		if Engine.is_editor_hint():
-			child.set_owner(get_tree().edited_scene_root)
+			child.set_owner(_scene_root())
 		return child
 
 	var chunk_root: Node3D = ensure_chunk_root.call()
@@ -514,7 +527,7 @@ func _apply_chunk(result: Dictionary) -> void:
 			cs.shape = shape
 			features_root.add_child(cs, true)
 			if Engine.is_editor_hint():
-				cs.set_owner(get_tree().edited_scene_root)
+				cs.set_owner(_scene_root())
 
 		# --- Face mesh ---
 		if has_faces_display:
@@ -525,7 +538,7 @@ func _apply_chunk(result: Dictionary) -> void:
 				mi.name = mesh_name
 				features_root.add_child(mi, true)
 				if Engine.is_editor_hint():
-					mi.set_owner(get_tree().edited_scene_root)
+					mi.set_owner(_scene_root())
 
 			if f_surfaces.size() == 1:
 				var arr: Array = f_surfaces[0] as Array
@@ -560,7 +573,7 @@ func _apply_chunk(result: Dictionary) -> void:
 				mmi.name = mm_name
 				features_root.add_child(mmi, true)
 				if Engine.is_editor_hint():
-					mmi.set_owner(get_tree().edited_scene_root)
+					mmi.set_owner(_scene_root())
 
 			var existing_mm := mmi.multimesh
 			if existing_mm == null or not existing_mm.get_mesh().is_valid():
@@ -607,7 +620,7 @@ func _apply_chunk(result: Dictionary) -> void:
 				cs.name = "_occtl_edge_" + str(i)
 				features_root.add_child(cs, true)
 				if Engine.is_editor_hint():
-					cs.set_owner(get_tree().edited_scene_root)
+					cs.set_owner(_scene_root())
 
 	# --- Vertices ---
 	var v_transforms: PackedFloat64Array = result.get("v", PackedFloat64Array()) as PackedFloat64Array
@@ -626,7 +639,7 @@ func _apply_chunk(result: Dictionary) -> void:
 				mmi.name = mm_name
 				features_root.add_child(mmi, true)
 				if Engine.is_editor_hint():
-					mmi.set_owner(get_tree().edited_scene_root)
+					mmi.set_owner(_scene_root())
 
 			var existing_mm := mmi.multimesh
 			if existing_mm == null or not existing_mm.get_mesh().is_valid():
@@ -664,7 +677,7 @@ func _apply_chunk(result: Dictionary) -> void:
 				cs.name = "_occtl_vertex_" + str(i)
 				features_root.add_child(cs, true)
 				if Engine.is_editor_hint():
-					cs.set_owner(get_tree().edited_scene_root)
+					cs.set_owner(_scene_root())
 
 func _clear_collision_children(parent: Node, prefix: String) -> void:
 	var to_remove: Array[Node] = []
