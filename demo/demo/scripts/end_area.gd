@@ -14,6 +14,6 @@ func _ready():
 func _sync_from_parent():
 	var parent = get_parent_node_3d()
 	if parent is MazeGenerator:
-		transform.origin = (parent.maze_outer_radius - parent.ball_radius/parent.ball_to_path_min_ratio.y) * Vector3.FORWARD
+		transform.origin = (parent.maze_outer_radius - parent.ball_radius/parent.ball_to_path_min_ratio.y * 2.0) * Vector3.FORWARD
 		shape.height = 2.0 * parent.ball_radius/parent.ball_to_path_min_ratio.y
 		shape.radius = parent.ball_radius/parent.ball_to_path_min_ratio.x

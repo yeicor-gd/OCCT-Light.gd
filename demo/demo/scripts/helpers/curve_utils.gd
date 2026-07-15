@@ -29,28 +29,17 @@ static func precompute_curve_data(
 		var next := positions[min(i + 1, n - 1)]
 		var tangent := (next - prev).normalized()
 
-		var world_up := Vector3.UP
-		if abs(tangent.dot(world_up)) > 0.98:
-			world_up = Vector3.RIGHT
+		var up := pos.normalized()
+		var right := tangent.cross(up).normalized()
 
-		var right := tangent.cross(world_up).normalized()
-		var up := right.cross(tangent).normalized()
-
-		# Desired radial up (perpendicular to tangent, pointing away from origin).
-		var desired_up := pos - tangent * pos.dot(tangent)
-		if desired_up.length_squared() > 1e-10:
-			desired_up = desired_up.normalized()
-		else:
-			desired_up = up
-
-		var tilt := atan2(right.dot(desired_up), up.dot(desired_up))
+		#var tilt := atan2(right.dot(up), up.dot(up))
 
 		var d := CurvePointData.new()
 		d.position = pos
 		var handle := (next - prev) / sharpness
 		d.in_handle = -handle
 		d.out_handle = handle
-		d.tilt = tilt
+		#d.tilt = tilt
 		data[i] = d
 
 	var elapsed = (Time.get_ticks_usec() - start_time) / 1000.0
@@ -230,18 +219,18 @@ static func build_auxiliary_curve_from_points(
 		var next := positions[min(i + 1, n - 1)]
 		var tangent := (next - prev).normalized()
 
-		# Tilt (same logic as precompute_curve_data).
-		var wup := Vector3.UP
-		if abs(tangent.dot(wup)) > 0.98:
-			wup = Vector3.RIGHT
-		var r_vec := tangent.cross(wup).normalized()
-		var u_vec := r_vec.cross(tangent).normalized()
-		var desired := pos - tangent * pos.dot(tangent)
-		if desired.length_squared() > 1e-10:
-			desired = desired.normalized()
-		else:
-			desired = u_vec
-		tilts[i] = atan2(r_vec.dot(desired), u_vec.dot(desired))
+		## Tilt (same logic as precompute_curve_data).
+		#var wup := Vector3.UP
+		#if abs(tangent.dot(wup)) > 0.98:
+			#wup = Vector3.RIGHT
+		#var r_vec := tangent.cross(wup).normalized()
+		#var u_vec := r_vec.cross(tangent).normalized()
+		#var desired := pos - tangent * pos.dot(tangent)
+		#if desired.length_squared() > 1e-10:
+			#desired = desired.normalized()
+		#else:
+			#desired = u_vec
+		#tilts[i] = atan2(r_vec.dot(desired), u_vec.dot(desired))
 
 		# Offset position perpendicular to tangent and radial.
 		offset_positions[i] = pos + _floor_perpendicular(tangent, pos) * offset_amount

@@ -52,6 +52,9 @@ public:
 	int get_endpoint_flatness_passes() const { return endpoint_flatness_passes_; }
 	void set_endpoint_flatness_passes(int v) { endpoint_flatness_passes_ = v; }
 
+	int get_endpoint_levels() const { return endpoint_levels_; }
+	void set_endpoint_levels(int v) { endpoint_levels_ = v; }
+
 	float get_radial_bias() const { return radial_bias_; }
 	void set_radial_bias(float v) { radial_bias_ = v; }
 
@@ -100,6 +103,8 @@ public:
 	int get_rope_count() const;
 	PackedVector3Array get_rope_positions(int rope_index);
 	int find_main_node_at_fraction(float fraction) const;
+	int get_shortcut_start_anchor(int idx) const;
+	int get_shortcut_end_anchor(int idx) const;
 
 	// --- Internal types ---
 	struct Node {
@@ -114,7 +119,7 @@ public:
 
 private:
 	// Configuration
-	int node_count_ = 200;
+	int node_count_ = 100;
 	float segment_length_ = 1.0f;
 	int iterations_ = 200;
 	int init_attempts_ = 10;
@@ -123,8 +128,9 @@ private:
 	int bend_levels_ = 4;
 	int collision_passes_ = 6;
 	float collision_stiffness_ = 0.8f;
-	float endpoint_flatness_ = 0.5f;
-	int endpoint_flatness_passes_ = 6;
+	float endpoint_flatness_ = 1.0f;
+	int endpoint_flatness_passes_ = 12;
+	int endpoint_levels_ = 12;
 	float inner_radius_ = 1.0f;
 	float outer_radius_ = 2.0f;
 	float collision_radius_ = 0.35f;

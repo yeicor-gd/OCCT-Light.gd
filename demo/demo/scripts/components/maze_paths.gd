@@ -31,7 +31,7 @@ class_name MazePaths
 @export_group("Shortcuts")
 
 ## Number of shortcuts to generate (0 = none, 1–3 typical).
-@export_range(0, 10, 1) var total_shortcuts: int = 1
+@export_range(0, 10, 1) var total_shortcuts: int = 3
 
 ## Minimum fraction of the main path a shortcut spans (0–1).
 ## A value of 0.2 means the shortcut bypasses at least 20 % of the main rope.
@@ -136,7 +136,7 @@ func _init_main_rope() -> void:
 	rope_physics.clear()
 
 	var inner_r := _get_inner_radius() + _get_tube_margin()
-	var outer_r := _get_outer_radius() - _get_tube_margin()
+	var outer_r := _get_outer_radius() - _get_tube_margin() * 2 # Allow jumping over some broken shortcut walls
 
 	rope_physics.inner_radius = inner_r
 	rope_physics.outer_radius = outer_r
@@ -167,7 +167,7 @@ func _generate_shortcuts(used_anchors: Array[int]) -> void:
 		return
 
 	for i in range(total_shortcuts):
-		var rng := _make_rng(i * 7919)
+		var rng := _make_rng(_get_seed() + i * 7919)
 
 		# --- Pick start and end anchors with gap enforcement ---
 		var anchor_start := -1
@@ -199,11 +199,11 @@ func _generate_shortcuts(used_anchors: Array[int]) -> void:
 		used_anchors.append(anchor_start)
 		used_anchors.append(anchor_end)
 
-		# --- Compute segment count from chord distance ---
-		var chord := main_positions[anchor_start].distance_to(main_positions[anchor_end])
-		var segments := maxi(3, roundi(chord * segment_density / rope_physics.segment_length))
+		# --- Compute segment count from main rope distance ---
+		var main_rope_nodes := anchor_end - anchor_start
+		var shortcut_nodes := maxi(10, int(main_rope_nodes * segment_density))
 
-		rope_physics.add_shortcut(anchor_start, anchor_end, segments)
+		rope_physics.add_shortcut(anchor_start, anchor_end, shortcut_nodes)
 
 # ── Phase 3: Relax ────────────────────────────────────────────────────────
 

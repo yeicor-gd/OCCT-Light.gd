@@ -430,7 +430,8 @@ static func _apply_junction_cuts(
 						OclBoolOptions.new(),
 						result[0],
 					) as OclCore.status
-					assert(status == OclCore.OK, "junction cut failed: %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
+					if status != OclCore.OK: # Continue anyway to clean things up:
+						push_warning("junction cut failed: %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
 
 			# The cut may completely miss the original object causing no changes.
 			# When the cutter misses, AddWithHistory returns the same root node ID,

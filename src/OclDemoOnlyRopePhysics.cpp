@@ -288,6 +288,16 @@ int OclDemoOnlyRopePhysics::find_main_node_at_fraction(float fraction) const {
 	return std::clamp((int)std::round(fraction * (main_n - 1)), 0, main_n - 1);
 }
 
+int OclDemoOnlyRopePhysics::get_shortcut_start_anchor(int idx) const {
+	if (idx < 0 || idx >= (int)anchor_start_.size()) return -1;
+	return anchor_start_[idx];
+}
+
+int OclDemoOnlyRopePhysics::get_shortcut_end_anchor(int idx) const {
+	if (idx < 0 || idx >= (int)anchor_end_.size()) return -1;
+	return anchor_end_[idx];
+}
+
 // ---------------------------------------------------------------------------
 // Constraint solvers
 // ---------------------------------------------------------------------------
@@ -610,10 +620,13 @@ void OclDemoOnlyRopePhysics::solve_radial_flattening() {
 			float inv_r = fast_rsqrt(r_sq);
 			float r = r_sq * inv_r;
 
-			// Average radius of neighbours — Laplacian smooth on the radial component.
+			// Wider Laplacian smooth on the radial component (4-point stencil)
+			// to suppress high-frequency radial oscillation more aggressively.
 			float r_prev = nd[rope.start + i - 1].pos.length();
 			float r_next = nd[rope.start + i + 1].pos.length();
-			float target_r = (r_prev + r_next) * 0.5f;
+			float r_prev2 = (i >= 2) ? nd[rope.start + i - 2].pos.length() : r_prev;
+			float r_next2 = (i + 2 < rope.count) ? nd[rope.start + i + 2].pos.length() : r_next;
+			float target_r = (r_prev + r_next + r_prev2 + r_next2) * 0.25f;
 
 			float err = target_r - r;
 			if (fast_abs(err) < 0.000001f) continue;
@@ -629,6 +642,7 @@ void OclDemoOnlyRopePhysics::solve_radial_flattening() {
 }
 
 void OclDemoOnlyRopePhysics::solve_endpoint_tangent(int anchor_index, int node_index, float target_dist, float blending) {
+	(void)target_dist;
 	const Node &anchor = nodes_[anchor_index];
 	Node &node = nodes_[node_index];
 
@@ -638,61 +652,56 @@ void OclDemoOnlyRopePhysics::solve_endpoint_tangent(int anchor_index, int node_i
 	float inv_r = 1.0f / len_r;
 	float rnx = ax * inv_r, rny = ay * inv_r, rnz = az * inv_r;
 
-	float tx = node.pos.x - ax;
-	float ty = node.pos.y - ay;
-	float tz = node.pos.z - az;
-	float dot = tx * rnx + ty * rny + tz * rnz;
-	tx -= rnx * dot;
-	ty -= rny * dot;
-	tz -= rnz * dot;
+	// Radial component of displacement from anchor
+	float dx = node.pos.x - ax;
+	float dy = node.pos.y - ay;
+	float dz = node.pos.z - az;
+	float radial_comp = dx * rnx + dy * rny + dz * rnz;
 
-	float t_len_sq = tx * tx + ty * ty + tz * tz;
-	if (t_len_sq < 0.000001f) {
-		return;
-	}
-
-	float inv_t = fast_rsqrt(t_len_sq);
-	float nx = tx * inv_t, ny = ty * inv_t, nz = tz * inv_t;
-	float target_x = ax + nx * target_dist;
-	float target_y = ay + ny * target_dist;
-	float target_z = az + nz * target_dist;
-
-	node.pos.x += (target_x - node.pos.x) * blending;
-	node.pos.y += (target_y - node.pos.y) * blending;
-	node.pos.z += (target_z - node.pos.z) * blending;
+	// Only remove the radial component — project the node onto the tangent
+	// plane at the anchor.  Direction and distance along the plane are left to
+	// the bend and length constraints, so this never fights them.
+	node.pos.x -= rnx * radial_comp * blending;
+	node.pos.y -= rny * radial_comp * blending;
+	node.pos.z -= rnz * radial_comp * blending;
 }
 
 void OclDemoOnlyRopePhysics::solve_endpoint_tangents() {
 	const float flatness = endpoint_flatness_ * strength_;
 	const int main_count = ropes_.empty() ? (int)nodes_.size() : ropes_[0].start + ropes_[0].count;
-	const int range = std::min(endpoint_flatness_passes_, (main_count - 2) / 2);
+	const int range = std::min(endpoint_levels_, (main_count - 2) / 2);
 	if (range <= 0 && anchor_start_.empty()) return;
-	// Main rope endpoints
-		for (int k = 1; k <= range; k++) {
-			float t = (float)k / (float)std::max(range, 1);
-			float fade = flatness * (1.0f - t * t);
-			solve_endpoint_tangent(0, k, k * segment_length_, fade);
-			solve_endpoint_tangent(main_count - 1, main_count - 1 - k, k * segment_length_, fade);
-		}
-		// Main rope flatness at shortcut anchor points
-		for (int s = 0; s < (int)anchor_start_.size(); s++) {
-			for (int side = 0; side < 2; side++) {
-				int ai = (side == 0) ? anchor_start_[s] : anchor_end_[s];
-				for (int k = 1; k <= range; k++) {
-					float t = (float)k / (float)std::max(range, 1);
-					float fade = flatness * (1.0f - t * t);
-					if (ai - k >= 0)
-						solve_endpoint_tangent(ai, ai - k, k * segment_length_, fade);
-					if (ai + k < main_count)
-						solve_endpoint_tangent(ai, ai + k, k * segment_length_, fade);
-				}
+
+	// Main-rope endpoint radial consistency — keep nodes near the pinned
+	// endpoints at a similar radius, preventing segment stretching without
+	// flattening the rope's curvature.  Uses tangent-plane projection at
+	// very low strength (0.15x) so the bend constraint still dominates.
+	{
+		int start_idx = 0;
+		int end_idx = main_count - 1;
+		for (int side = 0; side < 2; side++) {
+			int ai = (side == 0) ? start_idx : end_idx;
+			int first = (side == 0) ? 1 : main_count - 2;
+			int dir = (side == 0) ? 1 : -1;
+			for (int i = 0; i < range; i++) {
+				int idx = first + dir * i;
+				if (idx <= 0 || idx >= main_count - 1) break;
+				float t = (float)(i + 1) / (float)std::max(range, 1);
+				float fade = 0.15f * flatness * (1.0f - t * t);
+				solve_endpoint_tangent(ai, idx, (i + 1) * segment_length_, fade);
 			}
 		}
-		// Shortcut endpoints — depart perpendicular to both radial
-		// and the main-rope tangent so the ball can pick either path.
+	}
+
+	// Shortcut endpoints — enforce perpendicular departure from the main rope.
+		// Uses a directional constraint: for each shortcut node near the anchor,
+		// the component of its displacement that is perpendicular to the desired
+		// departure direction (cross(radial, tangent)) is removed.  This only
+		// rotates the segment direction without changing its length, so it does
+		// not fight the length constraint.
 		for (int s = 0; s < (int)anchor_start_.size(); s++) {
 			const Rope &rope = ropes_[1 + s];
-			int shortcut_range = std::min(range, rope.count - 2);
+			int shortcut_range = std::min(std::max(range, endpoint_levels_), rope.count - 2);
 			if (shortcut_range <= 0) continue;
 
 			for (int side = 0; side < 2; side++) {
@@ -734,11 +743,20 @@ void OclDemoOnlyRopePhysics::solve_endpoint_tangents() {
 
 				for (int k = 1; k <= shortcut_range; k++) {
 					float t = (float)k / (float)std::max(shortcut_range, 1);
-					float fade = flatness * (1.0f - t * t);
+					float fade = 0.4f * flatness * (1.0f - t * t);
 					Node &node = nodes_[base + ndir * k];
-					node.pos.x += (ap.x + depart.x * k * segment_length_ - node.pos.x) * fade;
-					node.pos.y += (ap.y + depart.y * k * segment_length_ - node.pos.y) * fade;
-					node.pos.z += (ap.z + depart.z * k * segment_length_ - node.pos.z) * fade;
+
+					// Decompose displacement from anchor
+					Vector3 disp = node.pos - ap;
+					float radial_comp = disp.dot(radial);
+					// Tangential component (in the shell tangent plane)
+					Vector3 tang = disp - radial * radial_comp;
+					// Remove the component perpendicular to the departure direction
+					float dep_comp = tang.dot(depart);
+					Vector3 perp = tang - depart * dep_comp;
+					node.pos.x -= perp.x * fade;
+					node.pos.y -= perp.y * fade;
+					node.pos.z -= perp.z * fade;
 				}
 			}
 		}
@@ -750,7 +768,6 @@ void OclDemoOnlyRopePhysics::pin_anchors() {
 		const Rope &main = ropes_[0];
 		nodes_[main.start + main.count - 1].pos = fixed_end_;
 	}
-	const int main_count = ropes_.empty() ? (int)nodes_.size() : ropes_[0].count;
 	const float smooth = anchor_smoothing_stiffness_ * strength_;
 	// --- Bidirectional anchor coupling + neighbourhood smoothing ---
 	for (int s = 0; s < (int)anchor_start_.size(); s++) {
@@ -758,54 +775,16 @@ void OclDemoOnlyRopePhysics::pin_anchors() {
 		int as = anchor_start_[s];
 		int ae = anchor_end_[s];
 
-		if (rope.count >= 3) {
-			// Start side: average first inner node ↔ main rope anchor
-			int first_inner = rope.start + 1;
-			Vector3 avg_s = project_to_shell((nodes_[first_inner].pos + nodes_[as].pos) * 0.5f);
-			nodes_[first_inner].pos = avg_s;
-			nodes_[as].pos = avg_s;
-
-			// End side: average last inner node ↔ main rope anchor
-			int last_inner = rope.start + rope.count - 2;
-			Vector3 avg_e = project_to_shell((nodes_[last_inner].pos + nodes_[ae].pos) * 0.5f);
-			nodes_[last_inner].pos = avg_e;
-			nodes_[ae].pos = avg_e;
-		}
-
-		// Re-pin shortcut endpoints to (now possibly moved) main rope anchors
+		// Re-pin shortcut endpoints to main rope anchors
 		nodes_[rope.start].pos = nodes_[as].pos;
 		nodes_[rope.start + rope.count - 1].pos = nodes_[ae].pos;
 
-		// --- Neighbourhood smoothing: spread the anchor displacement so
-		// the bend constraint can keep the curve smooth.  Without this the
-		// coupling average creates a sharp kink at the anchor node.
-		// A distance-weighted (quadratic) falloff ensures the kink is
-		// absorbed near the anchor rather than merely pushed outward.
+		// --- Shortcut rope neighbourhood smoothing: absorb the kink
+		// where the shortcut meets the anchor.  The pinned endpoint
+		// (inv_mass = 0) is already at the anchor position; the first
+		// inner node is smoothed toward its neighbours to create a
+		// natural departure curve.
 		if (smooth > 0.0f && anchor_smoothing_levels_ > 0) {
-			// Main rope: Laplacian-smooth nodes within levels of each anchor
-			for (int side = 0; side < 2; side++) {
-				int anchor = (side == 0) ? as : ae;
-				for (int k = -anchor_smoothing_levels_; k <= anchor_smoothing_levels_; k++) {
-					int idx = anchor + k;
-					if (idx < 1 || idx >= main_count - 1) continue;
-					if (nodes_[idx].inv_mass == 0.0f) continue;
-					int dist = fast_abs(k);
-					float fade = 1.0f - (float)dist / (float)(anchor_smoothing_levels_ + 1);
-					fade *= fade;
-					float node_smooth = smooth * fade;
-					if (node_smooth < 1e-6f) continue;
-					Vector3 nb = Vector3();
-					int cnt = 0;
-					if (idx > 0) { nb += nodes_[idx - 1].pos; cnt++; }
-					if (idx < main_count - 1) { nb += nodes_[idx + 1].pos; cnt++; }
-					if (cnt > 0) {
-						nb /= (float)cnt;
-						nodes_[idx].pos = project_to_shell(
-								nodes_[idx].pos + (nb - nodes_[idx].pos) * node_smooth);
-					}
-				}
-			}
-			// Shortcut rope: smooth near its own endpoints
 			if (rope.count >= 3) {
 				for (int side = 0; side < 2; side++) {
 					int base = (side == 0) ? rope.start + 1 : rope.start + rope.count - 2;
@@ -1016,6 +995,10 @@ void OclDemoOnlyRopePhysics::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_endpoint_flatness_passes", "value"), &OclDemoOnlyRopePhysics::set_endpoint_flatness_passes);
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "endpoint_flatness_passes", PROPERTY_HINT_RANGE, "0,50,1"), "set_endpoint_flatness_passes", "get_endpoint_flatness_passes");
 
+	ClassDB::bind_method(D_METHOD("get_endpoint_levels"), &OclDemoOnlyRopePhysics::get_endpoint_levels);
+	ClassDB::bind_method(D_METHOD("set_endpoint_levels", "value"), &OclDemoOnlyRopePhysics::set_endpoint_levels);
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "endpoint_levels", PROPERTY_HINT_RANGE, "0,50,1"), "set_endpoint_levels", "get_endpoint_levels");
+
 	ClassDB::bind_method(D_METHOD("get_inner_radius"), &OclDemoOnlyRopePhysics::get_inner_radius);
 	ClassDB::bind_method(D_METHOD("set_inner_radius", "value"), &OclDemoOnlyRopePhysics::set_inner_radius);
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "inner_radius", PROPERTY_HINT_RANGE, "0,10000,0.01"), "set_inner_radius", "get_inner_radius");
@@ -1076,4 +1059,6 @@ void OclDemoOnlyRopePhysics::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_rope_count"), &OclDemoOnlyRopePhysics::get_rope_count);
 	ClassDB::bind_method(D_METHOD("get_rope_positions", "rope_index"), &OclDemoOnlyRopePhysics::get_rope_positions);
 	ClassDB::bind_method(D_METHOD("find_main_node_at_fraction", "fraction"), &OclDemoOnlyRopePhysics::find_main_node_at_fraction);
+	ClassDB::bind_method(D_METHOD("get_shortcut_start_anchor", "idx"), &OclDemoOnlyRopePhysics::get_shortcut_start_anchor);
+	ClassDB::bind_method(D_METHOD("get_shortcut_end_anchor", "idx"), &OclDemoOnlyRopePhysics::get_shortcut_end_anchor);
 }

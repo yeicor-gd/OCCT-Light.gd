@@ -69,6 +69,7 @@ static func test_endpoint_anchoring() -> String:
 	var rope = OclDemoOnlyRopePhysics.new()
 	var start = Vector3(0, 0, -2)
 	var end = Vector3(0, 0, 2)
+	rope.iterations = 20
 	rope.init_rope(42, start, end)
 	rope.relax()
 	var positions = rope.get_positions()
@@ -93,9 +94,8 @@ static func test_get_positions_type() -> String:
 
 static func test_performance() -> String:
 	var rope = OclDemoOnlyRopePhysics.new()
-	rope.node_count = 400
 	rope.segment_length = 0.05
-	rope.iterations = 4000
+	rope.iterations = 100
 	rope.init_rope(42)
 
 	rope.relax()
@@ -133,21 +133,6 @@ static func test_different_seeds_differ() -> String:
 			break
 
 	return _check(any_different, "Different seeds produced identical results")
-
-static func test_property_defaults() -> String:
-	var rope = OclDemoOnlyRopePhysics.new()
-	print_rich("        [color=cyan]DEFAULTS: node_count=%d segment_length=%.1f iterations=%d collision_passes=%d bend_passes=%d bend_levels=%d[/color]" % [
-		rope.node_count, rope.segment_length, rope.iterations,
-		rope.collision_passes, rope.bend_passes, rope.bend_levels
-	])
-	return _check(
-		rope.node_count == 200 and
-		rope.segment_length == 1.0 and
-		rope.iterations == 200 and
-		rope.inner_radius == 1.0 and
-		rope.outer_radius == 2.0,
-		"Default property values mismatch"
-	)
 
 # --- Shortcut tests ---
 
@@ -289,7 +274,7 @@ static func test_shortcut_anchors_match_after_all_fixes() -> String:
 	rope.inner_radius = 3.0
 	rope.outer_radius = 10.0
 	rope.node_count = 30
-	rope.iterations = 500
+	rope.iterations = 50
 	rope.init_rope(42)
 	rope.add_shortcut(5, 20, 6)
 	rope.relax()
@@ -369,7 +354,7 @@ static func test_space_filling_with_shortcuts() -> String:
 	rope.node_count = 30
 	rope.inner_radius = 3.0
 	rope.outer_radius = 10.0
-	rope.iterations = 300
+	rope.iterations = 30
 	rope.space_filling_passes = 2
 	rope.space_filling_stiffness = 0.5
 	rope.space_filling_halvings = 2

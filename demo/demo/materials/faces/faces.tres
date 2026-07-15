@@ -1,0 +1,26 @@
+[gd_resource type="StandardMaterial3D" format=3 uid="uid://c23eanwhxvlbu"]
+
+[ext_resource type="Shader" uid="uid://dakevh28l3dkw" path="res://demo/materials/faces/face_arrows.gdshader" id="1_sr3qo"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_06u5y"]
+render_priority = 0
+shader = ExtResource("1_sr3qo")
+shader_parameter/arrow_color = Color(0.15, 1, 0.15, 1)
+shader_parameter/emission_strength = 2.0
+shader_parameter/speed = -2.0
+shader_parameter/direction = 1.0
+shader_parameter/uv_meters_along = 25.0
+shader_parameter/row_spacing_meters = 15.0
+shader_parameter/column_count = 1.0
+shader_parameter/column_offset = 0.0
+shader_parameter/column_spacing = 1.0
+shader_parameter/chevron_width = 0.2
+shader_parameter/chevron_height = 0.6
+shader_parameter/line_width = 0.02
+shader_parameter/align_start = 0.0
+shader_parameter/align_end = 1.0
+
+[resource]
+render_priority = -2
+next_pass = SubResource("ShaderMaterial_06u5y")
+albedo_color = Color(0.7657197, 0.7657191, 7.70092e-07, 1)

@@ -28,4 +28,4 @@ func respawn():
 func _sync_from_parent():
 	var parent = get_parent_node_3d()
 	if parent is MazeGenerator:
-		transform.origin = (parent.maze_outer_radius - parent.ball_radius) * Vector3.BACK
+		transform.origin = (parent.maze_outer_radius - parent.ball_radius/parent.ball_to_path_min_ratio.y * 2.0) * Vector3.BACK
