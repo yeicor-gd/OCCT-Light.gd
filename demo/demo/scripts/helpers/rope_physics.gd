@@ -20,9 +20,9 @@ var outer_radius := 2.0
 var collision_radius := 0.35
 
 @export var endpoint_flatness := 0.5
-@export var endpoint_flatness_passes := 2
+@export var endpoint_flatness_passes := 5
 
-@export var radial_bias := 0.1
+@export var radial_bias := 0.8
 
 class RopeNode:
 
@@ -32,7 +32,7 @@ class RopeNode:
 	func _init(position: Vector3, pinned := false):
 		pos = position
 		inv_mass = 0.0 if pinned else 1.0
-		
+
 var nodes: Array[RopeNode] = []
 
 var spatial_hash := SpatialHash.new(collision_radius)
@@ -54,14 +54,14 @@ class SpatialHash:
 
 	func clear():
 		cells.clear()
-	
+
 	static func _key(cell: Vector3i) -> int:
 		return (
 			cell.x * 73856093
 			^ cell.y * 19349663
 			^ cell.z * 83492791
 		)
-	
+
 	func _cell(position: Vector3) -> Vector3i:
 		return Vector3i(
 			floori(position.x / cell_size),
@@ -138,7 +138,7 @@ func init_rope(
 		nodes.append(RopeNode.new(p))
 
 	nodes.append(RopeNode.new(fixed_end, true))
-	
+
 	bend_rest_length = segment_length * 2.0
 
 func _find_next_position(from: Vector3) -> Vector3:

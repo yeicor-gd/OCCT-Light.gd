@@ -295,9 +295,11 @@ static func _compute_cutter_section(
 		return [0, 0]
 	var baked_len := other_curve.get_baked_length()
 	var avg_seg_len := baked_len / float(num_segments)
-	var segments_each_side := int(ceil(pathway_half_width / avg_seg_len)) # + 1
+	# +1 buffer ensures the cutter extends far enough through the junction to
+	# fully penetrate both sides of the main wall, even with short segments.
+	var segments_each_side := int(ceil(pathway_half_width / avg_seg_len) + 1)
 	var seg_start := maxi(0, center_segment - segments_each_side)
-	var seg_end := mini(num_segments, center_segment + segments_each_side) #  + 1
+	var seg_end := mini(num_segments, center_segment + segments_each_side)
 	return [seg_start, seg_end]
 
 
@@ -500,10 +502,14 @@ static func _worker_build_chunk(
 	var add_end_cap := do_end_caps and is_last_chunk and not is_shortcut
 
 	# Filter junctions to those whose cutter tube may overlap this chunk.
-	# Margin: the cutter tube extends ~pathway_hw from the junction point.
+	# The cutter tube extends ~pathway_hw perpendicular to the OTHER path.
+	# At the junction, this projects onto THIS path as pathway_hw / sin(angle),
+	# which can be much larger for shallow angles.  Factor 3 covers angles
+	# down to ~20°; secondary concern is not cutting too many chunks.
 	var chunk_junctions: Array = []
 	if not pair_junctions_to_clean.is_empty():
-		var margin_frac := cfg.ball_radius / cfg.ball_to_path_min_ratio.x / path_curve.get_baked_length()
+		var pathway_hw := cfg.ball_radius / cfg.ball_to_path_min_ratio.x + cfg.wall_thickness
+		var margin_frac := 3.0 * pathway_hw / path_curve.get_baked_length()
 		var chunk_start_frac := float(chunk.start_segment) / float(path_curve.point_count - 1)
 		var chunk_end_frac := float(chunk.end_segment) / float(path_curve.point_count - 1)
 		for junc in pair_junctions_to_clean:
@@ -564,9 +570,7 @@ static func _build_and_extract(
 	var chunker := ChunkBuilder.new()
 	chunker.debug_fuse_junctions = pdebug_fuse_junctions
 	var graphs := chunker.build_chunk_graphs(chunk, path_curve, aux_curve, cfg, fancy, do_main_path, add_start_cap, add_end_cap, chunk_junctions)
-	if graphs.is_empty():
-		push_error("OclMeshBuilder: build_chunk_graphs returned empty")
-		return graphs
+	assert(not graphs.is_empty(), "OclMeshBuilder: build_chunk_graphs returned empty")
 
 	for graph_i in range(graphs.size()):
 		var graph := graphs[graph_i]

@@ -64,6 +64,30 @@ public:
 	float get_collision_radius() const { return collision_radius_; }
 	void set_collision_radius(float v) { collision_radius_ = v; }
 
+	int get_space_filling_passes() const { return space_filling_passes_; }
+	void set_space_filling_passes(int v) { space_filling_passes_ = v; }
+
+	float get_space_filling_stiffness() const { return space_filling_stiffness_; }
+	void set_space_filling_stiffness(float v) { space_filling_stiffness_ = v; }
+
+	int get_space_filling_halvings() const { return space_filling_halvings_; }
+	void set_space_filling_halvings(int v) { space_filling_halvings_ = v; }
+
+	int get_radial_flattening_passes() const { return radial_flattening_passes_; }
+	void set_radial_flattening_passes(int v) { radial_flattening_passes_ = v; }
+
+	float get_radial_flattening_stiffness() const { return radial_flattening_stiffness_; }
+	void set_radial_flattening_stiffness(float v) { radial_flattening_stiffness_ = v; }
+
+	float get_strength() const { return strength_; }
+	void set_strength(float v) { strength_ = v; }
+
+	float get_anchor_smoothing_stiffness() const { return anchor_smoothing_stiffness_; }
+	void set_anchor_smoothing_stiffness(float v) { anchor_smoothing_stiffness_ = v; }
+
+	int get_anchor_smoothing_levels() const { return anchor_smoothing_levels_; }
+	void set_anchor_smoothing_levels(int v) { anchor_smoothing_levels_ = v; }
+
 	// --- Public API ---
 	void clear();
 	void init_rope(int64_t _seed, Vector3 start = Vector3(-1, 0, 0), Vector3 end = Vector3(1, 0, 0));
@@ -92,21 +116,29 @@ private:
 	// Configuration
 	int node_count_ = 200;
 	float segment_length_ = 1.0f;
-	int iterations_ = 2000;
+	int iterations_ = 200;
 	int init_attempts_ = 10;
-	int bend_passes_ = 2;
+	int bend_passes_ = 12;
 	float bend_stiffness_ = 0.8f;
 	int bend_levels_ = 4;
-	int collision_passes_ = 2;
+	int collision_passes_ = 6;
 	float collision_stiffness_ = 0.8f;
 	float endpoint_flatness_ = 0.5f;
-	int endpoint_flatness_passes_ = 2;
-	float radial_bias_ = 0.1f;
+	int endpoint_flatness_passes_ = 6;
 	float inner_radius_ = 1.0f;
 	float outer_radius_ = 2.0f;
 	float collision_radius_ = 0.35f;
 	float inner_radius_sq_ = 1.0f;
 	float outer_radius_sq_ = 4.0f;
+	int space_filling_passes_ = 10;
+	float space_filling_stiffness_ = 0.8f;
+	int space_filling_halvings_ = 2;
+	float radial_bias_ = 0.1f;
+	int radial_flattening_passes_ = 8;
+	float radial_flattening_stiffness_ = 0.8f;
+	float strength_ = 1.0f;
+	float anchor_smoothing_stiffness_ = 0.8f;
+	int anchor_smoothing_levels_ = 5;
 
 	// Simulation state
 	std::vector<Node> nodes_;
@@ -125,9 +157,7 @@ private:
 	std::vector<int> cell_data_;
 	std::vector<int> grid_used_;
 	std::vector<uint32_t> bifurcation_mask_;
-
-	// Profiling
-	int64_t last_collision_checks_ = 0;
+	std::vector<int> node_rope_;  // per-node: rope index (for min_sep skip)
 
 	// Internal methods
 	float randf();
@@ -140,10 +170,14 @@ private:
 	void solve_shell_constraints();
 	void solve_bend_distance(int a, int b, float rest_length);
 	void solve_self_collisions();
+	void solve_repulsion(float radius, float stiffness);
+	void solve_space_filling();
+	void solve_radial_flattening();
 	void solve_endpoint_tangents();
 	void solve_endpoint_tangent(int anchor, int node_idx, float target_dist, float blending);
 	void pin_anchors();
-	void solve_rope_constraints(int rope_start, int rope_count, float sl, float sl_sq, float bend_stiff);
+	void solve_length_constraints(int rope_start, int rope_count, float sl, float sl_sq);
+	void solve_bend_pass(int rope_start, int rope_count, float sl, float bend_stiff);
 	void project_rope_nodes(int rope_start, int rope_count);
 };
 

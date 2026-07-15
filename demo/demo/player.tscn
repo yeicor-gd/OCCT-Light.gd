@@ -7,13 +7,18 @@
 
 [sub_resource type="SphereShape3D" id="SphereShape3D_0e071"]
 
+[sub_resource type="SphereShape3D" id="SphereShape3D_ft0jy"]
+radius = 0.55
+
 [node name="Player" type="Node3D" unique_id=1584742121]
 script = ExtResource("1_uuw2b")
 
 [node name="Ball" type="RigidBody3D" parent="." unique_id=766000929 node_paths=PackedStringArray("camera_rig")]
 script = ExtResource("1_2bd7h")
-acceleration = 9.81
-max_speed = 9.81
+acceleration = 10.0
+max_speed = 5.0
+jump_impulse = 3.0
+air_torque = 2.0
 camera_rig = NodePath("../CameraRig")
 
 [node name="CSGSphere3D" type="CSGSphere3D" parent="Ball" unique_id=582683701]
@@ -23,6 +28,10 @@ rings = 24
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="Ball" unique_id=954789459]
 shape = SubResource("SphereShape3D_0e071")
+
+[node name="GroundCast" type="ShapeCast3D" parent="Ball" unique_id=1170562397]
+shape = SubResource("SphereShape3D_ft0jy")
+target_position = Vector3(0, 0, 0)
 
 [node name="CameraRig" type="Node3D" parent="." unique_id=490886763 node_paths=PackedStringArray("target")]
 script = ExtResource("2_yff8i")

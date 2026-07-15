@@ -16,9 +16,9 @@ class_name MazeGenerator
 @export_group("Maze Dimensions")
 
 ## Outer radius of the spherical shell.
-@export_range(1.0, 50.0) var maze_outer_radius := 10.0
+@export_range(1.0, 50.0) var maze_outer_radius := 15.0
 ## Inner radius of the spherical shell (central void).
-@export_range(0.0, 5.0) var maze_inner_radius := 2.0
+@export_range(0.0, 25.0) var maze_inner_radius := 10.0
 ## Radius of the ball that will traverse the maze.
 @export_range(0.1, 2.0) var ball_radius := 1.0
 ## Minimum ratio of path width and height to ball radius.

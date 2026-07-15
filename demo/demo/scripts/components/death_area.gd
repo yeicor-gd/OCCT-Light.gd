@@ -14,6 +14,7 @@ func _ready():
 		add_child(timer)
 		timer.start(0.0)
 	else:
+		_sync_from_parent()
 		visible = true
 
 func _sync_from_parent():

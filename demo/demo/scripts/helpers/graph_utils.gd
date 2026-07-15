@@ -241,7 +241,10 @@ static func _dump_face(graph, face:int, indent:String, visited, do_print: bool =
 		outer
 	) as OclCore.status
 
-	assert(st == OclCore.OK, "Got status %s - %s" % [OclCore.status_to_string(st), var_to_str(OclCore.error_last())])
+	if st != OclCore.OK:
+		if do_print:
+			print(indent, "Face ", face, " (no outer wire - ", OclCore.status_to_string(st), ")")
+		outer.bits = 0  # Continue traversing wires even without a valid outer wire.
 
 	if do_print:
 		print(indent, "Face ", face)
@@ -384,23 +387,11 @@ static func _dump_orphans(graph, visited):
 
 				print("   ", id)
 
-## Deletes every orphan node whose kind is present in `kinds`.
-##
-## A node is considered an orphan if it is not reachable from any solid
-## through the topology hierarchy.
-##
-## Example:
-##     delete_orphans(graph, [
-##         OclCore.KIND_EDGE,
-##         OclCore.KIND_WIRE,
-##     ])
-##
-## Returns the number of nodes successfully removed.
-static func delete_orphans(
+
+static func collect_kinds(
 	graph: OclGraphHandle,
-	roots: Array[OclCore.node_kind],
 	kinds: Array[OclCore.node_kind],
-) -> int:
+) -> Dictionary:
 	var visited := {
 		"solid": {},
 		"shell": {},
@@ -412,7 +403,7 @@ static func delete_orphans(
 	}
 
 	# Traverse every solid exactly like dump_graph_tree().
-	for kind in roots:
+	for kind in kinds:
 		match kind:
 			OclCore.KIND_SOLID:
 				for id in _collect_ids(graph, kind):
@@ -433,6 +424,27 @@ static func delete_orphans(
 			OclCore.KIND_EDGE:
 				for id in _collect_ids(graph, kind):
 					_dump_edge(graph, id, "", visited, false)
+	
+	return visited
+
+## Deletes every orphan node whose kind is present in `kinds`.
+##
+## A node is considered an orphan if it is not reachable from any solid
+## through the topology hierarchy.
+##
+## Example:
+##     delete_orphans(graph, [
+##         OclCore.KIND_EDGE,
+##         OclCore.KIND_WIRE,
+##     ])
+##
+## Returns the number of nodes successfully removed.
+static func delete_orphans(
+	graph: OclGraphHandle,
+	roots: Array[OclCore.node_kind],
+	kinds: Array[OclCore.node_kind],
+) -> int:
+	var visited := collect_kinds(graph, roots)
 
 	var removed := 0
 

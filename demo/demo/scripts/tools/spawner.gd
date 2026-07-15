@@ -2,7 +2,7 @@
 extends Node3D
 class_name Spawner
 
-var PlayerScene := preload("res://demo/player.tscn")
+@export var PlayerScene: PackedScene
 var current_player: Player = null
 
 func _ready():

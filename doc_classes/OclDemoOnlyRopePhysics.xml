@@ -1,0 +1,175 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="OclDemoOnlyRopePhysics" inherits="Resource" version="4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/godotengine/godot/master/doc/class.xsd">
+	<brief_description>Position-based rope dynamics on a spherical shell.</brief_description>
+	<description>
+		Implicit-surface rope solver that lays ropes on a thick spherical shell defined by [member inner_radius] and [member outer_radius]. Ropes are initialised with a random walk, then relaxed through iterative constraint solving. Supports multiple shortcut ropes that branch off the main rope at anchor points.
+
+		[b]Usage[/b]: Set shell radii and tuning parameters, call [method init_rope] (optionally followed by [method add_shortcut] one or more times), then call [method relax]. Retrieve final positions with [method get_positions] or [method get_rope_positions].
+
+		[b]Relaxation pipeline[/b] (per iteration):
+		Each iteration uses a precomputed interleaved schedule that distributes all soft constraint passes evenly across the iteration, then finishes with the hard constraints.
+
+		Soft constraints (interleaved via round-robin float-position scheduling):
+		1. [b]Length constraint[/b] — standard PBD even/odd Gauss-Seidel passes (always full strength, 2 passes). Runs once per iteration before the interleaved schedule.
+		2. [b]Bend constraint[/b] — multi-level hierarchical bending constraints that resist sharp curvature at increasing scales. [member bend_passes] passes distributed across the iteration.
+		3. [b]Self-collision[/b] — grid-accelerated repulsion that pushes overlapping nodes apart. [member collision_passes] passes distributed across the iteration.
+		4. [b]Space filling[/b] — repulsion at a reduced radius to spread nodes across the shell surface. [member space_filling_passes] passes distributed across the iteration.
+		5. [b]Endpoint tangents[/b] — forces the first/last few nodes of each rope to depart perpendicular to the radial direction, so the rope lies flat on the shell near anchors. [member endpoint_flatness_passes] passes distributed across the iteration.
+		6. [b]Radial Laplacian smoothing[/b] — for each inner node, averages the radii of its two neighbours and pulls the node radially toward that average. This flattens steep radial ramps between adjacent nodes, producing smoother rope bends without pulling toward a fixed mid-surface.
+
+		Hard constraints (always applied after all soft passes):
+		7. [b]Shell projection[/b] — hard clamp: any node outside [member inner_radius]..[member outer_radius] is projected onto the nearest shell surface.
+		8. [b]Anchor pinning[/b] — endpoint nodes are re-pinned; shortcut anchors are averaged with the main rope and re-projected onto the shell. After coupling, each anchor's neighbourhood (within [member anchor_smoothing_levels] nodes on the main rope and the shortcut rope) is Laplacian-smoothed by [member anchor_smoothing_stiffness] * [member strength] to distribute the displacement and prevent sharp kinks.
+
+		[b]Constraint interaction warnings[/b]:
+		- [member radial_flattening_stiffness] performs radial Laplacian smoothing (average neighbour radii). This naturally flattens steep ramps but will not fight nodes that legitimately sit at different radii. Lower [member radial_flattening_stiffness] if ropes lose intentional radial variation.
+		- [member endpoint_flatness] already removes the radial component of displacement for nodes near endpoints, partially overlapping with radial flattening in that region. This is benign but means endpoint nodes receive double radial correction.
+		- The [member strength] multiplier scales [b]all[/b] constraint stiffness values simultaneously. Setting it above ~1.5 can cause oscillation; below 0.5 slows convergence. Use individual stiffness params for fine-tuning.
+
+		[b]Interleaved scheduling[/b]:
+		All soft constraints are interleaved within each iteration using a float-position round-robin algorithm. The total number of soft passes is computed, and each constraint type's passes are distributed evenly across that range. For example, with bend_passes=4 and radial_passes=2, the schedule becomes: [code][bend, radial, bend, bend, radial, bend][/code]. This prevents any single constraint type from dominating consecutive passes, improving convergence. The length constraint always runs first (full strength, 2 passes) and is not interleaved.
+
+		[b]Performance notes[/b]:
+		- Self-collision uses a uniform grid. Its cost is O(N) per pass regardless of node count, but memory scales as (2R+r)^3 where R = [member outer_radius] and r = [member collision_radius].
+		- Space-filling repulsion reuses the same grid but at a halved radius, so it is cheaper per pair but may need more [member space_filling_passes] for adequate coverage.
+		- [member iterations] is the primary convergence knob. Typical values: 100-500 for a single rope, 200-1000 with shortcuts. Defaults have been tuned for the 200-iteration range with 12 bend passes, 6 collision passes, 10 space-filling passes, 6 endpoint passes, and 8 radial passes per iteration.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="clear">
+			<return type="void" />
+			<description>
+				Removes all nodes, ropes, and shortcuts. Call before [method init_rope] to reset.
+			</description>
+		</method>
+		<method name="init_rope">
+			<return type="void" />
+			<argument index="0" name="_seed" type="int" />
+			<argument index="1" name="start" type="Vector3" default="Vector3(-1, 0, 0)" />
+			<argument index="2" name="end" type="Vector3" default="Vector3(1, 0, 0)" />
+			<description>
+				Initialises the main rope with a random walk from [argument start] to [argument end], projected onto the shell. The walk direction is biased tangentially by [member radial_bias]. The seed controls the pseudo-random sequence (xorshift32). Must be called before [method add_shortcut] or [method relax].
+			</description>
+		</method>
+		<method name="relax">
+			<return type="void" />
+			<description>
+				Runs the iterative constraint solver for [member iterations] passes. Each iteration first applies the length constraint (2 passes, full strength), then interleaves all soft constraints (bend, collision, space-filling, endpoint, radial) using a precomputed round-robin schedule, and finishes with hard shell projection and anchor pinning. All stiffness values are multiplied by [member strength]. Must be called after [method init_rope].
+			</description>
+		</method>
+		<method name="get_positions">
+			<return type="PackedVector3Array" />
+			<description>
+				Returns the position of every node (main rope + shortcuts) as a flat array. Node order matches the internal layout: main rope nodes first, then each shortcut's nodes in order.
+			</description>
+		</method>
+		<method name="is_initialized">
+			<return type="bool" />
+			<description>
+				Returns [code]true[/code] if [method init_rope] has been called and nodes exist.
+			</description>
+		</method>
+		<method name="add_shortcut">
+			<return type="int" />
+			<argument index="0" name="anchor_start" type="int" />
+			<argument index="1" name="anchor_end" type="int" />
+			<argument index="2" name="segments" type="int" />
+			<argument index="3" name="seg_length" type="float" default="-1.0" />
+			<description>
+				Adds a shortcut rope from main-rope node [argument anchor_start] to [argument anchor_end] with [argument segments] inner nodes. Inner nodes are initialised along a great-circle path (slerp) at the average shell radius. Returns the rope index (1 = first shortcut, 2 = second, etc.) or -1 on error. The shortcut shares anchor nodes with the main rope; during [method relax] these are averaged and re-projected onto the shell.
+			</description>
+		</method>
+		<method name="get_rope_count">
+			<return type="int" />
+			<description>
+				Returns the total number of ropes (1 = main only, 2+ = main + shortcuts).
+			</description>
+		</method>
+		<method name="get_rope_positions">
+			<return type="PackedVector3Array" />
+			<argument index="0" name="rope_index" type="int" />
+			<description>
+				Returns node positions for rope [argument rope_index] (0 = main, 1+ = shortcuts).
+			</description>
+		</method>
+		<method name="find_main_node_at_fraction">
+			<return type="int" />
+			<argument index="0" name="fraction" type="float" />
+			<description>
+				Returns the main-rope node index closest to [argument fraction] (0.0 = start, 1.0 = end). Useful for placing objects along the rope at a proportional distance.
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="node_count" type="int" setter="set_node_count" getter="get_node_count" default="200">
+			Total number of nodes in the main rope (including the two pinned endpoints). Higher values give finer resolution but increase solver cost linearly.
+		</member>
+		<member name="segment_length" type="float" setter="set_segment_length" getter="get_segment_length" default="1.0">
+			Target distance between adjacent nodes. The length constraint enforces this spacing. Also controls the random walk step size during initialisation.
+		</member>
+		<member name="iterations" type="int" setter="set_iterations" getter="get_iterations" default="200">
+			Number of constraint-solver iterations in [method relax]. Each iteration applies the length constraint, then interleaves all soft constraints, then applies hard constraints. Typical range: 100-1000. Lower than previous defaults because interleaved scheduling converges faster.
+		</member>
+		<member name="init_attempts" type="int" setter="set_init_attempts" getter="get_init_attempts" default="10">
+			Number of random candidates tried per node during initialisation before accepting the best one. Higher values produce smoother initial paths but slow initialisation.
+		</member>
+		<member name="bend_passes" type="int" setter="set_bend_passes" getter="get_bend_passes" default="12">
+			Number of bend-constraint passes distributed across each iteration via the interleaved schedule. Higher values stiffen the rope against sharp bends. Each pass applies multi-level bending constraints for all ropes.
+		</member>
+		<member name="bend_stiffness" type="float" setter="set_bend_stiffness" getter="get_bend_stiffness" default="0.8">
+			Bending correction strength, scaled by [member strength]. Values above 1.0 over-correct and can cause oscillation. Effective value = [code]bend_stiffness * strength[/code].
+		</member>
+		<member name="bend_levels" type="int" setter="set_bend_levels" getter="get_bend_levels" default="4">
+			Number of hierarchical bend-constraint levels. Level [i] connects nodes [i+1] apart, enforcing smoothness at increasing scales. Higher values resist large-radius curvature.
+		</member>
+		<member name="collision_passes" type="int" setter="set_collision_passes" getter="get_collision_passes" default="6">
+			Number of self-collision repulsion passes distributed across each iteration via the interleaved schedule. Each pass scans all node pairs within [member collision_radius] using a uniform grid.
+		</member>
+		<member name="collision_stiffness" type="float" setter="set_collision_stiffness" getter="get_collision_stiffness" default="0.8">
+			Self-collision correction strength, scaled by [member strength]. Effective value = [code]collision_stiffness * strength[/code].
+		</member>
+		<member name="endpoint_flatness" type="float" setter="set_endpoint_flatness" getter="get_endpoint_flatness" default="0.5">
+			Strength of the endpoint-tangent constraint, scaled by [member strength]. Forces the first/last [member endpoint_flatness_passes] nodes of each rope to depart perpendicular to the radial direction. Effective value = [code]endpoint_flatness * strength[/code].
+		</member>
+		<member name="endpoint_flatness_passes" type="int" setter="set_endpoint_flatness_passes" getter="get_endpoint_flatness_passes" default="6">
+			Number of endpoint-tangent passes distributed across each iteration via the interleaved schedule. Also the number of nodes from each endpoint (and from each shortcut anchor) that are forced to lie flat on the shell. The correction fades quadratically with distance from the anchor.
+		</member>
+		<member name="inner_radius" type="float" setter="set_inner_radius" getter="get_inner_radius" default="1.0">
+			Inner radius of the spherical shell. Nodes are clamped to at least this distance from the origin.
+		</member>
+		<member name="outer_radius" type="float" setter="set_outer_radius" getter="get_outer_radius" default="2.0">
+			Outer radius of the spherical shell. Nodes are clamped to at most this distance from the origin.
+		</member>
+		<member name="collision_radius" type="float" setter="set_collision_radius" getter="get_collision_radius" default="0.35">
+			Minimum distance between non-adjacent nodes. Pairs closer than this are pushed apart by the self-collision solver. Also used to define bifurcation zones near shortcut anchors where same-rope proximity is exempt.
+		</member>
+		<member name="space_filling_passes" type="int" setter="set_space_filling_passes" getter="get_space_filling_passes" default="10">
+			Number of space-filling repulsion passes distributed across each iteration via the interleaved schedule. This solver uses a reduced collision radius (see [member space_filling_halvings]) to spread nodes across the shell surface.
+		</member>
+		<member name="space_filling_stiffness" type="float" setter="set_space_filling_stiffness" getter="get_space_filling_stiffness" default="0.8">
+			Space-filling correction strength, scaled by [member strength]. Effective value = [code]space_filling_stiffness * strength[/code].
+		</member>
+		<member name="space_filling_halvings" type="int" setter="set_space_filling_halvings" getter="get_space_filling_halvings" default="2">
+			Number of times to halve [member collision_radius] for the space-filling solver. At [code]n[/code] halvings the effective radius is [code]outer_radius / 2^n[/code]. Higher values spread nodes more aggressively but may need more [member space_filling_passes].
+		</member>
+		<member name="radial_bias" type="float" setter="set_radial_bias" getter="get_radial_bias" default="0.1">
+			Maximum radial component (as a fraction of the step direction) during random-walk initialisation. A value of 0.0 produces purely tangential steps; higher values allow the walk to move inward/outward more freely. Only affects [method init_rope], not [method relax].
+		</member>
+		<member name="radial_flattening_passes" type="int" setter="set_radial_flattening_passes" getter="get_radial_flattening_passes" default="8">
+			Number of radial-smoothing passes distributed across each iteration via the interleaved schedule. Each pass applies radial Laplacian smoothing: for each inner node, the average radius of its two neighbours is computed and the node is pulled radially toward that average, clamped to the shell bounds.
+		</member>
+		<member name="radial_flattening_stiffness" type="float" setter="set_radial_flattening_stiffness" getter="get_radial_flattening_stiffness" default="0.8">
+			Radial smoothing correction strength, scaled by [member strength]. Effective value = [code]radial_flattening_stiffness * strength[/code]. Performs radial Laplacian smoothing (averages neighbour radii) rather than pulling toward a fixed mid-surface, which naturally flattens steep radial ramps while preserving intentional radial variation. The subsequent hard shell projection ensures nodes stay within the shell.
+		</member>
+		<member name="strength" type="float" setter="set_strength" getter="get_strength" default="1.0">
+			Global multiplier applied to every constraint stiffness during [method relax]. Effective stiffness for each solver = [code]param * strength[/code]. Useful for quick convergence tuning without adjusting individual parameters. Values above ~1.5 may cause oscillation; below 0.5 slows convergence.
+		</member>
+		<member name="anchor_smoothing_stiffness" type="float" setter="set_anchor_smoothing_stiffness" getter="get_anchor_smoothing_stiffness" default="0.8">
+			Neighbourhood smoothing strength applied during anchor pinning, scaled by [member strength]. After the bidirectional coupling average, each anchor's neighbourhood on both the main rope and the shortcut rope is Laplacian-smoothed by this factor to distribute the displacement and prevent sharp kinks. Effective value = [code]anchor_smoothing_stiffness * strength[/code]. Set to 0.0 to disable smoothing (coupling only).
+		</member>
+		<member name="anchor_smoothing_levels" type="int" setter="set_anchor_smoothing_levels" getter="get_anchor_smoothing_levels" default="5">
+			Number of nodes on each side of an anchor that are Laplacian-smoothed during the anchor pinning hard constraint. Higher values spread the anchor displacement over a wider region, producing gentler curvature near shortcut branch points. Applied once per iteration as part of [method pin_anchors].
+		</member>
+	</members>
+</class>
