@@ -123,7 +123,7 @@ static func _iter_ids(iter: OclNodeIterHandle) -> Array[int]:
 	return ids
 
 # Helper: collect node ids of a given kind from a graph
-static func _collect_ids(graph: OclGraphHandle, kind: int) -> Array:
+static func _collect_ids(graph: OclGraphHandle, kind: int) -> Array[int]:
 	var out_iter := OclNodeIterHandle.new()
 	var status: OclCore.status
 	match kind:

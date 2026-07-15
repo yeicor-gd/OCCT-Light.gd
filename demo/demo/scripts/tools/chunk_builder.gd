@@ -133,7 +133,7 @@ func build_chunk_graphs(
 			# Actually sub-sweep for each split
 			for split in splits_profiles:
 				var sweep_result := sweep_with_fallback_to_loft(graph, split["profiles"], split["sub_spine_wire"], split["sub_aux_wire"])
-				if sweep_result.bits == 0:
+				if sweep_result.is_empty():
 					return [] # Assertion failed and error already pushed
 		
 		GraphUtils.delete_orphans(graph, [OclCore.KIND_SHELL], [OclCore.KIND_EDGE, OclCore.KIND_WIRE])
@@ -265,9 +265,9 @@ static func _cut_face_in_half(
 	return half_face
 
 
-static func sweep_with_fallback_to_loft(graph: OclGraphHandle, profiles: Array[OclNodeId], spine: OclNodeId, spine_aux: OclNodeId) -> OclNodeId:
+static func sweep_with_fallback_to_loft(graph: OclGraphHandle, profiles: Array[OclNodeId], spine: OclNodeId, spine_aux: OclNodeId) -> Array[OclNodeId]:
 	var status := OclCore.NOT_DONE
-	var sweep_id := OclNodeId.new()
+	var sweep_ids: Array[OclNodeId] = []
 	if true: # Always try sweep first.
 		var sweep_info := OclPrimPipeShellInfo.new()
 		sweep_info.profiles = PackedInt64Array(profiles.map(func(p: OclNodeId): return p.bits))
@@ -279,17 +279,22 @@ static func sweep_with_fallback_to_loft(graph: OclGraphHandle, profiles: Array[O
 		#sweep_info.with_contact = 1
 		#sweep_info.auxiliary_contact = OclPrimSweep.PIPE_AUX_CONTACT_NONE
 		sweep_info.make_solid = 1
+		var sweep_id := OclNodeId.new()
 		status = OclPrimSweep.pipe_shell(graph, sweep_info, sweep_id) as OclCore.status
+		sweep_ids.append(sweep_id)
 	if status != OclCore.OK:
 		push_warning("Sweep failed (Got status %s - %s), falling back to a ruled loft" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
-		# TODO: Replace with pairwise loft + fuse to avoid crazy rotations due to different orientations from start to end.
-		var loft_info := OclPrimLoftInfo.new()
-		loft_info.is_solid = 1
-		loft_info.ruled = true  # Simple and very rare failures (and don't have to think about profile orientation being mostly vertical)
-		loft_info.sections = profiles.map(func(p: OclNodeId): return p.bits)
-		status = OclPrimSweep.loft(graph, loft_info, sweep_id) as OclCore.status
-		assert(status == OclCore.OK, "Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
-	return sweep_id
+		var solids: Array[OclNodeId] = []
+		for i in range(profiles.size() - 1):
+			var info := OclPrimLoftInfo.new()
+			info.is_solid = 1
+			info.ruled = 1
+			info.sections = PackedInt64Array([profiles[i].bits, profiles[i + 1].bits])
+			var solid := OclNodeId.new()
+			status = OclPrimSweep.loft(graph, info, solid) as OclCore.status
+			assert(status == OclCore.OK, "loft failed: %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
+			sweep_ids.append(solid)
+	return sweep_ids
 
 # -----------------------------------------------------------------------------
 # Junction boolean-cut helpers
@@ -330,21 +335,20 @@ static func _build_inner_cutter_sweep(
 	var all_edge_bits := PackedInt64Array()
 	var all_wire_bits := PackedInt64Array()
 	var cutter_solids: Array[OclNodeId] = []
-	for pair_start in range(len(profiles) - 1):
-		var pair_seg_start := segment_start + pair_start
-		var pair_seg_end := pair_seg_start + 1  # exclusive, covers exactly 1 segment (2 points)
-		var pair_spine_edges: Array[PackedInt64Array] = [PackedInt64Array()]
-		var pair_spine_wire := _build_multi_wire(graph, other_curve, Chunk.new(pair_seg_start, pair_seg_end), pair_spine_edges)
-		var pair_aux_edges: Array[PackedInt64Array] = [PackedInt64Array()]
-		var pair_aux_wire := _build_multi_wire(graph, other_aux_curve, Chunk.new(pair_seg_start, pair_seg_end), pair_aux_edges)
-		var pair_solid := sweep_with_fallback_to_loft(graph, profiles.slice(pair_start, pair_start + 2), pair_spine_wire, pair_aux_wire)
-		if pair_solid.bits == 0:
-			return [[], PackedInt64Array(), PackedInt64Array()] # Assertion failed and error already pushed
-		cutter_solids.append(pair_solid)
-		all_edge_bits.append_array(pair_spine_edges[0])
-		all_edge_bits.append_array(pair_aux_edges[0])
-		all_wire_bits.append(pair_spine_wire.bits)
-		all_wire_bits.append(pair_aux_wire.bits)
+	var pair_seg_start := segment_start
+	var pair_seg_end := segment_end  # exclusive, covers exactly 1 segment (2 points)
+	var pair_spine_edges: Array[PackedInt64Array] = [PackedInt64Array()]
+	var pair_spine_wire := _build_multi_wire(graph, other_curve, Chunk.new(pair_seg_start, pair_seg_end), pair_spine_edges)
+	var pair_aux_edges: Array[PackedInt64Array] = [PackedInt64Array()]
+	var pair_aux_wire := _build_multi_wire(graph, other_aux_curve, Chunk.new(pair_seg_start, pair_seg_end), pair_aux_edges)
+	var pair_solids := sweep_with_fallback_to_loft(graph, profiles, pair_spine_wire, pair_aux_wire)
+	if pair_solids.is_empty():
+		return [[], PackedInt64Array(), PackedInt64Array()] # Assertion failed and error already pushed
+	cutter_solids.append_array(pair_solids)
+	all_edge_bits.append_array(pair_spine_edges[0])
+	all_edge_bits.append_array(pair_aux_edges[0])
+	all_wire_bits.append(pair_spine_wire.bits)
+	all_wire_bits.append(pair_aux_wire.bits)
 
 	return [cutter_solids, all_edge_bits, all_wire_bits]
 
@@ -365,10 +369,11 @@ static func _apply_junction_cuts(
 		return
 
 	# Find the main sweep solid (should be the only solid after the outer sweep).
-	var solid_ids := GraphUtils._collect_ids(graph, OclCore.KIND_SOLID)
-	assert(solid_ids.size() == 1, "main sweep solid (should be the only solid after the outer sweep)")
-	var sweep_solid := OclNodeId.new()
-	sweep_solid.bits = solid_ids[0] as int
+	var sweep_solids: Array[OclNodeId] = []
+	sweep_solids.assign(GraphUtils._collect_ids(graph, OclCore.KIND_SOLID).map(func(i: int): 
+		var r := OclNodeId.new()
+		r.bits = i
+		return r))
 
 	for junc in chunk_junctions:
 		var other_curve: Curve3D = junc["other_curve"]
@@ -391,33 +396,39 @@ static func _apply_junction_cuts(
 		# one pair's topology does not corrupt subsequent pairs.
 		var old_solids: Array[OclNodeId] = []
 		for cutter_id in cutter_solids:
-			var result := OclNodeId.new()
+			var result: Array[OclNodeId] = [OclNodeId.new()]
 			var status: OclCore.status
 			if debug_fuse:
 				status = OclBool.fuse(
 					graph,
-					PackedInt64Array([sweep_solid.bits]),
+					PackedInt64Array(sweep_solids.map(func(n: OclNodeId): return n.bits)),
 					PackedInt64Array([cutter_id.bits]),
 					OclBoolOptions.new(),
-					result,
+					result[0],
 				) as OclCore.status
 				assert(status == OclCore.OK, "junction fuse failed: %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
 			else:
 				# Check first if they intersect
-				var dist := OclDouble.new()
-				status = OclTopoBuild.graph_pair_distance_get(graph, sweep_solid.bits, cutter_id.bits, dist)as OclCore.status
-				assert(status == OclCore.OK, "junction fuse failed: %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
-				if dist.value > 0.0:
+				var do_cut := false
+				for sweep_solid in sweep_solids:
+					var dist := OclDouble.new()
+					status = OclTopoBuild.graph_pair_distance_get(graph, sweep_solid.bits, cutter_id.bits, dist)as OclCore.status
+					if status != OclCore.OK:
+						push_warning("junction graph_pair_distance_get failed (ignoring): %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
+					elif dist.value == 0.0:
+						do_cut = true
+						break
+				if not do_cut:
 					actually_cut = false
-					result = sweep_solid
+					result = sweep_solids
 				else:
 					actually_cut = true
 					status = OclBool.cut(
 						graph,
-						PackedInt64Array([sweep_solid.bits]),
+						PackedInt64Array(sweep_solids.map(func(n: OclNodeId): return n.bits)),
 						PackedInt64Array([cutter_id.bits]),
 						OclBoolOptions.new(),
-						result,
+						result[0],
 					) as OclCore.status
 					assert(status == OclCore.OK, "junction cut failed: %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
 
@@ -425,8 +436,8 @@ static func _apply_junction_cuts(
 			# When the cutter misses, AddWithHistory returns the same root node ID,
 			# so we can detect no-op cuts by comparing node IDs directly.
 			if actually_cut:
-				old_solids.append(sweep_solid)
-			sweep_solid = result
+				old_solids.append_array(sweep_solids)
+			sweep_solids = result
 
 		# Remove cutter solids (only when cutting — keep visible for fuse debug).
 		if not debug_fuse:

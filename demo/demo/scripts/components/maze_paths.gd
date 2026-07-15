@@ -24,14 +24,14 @@ class_name MazePaths
 @export var sharpness := 5.0
 
 ## Lateral offset applied when building auxiliary (binormal) curves.
-@export var aux_offset_amount: float = 1.0
+@export var aux_offset_amount: float = 0.5
 
 # ── Shortcuts ──────────────────────────────────────────────────────────────
 
 @export_group("Shortcuts")
 
-## Number of shortcuts to generate (0 = none, 1–5 typical).
-@export_range(0, 10, 1) var total_shortcuts: int = 3
+## Number of shortcuts to generate (0 = none, 1–3 typical).
+@export_range(0, 10, 1) var total_shortcuts: int = 1
 
 ## Minimum fraction of the main path a shortcut spans (0–1).
 ## A value of 0.2 means the shortcut bypasses at least 20 % of the main rope.
@@ -40,16 +40,16 @@ class_name MazePaths
 ## Maximum fraction of the main path a shortcut spans (0–1).
 ## Must be greater than [member min_span].  The actual span for each shortcut
 ## is drawn uniformly from [min_span, max_span].
-@export_range(0.1, 1.0, 0.01) var max_span: float = 0.6
+@export_range(0.1, 1.0, 0.01) var max_span: float = 0.8
 
 ## Segment count multiplier: how many rope segments per unit of chord
 ## distance between anchors.  Higher values produce smoother shortcut curves
 ## at the cost of more physics work.  A value of 1.0 means roughly one
 ## segment per [member OclDemoOnlyRopePhysics.segment_length].
-@export_range(0.5, 5.0, 0.1) var segment_density: float = 1.5
+@export_range(0.5, 5.0, 0.1) var segment_density: float = 0.8
 
 ## Minimum gap (in main-rope node indices) between any two anchor points.
-## Prevents shortcuts from clustering at the same location.
+## Prevents shortcuts from clustering at the same location (optional).
 @export_range(1, 30, 1) var min_anchor_gap: int = 3
 
 # ── Editor ─────────────────────────────────────────────────────────────────

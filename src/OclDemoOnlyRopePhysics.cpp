@@ -779,6 +779,8 @@ void OclDemoOnlyRopePhysics::pin_anchors() {
 		// --- Neighbourhood smoothing: spread the anchor displacement so
 		// the bend constraint can keep the curve smooth.  Without this the
 		// coupling average creates a sharp kink at the anchor node.
+		// A distance-weighted (quadratic) falloff ensures the kink is
+		// absorbed near the anchor rather than merely pushed outward.
 		if (smooth > 0.0f && anchor_smoothing_levels_ > 0) {
 			// Main rope: Laplacian-smooth nodes within levels of each anchor
 			for (int side = 0; side < 2; side++) {
@@ -787,6 +789,11 @@ void OclDemoOnlyRopePhysics::pin_anchors() {
 					int idx = anchor + k;
 					if (idx < 1 || idx >= main_count - 1) continue;
 					if (nodes_[idx].inv_mass == 0.0f) continue;
+					int dist = fast_abs(k);
+					float fade = 1.0f - (float)dist / (float)(anchor_smoothing_levels_ + 1);
+					fade *= fade;
+					float node_smooth = smooth * fade;
+					if (node_smooth < 1e-6f) continue;
 					Vector3 nb = Vector3();
 					int cnt = 0;
 					if (idx > 0) { nb += nodes_[idx - 1].pos; cnt++; }
@@ -794,7 +801,7 @@ void OclDemoOnlyRopePhysics::pin_anchors() {
 					if (cnt > 0) {
 						nb /= (float)cnt;
 						nodes_[idx].pos = project_to_shell(
-								nodes_[idx].pos + (nb - nodes_[idx].pos) * smooth);
+								nodes_[idx].pos + (nb - nodes_[idx].pos) * node_smooth);
 					}
 				}
 			}
@@ -807,6 +814,10 @@ void OclDemoOnlyRopePhysics::pin_anchors() {
 						int idx = base + ndir * k;
 						if (idx < rope.start + 1 || idx >= rope.start + rope.count - 1) continue;
 						if (nodes_[idx].inv_mass == 0.0f) continue;
+						float fade = 1.0f - (float)k / (float)(anchor_smoothing_levels_ + 1);
+						fade *= fade;
+						float node_smooth = smooth * fade;
+						if (node_smooth < 1e-6f) continue;
 						Vector3 nb = Vector3();
 						int cnt = 0;
 						if (idx > rope.start) { nb += nodes_[idx - 1].pos; cnt++; }
@@ -814,7 +825,7 @@ void OclDemoOnlyRopePhysics::pin_anchors() {
 						if (cnt > 0) {
 							nb /= (float)cnt;
 							nodes_[idx].pos = project_to_shell(
-									nodes_[idx].pos + (nb - nodes_[idx].pos) * smooth);
+									nodes_[idx].pos + (nb - nodes_[idx].pos) * node_smooth);
 						}
 					}
 				}
