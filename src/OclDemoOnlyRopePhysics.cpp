@@ -620,13 +620,22 @@ void OclDemoOnlyRopePhysics::solve_radial_flattening() {
 			float inv_r = fast_rsqrt(r_sq);
 			float r = r_sq * inv_r;
 
-			// Wider Laplacian smooth on the radial component (4-point stencil)
-			// to suppress high-frequency radial oscillation more aggressively.
+			// Laplacian smooth on the radial component.
+			// At boundary nodes (i==1 or i==count-2) use a 2-point
+			// stencil to avoid double-counting the pinned endpoint,
+			// which would bias the average and fight the length
+			// constraint at rope ends. Interior nodes use the full
+			// 4-point stencil for stronger smoothing.
 			float r_prev = nd[rope.start + i - 1].pos.length();
 			float r_next = nd[rope.start + i + 1].pos.length();
-			float r_prev2 = (i >= 2) ? nd[rope.start + i - 2].pos.length() : r_prev;
-			float r_next2 = (i + 2 < rope.count) ? nd[rope.start + i + 2].pos.length() : r_next;
-			float target_r = (r_prev + r_next + r_prev2 + r_next2) * 0.25f;
+			float target_r;
+			if (i == 1 || i == rope.count - 2) {
+				target_r = (r_prev + r_next) * 0.5f;
+			} else {
+				float r_prev2 = nd[rope.start + i - 2].pos.length();
+				float r_next2 = nd[rope.start + i + 2].pos.length();
+				target_r = (r_prev + r_next + r_prev2 + r_next2) * 0.25f;
+			}
 
 			float err = target_r - r;
 			if (fast_abs(err) < 0.000001f) continue;
@@ -761,6 +770,57 @@ void OclDemoOnlyRopePhysics::solve_endpoint_tangents() {
 			}
 		}
 }
+void OclDemoOnlyRopePhysics::solve_endpoint_length(int rope_start, int rope_count, float stiffness) {
+	if (stiffness <= 0.0f || endpoint_length_levels_ <= 0) return;
+	const float sl = segment_length_;
+	const float sl_sq = sl * sl;
+	Node *nd = nodes_.data();
+
+	for (int side = 0; side < 2; side++) {
+		int base = (side == 0) ? rope_start : (rope_start + rope_count - 1);
+		int dir = (side == 0) ? 1 : -1;
+
+		for (int k = 0; k < endpoint_length_levels_ && k < rope_count - 1; k++) {
+			int ai = base + dir * k;
+			int bi = base + dir * (k + 1);
+			if (ai < rope_start || ai >= rope_start + rope_count) break;
+			if (bi < rope_start || bi >= rope_start + rope_count) break;
+
+			Node &a = nd[ai];
+			Node &b = nd[bi];
+			if (a.inv_mass == 0.0f && b.inv_mass == 0.0f) continue;
+
+			float dx = b.pos.x - a.pos.x;
+			float dy = b.pos.y - a.pos.y;
+			float dz = b.pos.z - a.pos.z;
+			float len_sq = dx * dx + dy * dy + dz * dz;
+			if (len_sq < 0.0000001f) continue;
+			if (fast_abs(len_sq - sl_sq) < 0.000001f * 2.0f * sl) continue;
+
+			float inv_len = fast_rsqrt(len_sq);
+			float len = len_sq * inv_len;
+			float err = len - sl;
+			if (fast_abs(err) < 0.000001f) continue;
+
+			float fade = 1.0f - (float)k / (float)endpoint_length_levels_;
+			fade *= fade;
+			float eff = stiffness * fade;
+
+			float weight = a.inv_mass + b.inv_mass;
+			if (weight == 0.0f) continue;
+
+			float corr = err * inv_len * eff;
+			float aw = a.inv_mass / weight;
+			float bw = b.inv_mass / weight;
+			a.pos.x += dx * corr * aw;
+			a.pos.y += dy * corr * aw;
+			a.pos.z += dz * corr * aw;
+			b.pos.x -= dx * corr * bw;
+			b.pos.y -= dy * corr * bw;
+			b.pos.z -= dz * corr * bw;
+		}
+	}
+}
 
 void OclDemoOnlyRopePhysics::pin_anchors() {
 	nodes_[0].pos = fixed_start_;
@@ -872,10 +932,10 @@ void OclDemoOnlyRopePhysics::relax() {
 
 	// --- Build interleaved soft-constraint schedule ---
 	// Each constraint type gets its passes distributed evenly across the total.
-	// Types: 0=bend, 1=collision, 2=space_filling, 3=endpoint, 4=radial, 5=anchor_smoothing
+	// Types: 0=bend, 1=collision, 2=space_filling, 3=endpoint, 4=radial, 5=endpoint_length
 	struct SchedEntry { float pos; uint8_t type; };
 	const int total_soft = bend_passes_ + collision_passes_ + space_filling_passes_
-			+ endpoint_flatness_passes_ + radial_flattening_passes_;
+			+ endpoint_flatness_passes_ + radial_flattening_passes_ + endpoint_length_passes_;
 	std::vector<SchedEntry> schedule;
 	schedule.reserve(total_soft);
 
@@ -890,6 +950,7 @@ void OclDemoOnlyRopePhysics::relax() {
 	add_passes(space_filling_passes_, 2);
 	add_passes(endpoint_flatness_passes_, 3);
 	add_passes(radial_flattening_passes_, 4);
+	add_passes(endpoint_length_passes_, 5);
 
 	std::sort(schedule.begin(), schedule.end(),
 			[](const SchedEntry &a, const SchedEntry &b) { return a.pos < b.pos; });
@@ -922,6 +983,12 @@ void OclDemoOnlyRopePhysics::relax() {
 					break;
 			case 4: // radial
 				solve_radial_flattening();
+				break;
+			case 5: // endpoint_length
+				for (int r = 0; r < rope_count; r++) {
+					const Rope &rope = ropes_[r];
+					solve_endpoint_length(rope.start, rope.count, endpoint_length_stiffness_ * strength_);
+				}
 				break;
 			}
 		}
@@ -998,6 +1065,18 @@ void OclDemoOnlyRopePhysics::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_endpoint_levels"), &OclDemoOnlyRopePhysics::get_endpoint_levels);
 	ClassDB::bind_method(D_METHOD("set_endpoint_levels", "value"), &OclDemoOnlyRopePhysics::set_endpoint_levels);
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "endpoint_levels", PROPERTY_HINT_RANGE, "0,50,1"), "set_endpoint_levels", "get_endpoint_levels");
+
+	ClassDB::bind_method(D_METHOD("get_endpoint_length_passes"), &OclDemoOnlyRopePhysics::get_endpoint_length_passes);
+	ClassDB::bind_method(D_METHOD("set_endpoint_length_passes", "value"), &OclDemoOnlyRopePhysics::set_endpoint_length_passes);
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "endpoint_length_passes", PROPERTY_HINT_RANGE, "0,50,1"), "set_endpoint_length_passes", "get_endpoint_length_passes");
+
+	ClassDB::bind_method(D_METHOD("get_endpoint_length_stiffness"), &OclDemoOnlyRopePhysics::get_endpoint_length_stiffness);
+	ClassDB::bind_method(D_METHOD("set_endpoint_length_stiffness", "value"), &OclDemoOnlyRopePhysics::set_endpoint_length_stiffness);
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "endpoint_length_stiffness", PROPERTY_HINT_RANGE, "0,3,0.01"), "set_endpoint_length_stiffness", "get_endpoint_length_stiffness");
+
+	ClassDB::bind_method(D_METHOD("get_endpoint_length_levels"), &OclDemoOnlyRopePhysics::get_endpoint_length_levels);
+	ClassDB::bind_method(D_METHOD("set_endpoint_length_levels", "value"), &OclDemoOnlyRopePhysics::set_endpoint_length_levels);
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "endpoint_length_levels", PROPERTY_HINT_RANGE, "0,50,1"), "set_endpoint_length_levels", "get_endpoint_length_levels");
 
 	ClassDB::bind_method(D_METHOD("get_inner_radius"), &OclDemoOnlyRopePhysics::get_inner_radius);
 	ClassDB::bind_method(D_METHOD("set_inner_radius", "value"), &OclDemoOnlyRopePhysics::set_inner_radius);

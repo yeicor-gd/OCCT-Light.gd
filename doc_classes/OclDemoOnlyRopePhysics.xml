@@ -15,7 +15,8 @@
 		3. [b]Self-collision[/b] — grid-accelerated repulsion that pushes overlapping nodes apart. [member collision_passes] passes distributed across the iteration.
 		4. [b]Space filling[/b] — repulsion at a reduced radius to spread nodes across the shell surface. [member space_filling_passes] passes distributed across the iteration.
 		5. [b]Endpoint tangents[/b] — two sub-passes: (a) for the main rope, a gentle tangent-plane projection at 0.15× strength keeps main-rope nodes near the pinned endpoints at a consistent radius, preventing segment stretching without fighting the bend constraint's natural curvature. (b) For shortcut ropes, enforces perpendicular departure from each anchor: the component of each shortcut node's displacement that is perpendicular to cross(radial, main_tangent) is removed with a quadratic fade at 0.4× strength. Both sub-passes affect [member endpoint_levels] nodes from each anchor with quadratic fade. [member endpoint_flatness_passes] passes distributed across the iteration.
-		6. [b]Radial Laplacian smoothing[/b] — for each inner node, averages the radii of its two neighbours and pulls the node radially toward that average. This flattens steep radial ramps between adjacent nodes, producing smoother rope bends without pulling toward a fixed mid-surface.
+		6. [b]Radial Laplacian smoothing[/b] — for each inner node, averages the radii of its two neighbours and pulls the node radially toward that average. This flattens steep radial ramps between adjacent nodes, producing smoother rope bends without pulling toward a fixed mid-surface. At boundary nodes (adjacent to pinned endpoints) a 2-point stencil is used to avoid double-counting the fixed endpoint radius.
+		7. [b]Endpoint length[/b] — multi-level distance constraint anchored to each pinned endpoint. For each node at offset [i] from the anchor, enforces Euclidean distance [i] * [member segment_length] from the anchor. Prevents segment bunching or stretching near rope ends. [member endpoint_length_passes] passes distributed across the iteration.
 
 		Hard constraints (always applied after all soft passes):
 		7. [b]Shell projection[/b] — hard clamp: any node outside [member inner_radius]..[member outer_radius] is projected onto the nearest shell surface.
@@ -55,7 +56,7 @@
 		<method name="relax">
 			<return type="void" />
 			<description>
-				Runs the iterative constraint solver for [member iterations] passes. Each iteration first applies the length constraint (2 passes, full strength), then interleaves all soft constraints (bend, collision, space-filling, endpoint, radial) using a precomputed round-robin schedule, and finishes with hard shell projection and anchor pinning. All stiffness values are multiplied by [member strength]. Must be called after [method init_rope].
+				Runs the iterative constraint solver for [member iterations] passes. Each iteration first applies the length constraint (2 passes, full strength), then interleaves all soft constraints (bend, collision, space-filling, endpoint tangent, radial, endpoint length) using a precomputed round-robin schedule, and finishes with hard shell projection and anchor pinning. All stiffness values are multiplied by [member strength]. Must be called after [method init_rope].
 			</description>
 		</method>
 		<method name="get_positions">
@@ -152,6 +153,15 @@
 		<member name="endpoint_levels" type="int" setter="set_endpoint_levels" getter="get_endpoint_levels" default="12">
 			Number of nodes from each endpoint (both main rope and shortcut ropes) affected by the endpoint-tangent constraint. The correction fades quadratically from full strength at the anchor to zero at the boundary. Higher values produce smoother endpoint curves by spreading the tangent-plane projection (main rope) or perpendicular-departure enforcement (shortcuts) over more nodes.
 		</member>
+		<member name="endpoint_length_passes" type="int" setter="set_endpoint_length_passes" getter="get_endpoint_length_passes" default="10">
+			Number of endpoint-length passes distributed across each iteration via the interleaved schedule. This constraint enforces correct Euclidean distances from each pinned endpoint to nodes within [member endpoint_length_levels] segments, preventing bunching or stretching near rope ends. Affects both main rope and shortcut rope endpoints.
+		</member>
+		<member name="endpoint_length_stiffness" type="float" setter="set_endpoint_length_stiffness" getter="get_endpoint_length_stiffness" default="0.8">
+			Endpoint-length correction strength, scaled by [member strength]. Higher values more aggressively enforce the correct distance from pinned endpoints to nearby nodes. Effective value = [code]endpoint_length_stiffness * strength[/code].
+		</member>
+		<member name="endpoint_length_levels" type="int" setter="set_endpoint_length_levels" getter="get_endpoint_length_levels" default="5">
+			Number of nodes from each endpoint constrained by the endpoint-length solver. Node [i] from the anchor is targeted at distance [i] * [member segment_length] from the anchor. Higher values enforce correct spacing over a wider region near rope ends, but large values may fight shell curvature at the Euclidean (chord) level.
+		</member>
 		<member name="inner_radius" type="float" setter="set_inner_radius" getter="get_inner_radius" default="1.0">
 			Inner radius of the spherical shell. Nodes are clamped to at least this distance from the origin.
 		</member>
@@ -174,10 +184,10 @@
 			Maximum radial component (as a fraction of the step direction) during random-walk initialisation. A value of 0.0 produces purely tangential steps; higher values allow the walk to move inward/outward more freely. Only affects [method init_rope], not [method relax].
 		</member>
 		<member name="radial_flattening_passes" type="int" setter="set_radial_flattening_passes" getter="get_radial_flattening_passes" default="12">
-			Number of radial-smoothing passes distributed across each iteration via the interleaved schedule. Each pass applies radial Laplacian smoothing using a 4-point stencil: for each inner node, the average radius of its four nearest neighbours (two on each side) is computed and the node is pulled radially toward that average, clamped to the shell bounds.
+			Number of radial-smoothing passes distributed across each iteration via the interleaved schedule. Each pass applies radial Laplacian smoothing: for interior nodes a 4-point stencil is used (average radius of four nearest neighbours, two on each side); for boundary nodes (adjacent to pinned endpoints) a 2-point stencil is used to avoid double-counting the fixed endpoint radius. The node is pulled radially toward the average, clamped to the shell bounds.
 		</member>
 		<member name="radial_flattening_stiffness" type="float" setter="set_radial_flattening_stiffness" getter="get_radial_flattening_stiffness" default="1.2">
-			Radial smoothing correction strength, scaled by [member strength]. Effective value = [code]radial_flattening_stiffness * strength[/code]. Performs radial Laplacian smoothing with a 4-point stencil rather than pulling toward a fixed mid-surface, which naturally flattens steep radial ramps while preserving intentional radial variation. The subsequent hard shell projection ensures nodes stay within the shell.
+			Radial smoothing correction strength, scaled by [member strength]. Effective value = [code]radial_flattening_stiffness * strength[/code]. Performs radial Laplacian smoothing (4-point stencil for interior nodes, 2-point at boundaries) rather than pulling toward a fixed mid-surface, which naturally flattens steep radial ramps while preserving intentional radial variation. The subsequent hard shell projection ensures nodes stay within the shell.
 		</member>
 		<member name="strength" type="float" setter="set_strength" getter="get_strength" default="1.0">
 			Global multiplier applied to every constraint stiffness during [method relax]. Effective stiffness for each solver = [code]param * strength[/code]. Useful for quick convergence tuning without adjusting individual parameters. Values above ~1.5 may cause oscillation; below 0.5 slows convergence.

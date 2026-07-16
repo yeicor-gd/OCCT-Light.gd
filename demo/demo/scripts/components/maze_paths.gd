@@ -20,6 +20,11 @@ class_name MazePaths
 
 @export var rope_physics := OclDemoOnlyRopePhysics.new()
 
+## How much to push the paths away from themselves, as a ratio of the rope's collision radius.
+## A value of 1.0 means the path curves are offset by the same distance as the rope's collision radius
+## (not recommended as it promotes sharp bends that are hard to mesh).
+@export_range(0.0, 5.0, 0.1) var path_offset_ratio: float = 2.0
+
 ## Curve interpolation sharpness (higher = tighter to control points).
 @export var sharpness := 5.0
 
@@ -140,7 +145,7 @@ func _init_main_rope() -> void:
 
 	rope_physics.inner_radius = inner_r
 	rope_physics.outer_radius = outer_r
-	rope_physics.collision_radius = 3.0 * _get_tube_margin()
+	rope_physics.collision_radius = _get_tube_margin() * 2.0 * path_offset_ratio
 	rope_physics.init_rope(
 		_get_seed(),
 		Vector3.BACK * outer_r,

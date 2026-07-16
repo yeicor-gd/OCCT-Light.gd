@@ -55,6 +55,15 @@ public:
 	int get_endpoint_levels() const { return endpoint_levels_; }
 	void set_endpoint_levels(int v) { endpoint_levels_ = v; }
 
+	int get_endpoint_length_passes() const { return endpoint_length_passes_; }
+	void set_endpoint_length_passes(int v) { endpoint_length_passes_ = v; }
+
+	float get_endpoint_length_stiffness() const { return endpoint_length_stiffness_; }
+	void set_endpoint_length_stiffness(float v) { endpoint_length_stiffness_ = v; }
+
+	int get_endpoint_length_levels() const { return endpoint_length_levels_; }
+	void set_endpoint_length_levels(int v) { endpoint_length_levels_ = v; }
+
 	float get_radial_bias() const { return radial_bias_; }
 	void set_radial_bias(float v) { radial_bias_ = v; }
 
@@ -131,6 +140,9 @@ private:
 	float endpoint_flatness_ = 1.0f;
 	int endpoint_flatness_passes_ = 12;
 	int endpoint_levels_ = 12;
+	int endpoint_length_passes_ = 10;
+	float endpoint_length_stiffness_ = 0.8f;
+	int endpoint_length_levels_ = 5;
 	float inner_radius_ = 1.0f;
 	float outer_radius_ = 2.0f;
 	float collision_radius_ = 0.35f;
@@ -181,6 +193,7 @@ private:
 	void solve_radial_flattening();
 	void solve_endpoint_tangents();
 	void solve_endpoint_tangent(int anchor, int node_idx, float target_dist, float blending);
+	void solve_endpoint_length(int rope_start, int rope_count, float stiffness);
 	void pin_anchors();
 	void solve_length_constraints(int rope_start, int rope_count, float sl, float sl_sq);
 	void solve_bend_pass(int rope_start, int rope_count, float sl, float bend_stiff);
