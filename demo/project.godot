@@ -31,7 +31,7 @@ window/handheld/orientation=6
 
 [editor_plugins]
 
-enabled=PackedStringArray("res://addons/demo_export/plugin.cfg")
+enabled=PackedStringArray("res://addons/ball_game_export/plugin.cfg")
 
 [input]
 

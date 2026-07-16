@@ -1,6 +1,6 @@
 [gd_resource type="StandardMaterial3D" format=3 uid="uid://c23eanwhxvlbu"]
 
-[ext_resource type="Shader" uid="uid://dakevh28l3dkw" path="res://demo/materials/faces/face_arrows.gdshader" id="1_sr3qo"]
+[ext_resource type="Shader" uid="uid://dakevh28l3dkw" path="res://ball_game/materials/faces/face_arrows.gdshader" id="1_sr3qo"]
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_06u5y"]
 render_priority = 0

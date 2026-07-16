@@ -1,9 +1,9 @@
 [gd_scene format=3 uid="uid://82gc63fkl5p2"]
 
-[ext_resource type="Script" uid="uid://bdlaqlmg2sjav" path="res://demo/scripts/player/ball.gd" id="1_2bd7h"]
-[ext_resource type="Script" uid="uid://is6jonx3psx6" path="res://demo/scripts/player/player.gd" id="1_uuw2b"]
-[ext_resource type="Script" uid="uid://dd8xba3t4b6sx" path="res://demo/scripts/player/camera_rig.gd" id="2_yff8i"]
-[ext_resource type="Material" uid="uid://db44qt2qwxtiq" path="res://demo/materials/glass.tres" id="2_yji6d"]
+[ext_resource type="Script" uid="uid://bdlaqlmg2sjav" path="res://ball_game/scripts/player/ball.gd" id="1_2bd7h"]
+[ext_resource type="Script" uid="uid://is6jonx3psx6" path="res://ball_game/scripts/player/player.gd" id="1_uuw2b"]
+[ext_resource type="Script" uid="uid://dd8xba3t4b6sx" path="res://ball_game/scripts/player/camera_rig.gd" id="2_yff8i"]
+[ext_resource type="Material" uid="uid://db44qt2qwxtiq" path="res://ball_game/materials/glass.tres" id="2_yji6d"]
 
 [sub_resource type="SphereShape3D" id="SphereShape3D_0e071"]
 

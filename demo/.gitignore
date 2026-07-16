@@ -1,4 +1,5 @@
 /.godot/
 /addons/*/*
 !/addons/*/gdext.gdextension*
+!/addons/ball_game_export/*
 /exports/
