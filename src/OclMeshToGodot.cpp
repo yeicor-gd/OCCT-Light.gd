@@ -277,11 +277,29 @@ static occtl_status_t _ensure_mesh_generated(
         occtl_node_iter_free(iter);
     }
 
+    occtl_status_t st = OCCTL_OK;
     if (!root_ids.empty()) {
-        return occtl_mesh_generate(
+        st = occtl_mesh_generate(
             graph, root_ids.data(), root_ids.size(), &opts);
+    } else {
+        st = occtl_mesh_generate(graph, nullptr, 0, &opts);
     }
-    return occtl_mesh_generate(graph, nullptr, 0, &opts);
+
+    if (st != OCCTL_OK) return st;
+
+    // Fallback: if the standard paths did not produce mesh for the
+    // requested faces, try meshing the individual face nodes directly.
+    // This handles solids built via the BRepGraph Editor API (e.g.,
+    // topo_make_solid + topo_make_shell) where Shapes().Shape(solidId)
+    // returns null because the solid was not stored via Shapes().Add().
+    // Individual faces created by primitives (ruled_surface, planar_face)
+    // DO have shapes stored, so passing them directly to mesh_generate
+    // allows BRepMesh to triangulate them.
+    if (!_graph_has_mesh(graph, ids_vec) && !ids_vec.empty()) {
+        st = occtl_mesh_generate(graph, ids_vec.data(), ids_vec.size(), &opts);
+    }
+
+    return st;
 }
 
 /// Number of radial slices for a cylinder/sphere from the mesh angle limit.

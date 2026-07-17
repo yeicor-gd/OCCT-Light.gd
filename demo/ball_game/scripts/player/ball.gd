@@ -5,9 +5,10 @@ extends RigidBody3D
 @export var gravity := 9.81
 
 @export var acceleration := 10.0
-@export var max_speed := 5.0
-@export var jump_impulse := 3.0
+@export var max_speed := 10.0
+@export var jump_impulse := 2.5
 
+@export var grounded_min_vertical_projection := 0.3
 @export var air_control := 0.5
 @export var air_torque := 2.0
 
@@ -21,7 +22,6 @@ var grounded := false
 var ground_normal := Vector3.UP
 
 var jump_pressed := false
-var jump_was_pressed := false
 
 
 func _ready():
@@ -38,9 +38,7 @@ func _process(_delta):
 		"move_forward"
 	)
 
-	var pressed := Input.is_action_pressed("jump")
-	jump_pressed = pressed and !jump_was_pressed
-	jump_was_pressed = pressed
+	jump_pressed =  Input.is_action_pressed("jump")
 
 
 func _integrate_forces(_state):
@@ -74,7 +72,7 @@ func _integrate_forces(_state):
 			best_dot = d
 			ground_normal = normal
 
-	if best_dot > 0.35:
+	if best_dot > grounded_min_vertical_projection:
 		grounded = true
 	else:
 		ground_normal = up

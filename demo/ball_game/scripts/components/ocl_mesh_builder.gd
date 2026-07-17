@@ -35,6 +35,17 @@ class_name OclMeshBuilder
 ## profile flags so you can tune quality vs. performance independently.
 
 # -----------------------------------------------------------------------------
+# Sweep mode enum (sorted from most to least complex)
+# -----------------------------------------------------------------------------
+
+enum SweepMode {
+	## Full sweep along spine with auxiliary orientation (pipe_shell).
+	SWEEP = 0,
+	## Ruled loft through pairs of adjacent sections (ThruSections, ruled=1).
+	LOFT_RULED = 1,
+}
+
+# -----------------------------------------------------------------------------
 # Configuration
 # -----------------------------------------------------------------------------
 
@@ -97,6 +108,10 @@ class_name OclMeshBuilder
 
 @export_group("Display")
 
+## Sweep algorithm for display face geometry. Falls back to simpler modes on failure.
+@export var display_sweep_mode: SweepMode = SweepMode.SWEEP
+## Sweep algorithm for display shortcut cutter geometry. Falls back to simpler modes on failure.
+@export var display_shortcut_cutter_sweep_mode: SweepMode = SweepMode.SWEEP
 ## OCCT mesh tessellation options for DISPLAY (visual) geometry.
 @export var display_options := OclMeshOptions.new()
 ## Apply 2D fillets to smooth profile corners (fancy mode) for display.
@@ -116,6 +131,10 @@ class_name OclMeshBuilder
 
 @export_group("Physics")
 
+## Sweep algorithm for physics face geometry. Falls back to simpler modes on failure.
+@export var physics_sweep_mode: SweepMode = SweepMode.SWEEP
+## Sweep algorithm for physics shortcut cutter geometry. Falls back to simpler modes on failure.
+@export var physics_shortcut_cutter_sweep_mode: SweepMode = SweepMode.SWEEP
 ## OCCT mesh tessellation options for PHYSICS (collision) geometry.
 @export var physics_options := OclMeshOptions.new()
 ## Apply 2D fillets to smooth profile corners (fancy mode) for physics.
@@ -422,6 +441,11 @@ func regenerate(sync: bool) -> void:
 	var captured_physics_edge_radius: float = physics_edge_radius
 	var captured_physics_vertex_radius: float = physics_vertex_radius
 
+	var captured_display_sweep_mode: int = display_sweep_mode
+	var captured_display_shortcut_cutter_sweep_mode: int = display_shortcut_cutter_sweep_mode
+	var captured_physics_sweep_mode: int = physics_sweep_mode
+	var captured_physics_shortcut_cutter_sweep_mode: int = physics_shortcut_cutter_sweep_mode
+
 	var captured_obstacle_freq: float = obstacle_frequency
 	var captured_obstacle_pos: bool = obstacle_positive
 	var captured_obstacle_neg: bool = obstacle_negative
@@ -459,7 +483,7 @@ func regenerate(sync: bool) -> void:
 		var segment_wall_heights: PackedFloat32Array = PackedFloat32Array()
 		segment_wall_heights.resize(seg_count_for_heights)
 		for si in range(seg_count_for_heights):
-			var frac := float(si) / float(maxi(seg_count_for_heights - 1, 1))
+			var frac := float(si) / float(maxi(seg_count_for_heights - 1, 1)) + total_segments * 100
 			# Stable noise frequency over path length
 			segment_wall_heights[si] = _sample_wall_height(frac * pair_path.curve.get_baked_length())
 
@@ -490,6 +514,10 @@ func regenerate(sync: bool) -> void:
 					captured_obstacle_pos,
 					captured_obstacle_neg,
 					captured_obstacle_seed + idx * 1337,
+					captured_display_sweep_mode,
+					captured_display_shortcut_cutter_sweep_mode,
+					captured_physics_sweep_mode,
+					captured_physics_shortcut_cutter_sweep_mode,
 				)
 				scheduler.submit_result(result)
 			, false, "OclChunk")
@@ -545,6 +573,10 @@ static func _worker_build_chunk(
 	pobstacle_positive: bool = true,
 	pobstacle_negative: bool = true,
 	pobstacle_seed: int = 0,
+	cdisplay_sweep_mode: int = 0,
+	cdisplay_shortcut_cutter_sweep_mode: int = 0,
+	cphysics_sweep_mode: int = 0,
+	cphysics_shortcut_cutter_sweep_mode: int = 0,
 ) -> Dictionary:
 	var result: Dictionary = {
 		"idx": chunk_idx,
@@ -606,6 +638,8 @@ static func _worker_build_chunk(
 			pobstacle_positive,
 			pobstacle_negative,
 			pobstacle_seed,
+			cdisplay_sweep_mode,
+			cdisplay_shortcut_cutter_sweep_mode,
 		)
 
 	for g in display_graphs:
@@ -629,6 +663,8 @@ static func _worker_build_chunk(
 		pobstacle_positive,
 		pobstacle_negative,
 		pobstacle_seed,
+		cphysics_sweep_mode,
+		cphysics_shortcut_cutter_sweep_mode,
 	)
 
 	for g in phys_graphs:
@@ -652,12 +688,14 @@ static func _build_and_extract(
 	pobstacle_positive: bool = true,
 	pobstacle_negative: bool = true,
 	pobstacle_seed: int = 0,
+	psweep_mode: int = 0,
+	pshortcut_cutter_sweep_mode: int = 0,
 ) -> Array[OclGraphHandle]:
 	var prefix: String = "" if is_display else "p"
 
 	var chunker := ChunkBuilder.new()
 	chunker.debug_fuse_junctions = pdebug_fuse_junctions
-	var graphs := chunker.build_chunk_graphs(chunk, path_curve, aux_curve, cfg, fancy, do_main_path, add_start_cap, add_end_cap, chunk_junctions, segment_wall_heights, pobstacle_frequency, pobstacle_positive, pobstacle_negative, pobstacle_seed)
+	var graphs := chunker.build_chunk_graphs(chunk, path_curve, aux_curve, cfg, fancy, do_main_path, add_start_cap, add_end_cap, chunk_junctions, segment_wall_heights, pobstacle_frequency, pobstacle_positive, pobstacle_negative, pobstacle_seed, psweep_mode, pshortcut_cutter_sweep_mode)
 	assert(not graphs.is_empty(), "OclMeshBuilder: build_chunk_graphs returned empty")
 
 	for graph_i in range(graphs.size()):

@@ -133,8 +133,7 @@ jobs:
             { vcpkg_triplet: x64-windows-static, os: windows-2025-vs2026 }, # MSVC instead of mingw
             { vcpkg_triplet: x86-windows-static, os: windows-2025-vs2026 }, # MSVC instead of mingw
             { vcpkg_triplet: arm64-windows-static, os: windows-2025-vs2026 }, # MSVC instead of mingw
-            { vcpkg_triplet: arm64-osx, os: macos-15 },
-            { vcpkg_triplet: x64-osx, os: macos-15 },
+            { vcpkg_triplet: universal-osx, os: macos-15 },
             { vcpkg_triplet: wasm32-emscripten, os: ubuntu-24.04, threads: off },
             { vcpkg_triplet: wasm32-emscripten, os: ubuntu-24.04, threads: on },
             { vcpkg_triplet: x64-android, os: ubuntu-24.04 },
@@ -517,8 +516,7 @@ jobs:
             { triplet: x64-mingw-static, preset: "Windows Desktop", os: windows-2025-vs2026 },
             { triplet: x86-mingw-static, preset: "Windows Desktop x86", os: windows-2025-vs2026 },
             { triplet: arm64-mingw-static, preset: "Windows Desktop arm64", os: windows-2025-vs2026 },
-            { triplet: arm64-osx, preset: "macOS arm64", os: macos-15 },
-            { triplet: x64-osx, preset: "macOS x64", os: macos-15 },
+            { triplet: universal-osx, preset: "macOS", os: macos-15 },
             { triplet: wasm32-emscripten, preset: "Web", os: ubuntu-24.04 },
             { triplet: wasm32-emscripten, preset: "Web Threads", os: ubuntu-24.04 },
             { triplet: arm64-android, preset: "Android arm64-v8a", os: ubuntu-24.04 },
