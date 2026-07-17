@@ -42,14 +42,26 @@ class_name OclMeshBuilder
 
 ## Thickness of the track walls.
 @export_range(0.0, 1.0) var wall_thickness := 0.05
-## Wall height relative to ball radius.
-@export_range(0.0, 1.0) var wall_height := 0.3
 ## Whether to actually build the inner path (for debugging).
 @export var main_path := true
 ## Add rounded end caps at the start and end of the track.
 @export var end_caps := true
 
-@export_group("Paths")
+@export_group("Wall Height Variation")
+
+## Frequency of the smooth noise that varies wall height along the track.
+## Lower values produce gradual changes; higher values produce rapid oscillation.
+@export_range(0.001, 1.0, 0.001) var wall_height_noise_freq := 0.05
+
+## CDF curve controlling wall height distribution along the track.
+## Smooth noise is evaluated at each segment to provide spatial coherence,
+## then remapped to [0, 1] and sampled on this curve to produce the final
+## wall height.  X-axis = probability [0..1], Y-axis = wall height value.
+## Values > 1.0 produce a roof that clamps to 1.0 and persists across
+## contiguous segments.
+@export var wall_height_cdf: Curve
+
+@export_group("Shortcuts (slow)")
 
 ## Sweep all generated shortcut / longcut paths in addition to the main path.
 @export var sweep_shortcuts: bool = false
@@ -60,6 +72,17 @@ class_name OclMeshBuilder
 
 ## Debug: fuse cutter solids instead of cutting so they remain visible.
 @export var debug_fuse_junctions: bool = false
+
+@export_group("Obstacles (slow)")
+
+## Frequency of obstacles along the track (obstacles per segment unit).
+@export_range(0.0, 0.5, 0.01) var obstacle_frequency: float = 0.1
+## Enable positive (fused) obstacles that narrow the path.
+@export var obstacle_positive: bool = true
+## Enable negative (cut) obstacles that widen the path.
+@export var obstacle_negative: bool = true
+## Seed offset for obstacle randomisation.
+@export var obstacle_seed_offset: int = 0
 
 @export_group("Chunking")
 
@@ -122,6 +145,8 @@ var _profile_cfg: ProfileBuilder.Config
 var _is_regenerating: bool = false
 var _scheduler: TaskScheduler = null
 var _chunk_results: Array[Dictionary] = []
+var _wall_height_cdf: Curve
+var _wall_height_noise: FastNoiseLite
 
 # -----------------------------------------------------------------------------
 # Initialisation
@@ -141,8 +166,31 @@ func _ensure_config() -> void:
 		_maze_generator.ball_radius,
 		_maze_generator.ball_to_path_min_ratio,
 		wall_thickness,
-		wall_height,
 	)
+	_wall_height_cdf = _ensure_wall_height_cdf()
+	_wall_height_noise = FastNoiseLite.new()
+	_wall_height_noise.seed = _maze_generator.seed_value
+	_wall_height_noise.frequency = wall_height_noise_freq
+	_wall_height_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+
+
+## Ensure the wall height CDF curve exists, creating a sensible default if not set.
+func _ensure_wall_height_cdf() -> Curve:
+	if wall_height_cdf == null:
+		wall_height_cdf = Curve.new()
+		wall_height_cdf.add_point(Vector2(0.0, 0.0))
+		wall_height_cdf.add_point(Vector2(0.5, 0.8))
+		wall_height_cdf.add_point(Vector2(1.0, 1.5))
+	return wall_height_cdf
+
+
+## Sample the wall height at a given parametric progress along the track.
+## Uses smooth noise for spatial coherence, then maps through the CDF curve
+## to control the height distribution.
+func _sample_wall_height(baked_length: float) -> float:
+	var n := _wall_height_noise.get_noise_1d(baked_length)
+	var t := clampf(n * 0.5 + 0.5, 0.0, 1.0) # Remap [-1,1] -> [0,1]
+	return _wall_height_cdf.sample(t)
 
 ## Return the scene root for setting node owners.
 ##
@@ -374,6 +422,11 @@ func regenerate(sync: bool) -> void:
 	var captured_physics_edge_radius: float = physics_edge_radius
 	var captured_physics_vertex_radius: float = physics_vertex_radius
 
+	var captured_obstacle_freq: float = obstacle_frequency
+	var captured_obstacle_pos: bool = obstacle_positive
+	var captured_obstacle_neg: bool = obstacle_negative
+	var captured_obstacle_seed: int = obstacle_seed_offset
+
 	var scheduler := TaskScheduler.new(sync)
 	scheduler.max_concurrent = max_concurrent
 	_scheduler = scheduler
@@ -401,12 +454,22 @@ func regenerate(sync: bool) -> void:
 		var captured_pair_name := pair_name
 		var captured_pair_junctions: Array = pair_junctions
 
+		# Precompute per-segment wall heights for this pair.
+		var seg_count_for_heights: int = captured_path_curve.point_count
+		var segment_wall_heights: PackedFloat32Array = PackedFloat32Array()
+		segment_wall_heights.resize(seg_count_for_heights)
+		for si in range(seg_count_for_heights):
+			var frac := float(si) / float(maxi(seg_count_for_heights - 1, 1))
+			# Stable noise frequency over path length
+			segment_wall_heights[si] = _sample_wall_height(frac * pair_path.curve.get_baked_length())
+
 		var total_chunks := chunks.size()
 		for chunk_idx in range(total_chunks):
 			var c: ChunkBuilder.Chunk = chunks[chunk_idx] as ChunkBuilder.Chunk
 			var idx := chunk_idx
 			var is_first := idx == 0
 			var is_last := idx == total_chunks - 1
+			var chunk_seg_heights: PackedFloat32Array = segment_wall_heights.slice(c.start_segment, c.end_segment + 1)
 			scheduler.dispatch_task(func():
 				var result: Dictionary = _worker_build_chunk(
 					idx, c,
@@ -422,6 +485,11 @@ func regenerate(sync: bool) -> void:
 					captured_pair_name,
 					captured_pair_junctions if captured_clean_shortcuts else [],
 					captured_debug_fuse,
+					chunk_seg_heights,
+					captured_obstacle_freq,
+					captured_obstacle_pos,
+					captured_obstacle_neg,
+					captured_obstacle_seed + idx * 1337,
 				)
 				scheduler.submit_result(result)
 			, false, "OclChunk")
@@ -472,6 +540,11 @@ static func _worker_build_chunk(
 	pair_name: String = "",
 	pair_junctions_to_clean: Array = [],
 	pdebug_fuse_junctions: bool = false,
+	segment_wall_heights: PackedFloat32Array = PackedFloat32Array(),
+	pobstacle_frequency: float = 0.0,
+	pobstacle_positive: bool = true,
+	pobstacle_negative: bool = true,
+	pobstacle_seed: int = 0,
 ) -> Dictionary:
 	var result: Dictionary = {
 		"idx": chunk_idx,
@@ -528,6 +601,11 @@ static func _worker_build_chunk(
 			do_main_path, add_start_cap, add_end_cap,
 			chunk_junctions,
 			pdebug_fuse_junctions,
+			segment_wall_heights,
+			pobstacle_frequency,
+			pobstacle_positive,
+			pobstacle_negative,
+			pobstacle_seed,
 		)
 
 	for g in display_graphs:
@@ -546,6 +624,11 @@ static func _worker_build_chunk(
 		do_main_path, add_start_cap, add_end_cap,
 		chunk_junctions,
 		pdebug_fuse_junctions,
+		segment_wall_heights,
+		pobstacle_frequency,
+		pobstacle_positive,
+		pobstacle_negative,
+		pobstacle_seed,
 	)
 
 	for g in phys_graphs:
@@ -564,12 +647,17 @@ static func _build_and_extract(
 	do_main_path: bool, add_start_cap: bool, add_end_cap: bool,
 	chunk_junctions: Array,
 	pdebug_fuse_junctions: bool = false,
+	segment_wall_heights: PackedFloat32Array = PackedFloat32Array(),
+	pobstacle_frequency: float = 0.0,
+	pobstacle_positive: bool = true,
+	pobstacle_negative: bool = true,
+	pobstacle_seed: int = 0,
 ) -> Array[OclGraphHandle]:
 	var prefix: String = "" if is_display else "p"
 
 	var chunker := ChunkBuilder.new()
 	chunker.debug_fuse_junctions = pdebug_fuse_junctions
-	var graphs := chunker.build_chunk_graphs(chunk, path_curve, aux_curve, cfg, fancy, do_main_path, add_start_cap, add_end_cap, chunk_junctions)
+	var graphs := chunker.build_chunk_graphs(chunk, path_curve, aux_curve, cfg, fancy, do_main_path, add_start_cap, add_end_cap, chunk_junctions, segment_wall_heights, pobstacle_frequency, pobstacle_positive, pobstacle_negative, pobstacle_seed)
 	assert(not graphs.is_empty(), "OclMeshBuilder: build_chunk_graphs returned empty")
 
 	for graph_i in range(graphs.size()):
@@ -941,7 +1029,7 @@ func _persist_resources() -> void:
 		var index = branch.get_index()
 		var bname = branch.name
 
-		var packed = load(path) as PackedScene
+		var packed = ResourceLoader.load(path, "", ResourceLoader.CACHE_MODE_IGNORE) as PackedScene
 		var instance := packed.instantiate()
 
 		instance.name = bname

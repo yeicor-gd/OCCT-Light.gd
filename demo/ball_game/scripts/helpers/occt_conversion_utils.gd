@@ -14,6 +14,14 @@ static func v3_to_p3(v3: Vector3) -> OclPoint3:
 	return p3
 
 
+static func v3_to_ov3(v3: Vector3) -> OclVector3:
+	var p3 := OclVector3.new()
+	p3.x = v3.x
+	p3.y = v3.y
+	p3.z = v3.z
+	return p3
+
+
 static func v3_to_d3(v3: Vector3) -> OclDirection3:
 	var d3 := OclDirection3.new()
 	d3.x = v3.x

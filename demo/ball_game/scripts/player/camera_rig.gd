@@ -5,7 +5,7 @@ class_name CameraRig
 @export var planet_center: Vector3
 
 @export_group("Follow")
-@export var focus_height := 0.2
+@export var focus_height := 0.0
 @export var position_smoothing := 10.0
 @export var rotation_smoothing := 12.0
 

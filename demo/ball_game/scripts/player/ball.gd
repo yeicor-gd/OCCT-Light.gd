@@ -4,12 +4,12 @@ extends RigidBody3D
 
 @export var gravity := 9.81
 
-@export var acceleration := 25.0
-@export var max_speed := 8.0
-@export var jump_impulse := 6.0
+@export var acceleration := 10.0
+@export var max_speed := 5.0
+@export var jump_impulse := 3.0
 
 @export var air_control := 0.5
-@export var air_torque := 6.0
+@export var air_torque := 2.0
 
 @export var camera_rig: CameraRig
 

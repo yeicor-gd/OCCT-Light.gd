@@ -42,7 +42,7 @@ func move_to(x: float, y: float) -> WireBuilder:
 ## Draw a line from the current position to (x, y).
 func line_to(x: float, y: float) -> WireBuilder:
 	var to_2d := Vector2(x, y)
-	if _current_2d.distance_squared_to(to_2d) < 1e-12:
+	if _current_2d.distance_squared_to(to_2d) < 1e-5:
 		return self
 
 	var to_world_pt: Vector3 = _to_world.call(to_2d)

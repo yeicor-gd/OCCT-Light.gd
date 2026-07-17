@@ -1,6 +1,7 @@
 [gd_scene format=3 uid="uid://dh0oj81pufivs"]
 
 [ext_resource type="Script" uid="uid://cqtlybwhdfvpd" path="res://tests/runner.gd" id="1_4j8f0"]
+[ext_resource type="PackedScene" uid="uid://cro3y2vcs88kq" path="res://tests/back_button.tscn" id="2_mlp16"]
 
 [node name="Tests" type="Control" unique_id=919014561]
 layout_mode = 3
@@ -11,16 +12,22 @@ grow_horizontal = 2
 grow_vertical = 2
 script = ExtResource("1_4j8f0")
 
-[node name="TitleLabel" type="Label" parent="." unique_id=981002655]
+[node name="HBoxContainer" type="HBoxContainer" parent="." unique_id=2096532728]
 layout_mode = 1
 anchors_preset = 10
 anchor_right = 1.0
-offset_top = 10.0
-offset_bottom = 44.0
+offset_bottom = 34.0
 grow_horizontal = 2
+
+[node name="TitleLabel" type="Label" parent="HBoxContainer" unique_id=981002655]
+layout_mode = 2
+size_flags_horizontal = 3
 theme_override_font_sizes/font_size = 24
 text = "GDExtension Tests"
 horizontal_alignment = 1
+
+[node name="BackButton" parent="HBoxContainer" unique_id=444742837 instance=ExtResource("2_mlp16")]
+layout_mode = 2
 
 [node name="ScrollContainer" type="ScrollContainer" parent="." unique_id=1502942207]
 layout_mode = 1

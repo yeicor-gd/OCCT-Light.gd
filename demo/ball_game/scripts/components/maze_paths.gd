@@ -10,7 +10,8 @@ class_name MazePaths
 ## sharing the shell, self-collision, and bending constraints with the main
 ## path.  The only hard constraint is fixed start/end anchor points on the
 ## main rope.  Each shortcut spans a random fraction of the main path,
-## chosen uniformly from [member min_span] to [member max_span].
+## sampled from a span CDF curve.  The shortcut's node count (rope density)
+## is controlled by a separate shortcut ratio CDF curve.
 ##
 ## All generated Path3D children are added directly to this node.
 ## When [member store_as_nodes] is true they are assigned an owner so they
@@ -38,23 +39,21 @@ class_name MazePaths
 ## Number of shortcuts to generate (0 = none, 1–3 typical).
 @export_range(0, 10, 1) var total_shortcuts: int = 3
 
-## Minimum fraction of the main path a shortcut spans (0–1).
-## A value of 0.2 means the shortcut bypasses at least 20 % of the main rope.
-@export_range(0.05, 0.9, 0.01) var min_span: float = 0.2
+## CDF curve defining the span (fraction of main path length) for each shortcut.
+## X-axis = probability [0..1], Y-axis = span value [0..1].
+## Sampled via seeded RNG for reproducible but controllable shortcut spans.
+@export var span_cdf: Curve
 
-## Maximum fraction of the main path a shortcut spans (0–1).
-## Must be greater than [member min_span].  The actual span for each shortcut
-## is drawn uniformly from [min_span, max_span].
-@export_range(0.1, 1.0, 0.01) var max_span: float = 0.8
-
-## Segment count multiplier: how many rope segments per unit of chord
-## distance between anchors.  Higher values produce smoother shortcut curves
-## at the cost of more physics work.  A value of 1.0 means roughly one
-## segment per [member OclDemoOnlyRopePhysics.segment_length].
-@export_range(0.5, 5.0, 0.1) var segment_density: float = 0.8
+## CDF curve defining the shortcut ratio: the relative length of a shortcut
+## rope compared to the main subrope it bypasses.
+## Values < 1 make shortcuts shorter (faster alternate routes).
+## Values > 1 make shortcuts longer (scenic detours).
+## X-axis = probability [0..1], Y-axis = ratio value (>0).
+## Sampled via seeded RNG for reproducible but controllable shortcuts.
+@export var shortcut_ratio: Curve
 
 ## Minimum gap (in main-rope node indices) between any two anchor points.
-## Prevents shortcuts from clustering at the same location (optional).
+## Prevents shortcuts from clustering at the same location.
 @export_range(1, 30, 1) var min_anchor_gap: int = 3
 
 # ── Editor ─────────────────────────────────────────────────────────────────
@@ -135,6 +134,24 @@ func _make_rng(extra_salt: int = 0) -> RandomNumberGenerator:
 	rng.seed = hash(_get_seed() + extra_salt)
 	return rng
 
+
+func _ensure_span_cdf() -> Curve:
+	if span_cdf == null:
+		span_cdf = Curve.new()
+		span_cdf.add_point(Vector2(0.0, 0.2))
+		span_cdf.add_point(Vector2(0.5, 0.5))
+		span_cdf.add_point(Vector2(1.0, 0.8))
+	return span_cdf
+
+
+func _ensure_shortcut_ratio() -> Curve:
+	if shortcut_ratio == null:
+		shortcut_ratio = Curve.new()
+		shortcut_ratio.add_point(Vector2(0.0, 0.5))
+		shortcut_ratio.add_point(Vector2(0.5, 1.0))
+		shortcut_ratio.add_point(Vector2(1.0, 1.5))
+	return shortcut_ratio
+
 # ── Phase 1: Init main rope ───────────────────────────────────────────────
 
 func _init_main_rope() -> void:
@@ -171,6 +188,9 @@ func _generate_shortcuts(used_anchors: Array[int]) -> void:
 	if main_count < 3:
 		return
 
+	var cdf_span := _ensure_span_cdf()
+	var cdf_ratio := _ensure_shortcut_ratio()
+
 	for i in range(total_shortcuts):
 		var rng := _make_rng(_get_seed() + i * 7919)
 
@@ -178,7 +198,7 @@ func _generate_shortcuts(used_anchors: Array[int]) -> void:
 		var anchor_start := -1
 		var anchor_end := -1
 		for _attempt in range(20):
-			var span := rng.randf_range(min_span, max_span)
+			var span := cdf_span.sample(rng.randf())
 			var max_start := clampf(1.0 - span, 0.0, 1.0)
 			var start_frac := rng.randf_range(0.0, max_start)
 			var end_frac := start_frac + span
@@ -204,9 +224,10 @@ func _generate_shortcuts(used_anchors: Array[int]) -> void:
 		used_anchors.append(anchor_start)
 		used_anchors.append(anchor_end)
 
-		# --- Compute segment count from main rope distance ---
+		# --- Compute segment count from shortcut ratio ---
 		var main_rope_nodes := anchor_end - anchor_start
-		var shortcut_nodes := maxi(10, int(main_rope_nodes * segment_density))
+		var ratio := cdf_ratio.sample(rng.randf())
+		var shortcut_nodes := maxi(10, int(main_rope_nodes * ratio))
 
 		rope_physics.add_shortcut(anchor_start, anchor_end, shortcut_nodes)
 
