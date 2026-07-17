@@ -387,7 +387,7 @@ jobs:
         shell: bash
         run: |
           set -e
-          cd OCCT-Light.gd-autowrapper
+          cd *.gd-autowrapper
           ./generate.sh
 
       - name: Build with vcpkg
@@ -412,7 +412,7 @@ jobs:
             exit 1
           fi
           echo -e "Copying the following files to the addon folder...\n$files"
-          cp -f $files demo/addons/*/
+          cp -f $files demo/addons/*.gd/
 
       - name: Upload addon artifact
         uses: actions/upload-artifact@v7
@@ -436,14 +436,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: # Not all architectures are exported (this is just a demo)
+        target: # Not all architectures are tested for simplicity
           [
             { os: ubuntu-24.04, export_name: Linux },
-            { os: ubuntu-24.04, export_name: Web },
-            { os: ubuntu-24.04, export_name: Android },
             { os: windows-2025-vs2026, export_name: "Windows Desktop" },
             { os: macos-15, export_name: macOS },
-            { os: ubuntu-24.04, export_name: iOS }, # I do not have a developer account (which is required to actually build the app on macos), instead use ubuntu and just export the code to compile.
           ]
         mode: [debug, release]
         godot-version: ${{ fromJson(needs.read-versions.outputs.godot_versions) }}
@@ -460,15 +457,6 @@ jobs:
           pattern: gdext-*
           merge-multiple: true
 
-      - name: Setup Android NDK # Different if than before and merge entries not supported by github actions :(
-        if: matrix.target.export_name == 'Android'
-        id: setup-ndk
-        uses: nttld/setup-ndk@v1
-        with:
-          ndk-version: ${{ needs.read-versions.outputs.ndk_version }}
-
-      - *set_android_ndk_path
-
       - name: Setup Linux dependencies
         if: matrix.target.export_name == 'Linux'
         shell: bash
@@ -476,18 +464,6 @@ jobs:
           set -e
           sudo apt-get update
           sudo apt-get install -y libxml2-utils
-
-      - name: Setup Android keystore
-        if: matrix.target.export_name == 'Android' && matrix.mode == 'release'
-        shell: bash
-        run: |
-          set -e
-          sudo apt-get update
-          sudo apt-get install -y openjdk-17-jdk
-          keytool -genkeypair -v -storetype PKCS12 -keystore ${{ github.workspace }}/demo/android_keystore.p12 -alias androidkey -keyalg RSA -keysize 2048 -validity 10000 -storepass android -keypass android -dname "CN=Unknown, OU=Unknown, O=Unknown, L=Unknown, ST=Unknown, C=Unknown"
-          echo "GODOT_ANDROID_KEYSTORE_RELEASE_PATH=${{ github.workspace }}/demo/android_keystore.p12" >> $GITHUB_ENV
-          echo "GODOT_ANDROID_KEYSTORE_RELEASE_USER=androidkey" >> $GITHUB_ENV
-          echo "GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD=android" >> $GITHUB_ENV
 
       - name: Setup Godot
         uses: chickensoft-games/setup-godot@v2
@@ -501,30 +477,13 @@ jobs:
         shell: bash
         run: |
           set -e
-          cd OCCT-Light.gd-autowrapper
+          cd *.gd-autowrapper
           ./generate.sh
 
       - name: Run demo test
         shell: bash
-        if: matrix.target.export_name == 'Linux' || matrix.target.export_name == 'Windows Desktop' || matrix.target.export_name == 'macOS'
         run: |
           DO_BUILD=false GODOT_VERSION="system" ./validate.sh /tmp/a.txt || ( echo "====== ERRORS ======" && cat /tmp/a.txt && exit 1 )
-
-      - name: Export demo
-        if: matrix.godot-version == needs.read-versions.outputs.godot_max_version
-        shell: bash
-        run: |
-          set -e
-          mkdir demo/exports
-          godot --export-${{ matrix.mode }} "${{ matrix.target.export_name }}" --path demo --headless
-          echo "EXPORT_NAME=$(echo "${{ matrix.target.export_name }}" | tr '[:upper:]' '[:lower:]' | tr -d ' /')" >> $GITHUB_ENV
-
-      - name: Upload demo export artifact
-        if: matrix.godot-version == needs.read-versions.outputs.godot_max_version
-        uses: actions/upload-artifact@v7
-        with:
-          name: demo-export-${{ env.EXPORT_NAME }}-${{ matrix.mode }}
-          path: demo/exports/**
 
       - name: Prepare addon export
         if: matrix.target.export_name == 'Linux' && matrix.mode == 'release' && matrix.godot-version == needs.read-versions.outputs.godot_max_version
@@ -544,9 +503,106 @@ jobs:
           name: ${{ github.event.repository.name }}-${{ env.MODIFIED_REF }}-addon
           path: addon-export
 
+  export-demo:
+    needs: [read-versions, build]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { triplet: x64-linux, preset: "Linux", os: ubuntu-24.04 }
+          - { triplet: x86-linux, preset: "Linux x86", os: ubuntu-24.04 }
+          - { triplet: arm64-linux, preset: "Linux arm64", os: ubuntu-24.04-arm }
+          - { triplet: arm-linux, preset: "Linux arm", os: ubuntu-24.04-arm }
+          - { triplet: x64-mingw-static, preset: "Windows Desktop", os: windows-2025-vs2026 }
+          - { triplet: x86-mingw-static, preset: "Windows Desktop x86", os: windows-2025-vs2026 }
+          - { triplet: arm64-mingw-static, preset: "Windows Desktop arm64", os: windows-2025-vs2026 }
+          - { triplet: arm64-osx, preset: "macOS arm64", os: macos-15 }
+          - { triplet: x64-osx, preset: "macOS x64", os: macos-15 }
+          - { triplet: wasm32-emscripten, preset: "Web", os: ubuntu-24.04 }
+          - { triplet: wasm32-emscripten, preset: "Web Threads", os: ubuntu-24.04 }
+          - { triplet: arm64-android, preset: "Android arm64-v8a", os: ubuntu-24.04 }
+          - { triplet: arm-neon-android, preset: "Android armeabi-v7a", os: ubuntu-24.04 }
+          - { triplet: x64-android, preset: "Android x86_64", os: ubuntu-24.04 }
+          - { triplet: x86-android, preset: "Android x86", os: ubuntu-24.04 }
+          - { triplet: arm64-ios, preset: "iOS", os: ubuntu-24.04 }
+        mode: [debug, release]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Download addon artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: gdext-*
+          merge-multiple: true
+
+      - name: Setup Android NDK
+        if: contains(matrix.triplet, '-android')
+        id: setup-ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: ${{ needs.read-versions.outputs.ndk_version }}
+
+      - name: Set Android NDK path
+        if: contains(matrix.triplet, '-android')
+        shell: bash
+        run: |
+          set -e
+          echo "ANDROID_NDK_HOME=${{ steps.setup-ndk.outputs.ndk-path }}" >> $GITHUB_ENV
+
+      - name: Setup Android keystore
+        if: contains(matrix.triplet, '-android') && matrix.mode == 'release'
+        shell: bash
+        run: |
+          set -e
+          sudo apt-get update
+          sudo apt-get install -y openjdk-17-jdk
+          keytool -genkeypair -v -storetype PKCS12 -keystore ${{ github.workspace }}/demo/android_keystore.p12 -alias androidkey -keyalg RSA -keysize 2048 -validity 10000 -storepass android -keypass android -dname "CN=Unknown, OU=Unknown, O=Unknown, L=Unknown, ST=Unknown, C=Unknown"
+          echo "GODOT_ANDROID_KEYSTORE_RELEASE_PATH=${{ github.workspace }}/demo/android_keystore.p12" >> $GITHUB_ENV
+          echo "GODOT_ANDROID_KEYSTORE_RELEASE_USER=androidkey" >> $GITHUB_ENV
+          echo "GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD=android" >> $GITHUB_ENV
+
+      - name: Setup Godot
+        uses: chickensoft-games/setup-godot@v2
+        with:
+          version: ${{ needs.read-versions.outputs.godot_max_version }}
+          use-dotnet: false
+          include-templates: true
+          cache: false
+
+      - name: Generate autowrapper bindings
+        shell: bash
+        run: |
+          set -e
+          cd *.gd-autowrapper
+          ./generate.sh
+
+      - name: Export demo
+        shell: bash
+        run: |
+          set -e
+          mkdir demo/exports
+          godot --export-${{ matrix.mode }} "${{ matrix.preset }}" --path demo --headless
+
+      - name: Build artifact name
+        id: artifact-name
+        shell: bash
+        run: |
+          EXPORT_NAME=$(echo "${{ matrix.preset }}" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
+          echo "name=demo-${EXPORT_NAME}-${{ matrix.mode }}" >> $GITHUB_OUTPUT
+
+      - name: Upload demo export artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.artifact-name.outputs.name }}
+          path: demo/exports/**
+
   deploy-pages:
     runs-on: ubuntu-24.04
-    needs: test
+    needs: export-demo
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     permissions:
       contents: read
@@ -559,7 +615,7 @@ jobs:
       - name: Download web demo artifact
         uses: actions/download-artifact@v8
         with:
-          name: demo-export-web-release
+          name: demo-web-release
           path: web
 
       - name: Upload pages artifact
@@ -600,14 +656,14 @@ jobs:
           GH_REPO: ${{ github.repository }}
 
   success: # For auto-merging rules
-    needs: test
+    needs: [test, export-demo]
     if: "!cancelled()"
     runs-on: ubuntu-24.04
     permissions:
       actions: write
     steps:
       - name: Check dependency status
-        if: needs.test.result != 'success' && github.run_attempt < 5
+        if: (needs.test.result != 'success' || needs.export-demo.result != 'success') && github.run_attempt < 5
         shell: bash
         run: |
           set -ex
@@ -617,7 +673,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
       - name: Check dependency status
-        if: needs.test.result != 'success'
+        if: needs.test.result != 'success' || needs.export-demo.result != 'success'
         shell: bash
         run: |
           set -ex
