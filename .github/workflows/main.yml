@@ -492,7 +492,7 @@ jobs:
           set -e
           mkdir -p addon-export
           cp -r demo/addons addon-export/
-          cp LICENSE addon-export/addons/*
+          cp LICENSE addon-export/addons/*.gd
           MODIFIED_REF=$(echo ${{ github.ref_name }} | sed 's/\//-/g')
           echo "MODIFIED_REF=$MODIFIED_REF" >> $GITHUB_ENV
 
@@ -508,25 +508,27 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - { triplet: x64-linux, preset: "Linux", os: ubuntu-24.04 }
-          - { triplet: x86-linux, preset: "Linux x86", os: ubuntu-24.04 }
-          - { triplet: arm64-linux, preset: "Linux arm64", os: ubuntu-24.04-arm }
-          - { triplet: arm-linux, preset: "Linux arm", os: ubuntu-24.04-arm }
-          - { triplet: x64-mingw-static, preset: "Windows Desktop", os: windows-2025-vs2026 }
-          - { triplet: x86-mingw-static, preset: "Windows Desktop x86", os: windows-2025-vs2026 }
-          - { triplet: arm64-mingw-static, preset: "Windows Desktop arm64", os: windows-2025-vs2026 }
-          - { triplet: arm64-osx, preset: "macOS arm64", os: macos-15 }
-          - { triplet: x64-osx, preset: "macOS x64", os: macos-15 }
-          - { triplet: wasm32-emscripten, preset: "Web", os: ubuntu-24.04 }
-          - { triplet: wasm32-emscripten, preset: "Web Threads", os: ubuntu-24.04 }
-          - { triplet: arm64-android, preset: "Android arm64-v8a", os: ubuntu-24.04 }
-          - { triplet: arm-neon-android, preset: "Android armeabi-v7a", os: ubuntu-24.04 }
-          - { triplet: x64-android, preset: "Android x86_64", os: ubuntu-24.04 }
-          - { triplet: x86-android, preset: "Android x86", os: ubuntu-24.04 }
-          - { triplet: arm64-ios, preset: "iOS", os: ubuntu-24.04 }
+        target:
+          [
+            { triplet: x64-linux, preset: "Linux", os: ubuntu-24.04 },
+            { triplet: x86-linux, preset: "Linux x86", os: ubuntu-24.04 },
+            { triplet: arm64-linux, preset: "Linux arm64", os: ubuntu-24.04-arm },
+            { triplet: arm-linux, preset: "Linux arm", os: ubuntu-24.04-arm },
+            { triplet: x64-mingw-static, preset: "Windows Desktop", os: windows-2025-vs2026 },
+            { triplet: x86-mingw-static, preset: "Windows Desktop x86", os: windows-2025-vs2026 },
+            { triplet: arm64-mingw-static, preset: "Windows Desktop arm64", os: windows-2025-vs2026 },
+            { triplet: arm64-osx, preset: "macOS arm64", os: macos-15 },
+            { triplet: x64-osx, preset: "macOS x64", os: macos-15 },
+            { triplet: wasm32-emscripten, preset: "Web", os: ubuntu-24.04 },
+            { triplet: wasm32-emscripten, preset: "Web Threads", os: ubuntu-24.04 },
+            { triplet: arm64-android, preset: "Android arm64-v8a", os: ubuntu-24.04 },
+            { triplet: arm-neon-android, preset: "Android armeabi-v7a", os: ubuntu-24.04 },
+            { triplet: x64-android, preset: "Android x86_64", os: ubuntu-24.04 },
+            { triplet: x86-android, preset: "Android x86", os: ubuntu-24.04 },
+            { triplet: arm64-ios, preset: "iOS", os: ubuntu-24.04 },
+          ]
         mode: [debug, release]
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.target.os }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -540,21 +542,21 @@ jobs:
           merge-multiple: true
 
       - name: Setup Android NDK
-        if: contains(matrix.triplet, '-android')
+        if: contains(matrix.target.triplet, '-android')
         id: setup-ndk
         uses: nttld/setup-ndk@v1
         with:
           ndk-version: ${{ needs.read-versions.outputs.ndk_version }}
 
       - name: Set Android NDK path
-        if: contains(matrix.triplet, '-android')
+        if: contains(matrix.target.triplet, '-android')
         shell: bash
         run: |
           set -e
           echo "ANDROID_NDK_HOME=${{ steps.setup-ndk.outputs.ndk-path }}" >> $GITHUB_ENV
 
       - name: Setup Android keystore
-        if: contains(matrix.triplet, '-android') && matrix.mode == 'release'
+        if: contains(matrix.target.triplet, '-android') && matrix.mode == 'release'
         shell: bash
         run: |
           set -e
@@ -585,13 +587,13 @@ jobs:
         run: |
           set -e
           mkdir demo/exports
-          godot --export-${{ matrix.mode }} "${{ matrix.preset }}" --path demo --headless
+          godot --export-${{ matrix.mode }} "${{ matrix.target.preset }}" --path demo --headless
 
       - name: Build artifact name
         id: artifact-name
         shell: bash
         run: |
-          EXPORT_NAME=$(echo "${{ matrix.preset }}" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
+          EXPORT_NAME=$(echo "${{ matrix.target.preset }}" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
           echo "name=demo-${EXPORT_NAME}-${{ matrix.mode }}" >> $GITHUB_OUTPUT
 
       - name: Upload demo export artifact
