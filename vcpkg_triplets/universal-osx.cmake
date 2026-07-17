@@ -1,6 +1,6 @@
-set(VCPKG_TARGET_ARCHITECTURE universal)
-set(VCPKG_CRT_LINKAGE dynamic)
-set(VCPKG_LIBRARY_LINKAGE static)
+include("triplets/arm64-osx.cmake")
 
-set(VCPKG_CMAKE_SYSTEM_NAME Darwin)
+include("../vcpkg_triplets/common/arm64.cmake")
+
+set(VCPKG_TARGET_ARCHITECTURE universal)
 set(VCPKG_OSX_ARCHITECTURES arm64;x86_64)
