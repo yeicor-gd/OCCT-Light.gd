@@ -201,7 +201,8 @@ static func transform_at_baked(
 ## bypassing any Curve3D handle state so the count is guaranteed to match.
 static func build_auxiliary_curve_from_points(
 		positions: PackedVector3Array,
-		offset_amount: float, sharpness: float
+		offset_amount: float, sharpness: float,
+		camber: float = 0.0,
 ) -> Curve3D:
 	var res := Curve3D.new()
 	var n := positions.size()
@@ -232,8 +233,71 @@ static func build_auxiliary_curve_from_points(
 			#desired = u_vec
 		#tilts[i] = atan2(r_vec.dot(desired), u_vec.dot(desired))
 
-		# Offset position perpendicular to tangent and radial.
-		offset_positions[i] = pos + _floor_perpendicular(tangent, pos) * offset_amount
+	# Phase 1 — compute raw camber angles per point.
+	var raw_angles: PackedFloat32Array
+	raw_angles.resize(n)
+	for i in range(n):
+		raw_angles[i] = 0.0
+
+	if abs(camber) > 1e-10:
+		for i in range(n):
+			var pos := positions[i]
+			var radial_dir := pos.normalized()
+			if radial_dir.length_squared() < 0.0001:
+				radial_dir = Vector3.UP
+			var half_w := mini(mini(i, n - 1 - i), 2)
+			var curvature_vec := Vector3.ZERO
+			if half_w == 2:
+				curvature_vec = (-positions[i - 2] + 16.0 * positions[i - 1]
+					- 30.0 * pos + 16.0 * positions[i + 1] - positions[i + 2]) / 12.0
+			elif half_w == 1:
+				curvature_vec = positions[i - 1] - 2.0 * pos + positions[i + 1]
+
+			var smooth_tan := Vector3.ZERO
+			if half_w >= 2:
+				smooth_tan = positions[i + 2] - positions[i - 2]
+			elif half_w >= 1:
+				smooth_tan = positions[i + 1] - positions[i - 1]
+			if smooth_tan.length_squared() > 1e-10:
+				smooth_tan = smooth_tan.normalized()
+			else:
+				smooth_tan = _forward_from_positions(positions, i)
+
+			var lat_curv := curvature_vec - smooth_tan * curvature_vec.dot(smooth_tan) - radial_dir * curvature_vec.dot(radial_dir)
+			var curv_mag := lat_curv.length()
+			var fade := smoothstep(0.0, 0.35, curv_mag)
+			if fade > 1e-6:
+				var lateral_ref := smooth_tan.cross(radial_dir)
+				var bank_dot := lat_curv.dot(lateral_ref)
+				if abs(bank_dot) > 1e-10:
+					var angle: float = camber * curv_mag * sign(bank_dot) * fade
+					raw_angles[i] = clampf(angle, -PI / 2.0, PI / 2.0)
+
+	# Phase 2 — smooth angles so no single point can spike independently.
+	var radius := 3
+	var smoothed_angles: PackedFloat32Array
+	smoothed_angles.resize(n)
+	for i in range(n):
+		var sum := 0.0
+		var count := 0
+		for j in range(maxi(0, i - radius), mini(n, i + radius + 1)):
+			sum += raw_angles[j]
+			count += 1
+		smoothed_angles[i] = sum / float(count)
+		# Smoothly disable camber at both ends of the curve.
+		var end_frac := float(radius) / float(n - 1)
+		var end_fade := smoothstep(0.0, end_frac, float(i) / float(n - 1))
+		end_fade *= smoothstep(0.0, end_frac, 1.0 - float(i) / float(n - 1))
+		smoothed_angles[i] *= end_fade
+
+	# Phase 3 — apply smoothed angles to offset directions.
+	for i in range(n):
+		var pos := positions[i]
+		var tangent := _forward_from_positions(positions, i)
+		var offset_dir := _floor_perpendicular(tangent, pos)
+		if abs(smoothed_angles[i]) > 1e-10:
+			offset_dir = Quaternion(tangent, smoothed_angles[i]) * offset_dir
+		offset_positions[i] = pos + offset_dir * offset_amount
 
 	# Add offset points (one per input position).
 	for i in range(n):
@@ -266,6 +330,90 @@ static func build_auxiliary_curve_from_points(
 	return res
 
 
+## Smoothly adapt a shortcut's auxiliary curve so that at its endpoints
+## the "right" direction (spine→aux) lies in the main path's binormal
+## plane — the plane spanned by the main path's tangent and spine→aux
+## vectors at the anchor.  The shortcut's own tangent is considered so
+## the resulting right is also perpendicular to it, ensuring a valid
+## trihedron.  Lateral distance is preserved at [code]offset_amount[/code].
+##
+## The blend region spans [blend_fraction] of the curve on each end,
+## interpolated via smoothstep.
+static func blend_auxiliary_endpoints(
+		aux_curve: Curve3D,
+		spine_positions: PackedVector3Array,
+		main_aux_curve: Curve3D,
+		main_spine_positions: PackedVector3Array,
+		anchor_start: int,
+		anchor_end: int,
+		sharpness: float,
+		offset_amount: float,
+		blend_fraction: float = 0.25,
+) -> void:
+	var n := aux_curve.point_count
+	if n < 3:
+		return
+
+	var main_n := main_spine_positions.size()
+	var blend_count := maxi(3, int(n * clampf(blend_fraction, 0.0, 0.5)))
+	blend_count = mini(blend_count, n / 2)
+
+	# Main path binormal-plane normals at both anchors.
+	var plane_s := _binormal_plane_normal(main_spine_positions, main_aux_curve, anchor_start)
+	var plane_e := _binormal_plane_normal(main_spine_positions, main_aux_curve, anchor_end)
+
+	# Blend start region: project right into main plane, blend towards original.
+	for i in range(blend_count):
+		var t := float(i) / float(blend_count)
+		t = t * t * (3.0 - 2.0 * t)  # smoothstep
+
+		var spine_pos := _vec_at(spine_positions, i, aux_curve, i)
+		var aux_pos := aux_curve.get_point_position(i)
+		var sc_fwd := _forward_from_positions(spine_positions, i)
+
+		var target := _align_right_to_plane(sc_fwd, plane_s, aux_pos - spine_pos, offset_amount, spine_pos)
+		aux_curve.set_point_position(i, target.lerp(aux_pos, t))
+
+	# Blend end region: same logic, mirrored.
+	for i in range(n - blend_count, n):
+		var t := float(n - 1 - i) / float(blend_count)
+		t = t * t * (3.0 - 2.0 * t)  # smoothstep
+
+		var spine_pos := _vec_at(spine_positions, i, aux_curve, i)
+		var aux_pos := aux_curve.get_point_position(i)
+		var sc_fwd := _forward_from_positions(spine_positions, i)
+
+		var target := _align_right_to_plane(sc_fwd, plane_e, aux_pos - spine_pos, offset_amount, spine_pos)
+		aux_curve.set_point_position(i, target.lerp(aux_pos, t))
+
+	# Recompute Bezier handles for the modified curve.
+	_recompute_curve_handles(aux_curve, sharpness)
+
+
+## Recompute all Bezier handles for a Curve3D from its current positions.
+static func _recompute_curve_handles(curve: Curve3D, sharpness: float) -> void:
+	var n := curve.point_count
+	if n < 2:
+		return
+
+	var segs: Array[Vector3] = []
+	for i in range(n - 1):
+		segs.append(curve.get_point_position(i + 1) - curve.get_point_position(i))
+
+	curve.set_point_out(0, segs[0] / sharpness)
+	curve.set_point_in(0, -segs[0] / sharpness)
+
+	curve.set_point_out(n - 1, segs[n - 2] / sharpness)
+	curve.set_point_in(n - 1, -segs[n - 2] / sharpness)
+
+	for i in range(1, n - 1):
+		var mean_len := (segs[i - 1].length() + segs[i].length()) * 0.5
+		var dir := (segs[i - 1].normalized() + segs[i].normalized()).normalized()
+		var handle := dir * mean_len / sharpness
+		curve.set_point_out(i, handle)
+		curve.set_point_in(i, -handle)
+
+
 # ── Helpers ──────────────────────────────────────────────────────────────
 
 ## Unit vector perpendicular to |forward| in the "floor" plane (perp. to radial).
@@ -279,3 +427,66 @@ static func _floor_perpendicular(forward: Vector3, point: Vector3) -> Vector3:
 		if right.length_squared() < 0.0001:
 			right = radial.cross(Vector3.FORWARD)
 	return right.normalized()
+
+
+## Unit normal to the binormal plane of the main path at the given index.
+## The plane is spanned by (tangent, spine→aux), so its normal is tangent × right.
+static func _binormal_plane_normal(
+		main_spine_positions: PackedVector3Array,
+		main_aux_curve: Curve3D,
+		idx: int,
+) -> Vector3:
+	var fwd := _forward_from_positions(main_spine_positions, idx)
+	var aux_pos := main_aux_curve.get_point_position(idx)
+	var spine_pos := _vec_at(main_spine_positions, idx, main_aux_curve, idx)
+	var right := aux_pos - spine_pos
+	var plane_normal := right.cross(fwd)
+	if plane_normal.length_squared() < 1e-8:
+		# Degenerate — fall back to radial (away from origin) as up reference.
+		var radial := spine_pos.normalized()
+		if radial.length_squared() < 1e-8:
+			radial = fwd.cross(Vector3.FORWARD)
+		return radial
+	return plane_normal.normalized()
+
+
+## Project the shortcut's right direction into the main path's binormal plane
+## and scale it to [offset_amount], returning the absolute aux position.
+static func _align_right_to_plane(
+		sc_fwd: Vector3,
+		plane_normal: Vector3,
+		current_right: Vector3,
+		offset_amount: float,
+		spine_pos: Vector3,
+) -> Vector3:
+	var proj := sc_fwd.cross(plane_normal).normalized()
+	if proj.length_squared() < 1e-8:
+		return spine_pos + current_right.normalized() * offset_amount
+	return spine_pos + proj * offset_amount
+
+
+## Forward direction (tangent) estimated from positions with clamped index.
+static func _forward_from_positions(positions: PackedVector3Array, idx: int) -> Vector3:
+	var n := positions.size()
+	if n < 2:
+		return Vector3.FORWARD
+	if idx <= 0:
+		return (positions[1] - positions[0]).normalized()
+	if idx >= n - 1:
+		return (positions[n - 1] - positions[n - 2]).normalized()
+	return (positions[idx + 1] - positions[idx - 1]).normalized()
+
+
+## Return a position from [positions] if in bounds, otherwise fall back to the
+## auxiliary curve point at [curve_idx] or Vector3.ZERO.
+static func _vec_at(
+		positions: PackedVector3Array,
+		pos_idx: int,
+		curve: Curve3D,
+		curve_idx: int,
+) -> Vector3:
+	if pos_idx >= 0 and pos_idx < positions.size():
+		return positions[pos_idx]
+	if curve_idx >= 0 and curve_idx < curve.point_count:
+		return curve.get_point_position(curve_idx)
+	return Vector3.ZERO

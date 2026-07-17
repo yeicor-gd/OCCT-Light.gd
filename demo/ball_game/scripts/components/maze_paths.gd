@@ -32,6 +32,18 @@ class_name MazePaths
 ## Lateral offset applied when building auxiliary (binormal) curves.
 @export var aux_offset_amount: float = 0.5
 
+## Curvature-dependent camber angle applied to auxiliary (binormal) curves.
+## Rotates the lateral offset direction around the tangent by an angle
+## proportional to local curvature, keeping the spine→aux distance equal
+## to [code]aux_offset_amount[/code].  Banks into the curve; fades to
+## zero for near-zero curvature and near rope ends.
+@export var camber_amount: float = 0.0
+
+## Fraction of each shortcut curve (per end) over which the auxiliary
+## right direction is projected into the main path's binormal plane,
+## keeping the lateral offset amount unchanged.
+@export_range(0.0, 0.5, 0.01) var shortcut_blend_fraction: float = 0.25
+
 # ── Shortcuts ──────────────────────────────────────────────────────────────
 
 @export_group("Shortcuts")
@@ -256,7 +268,7 @@ func _build_all_curves() -> void:
 	var main_positions := rope_physics.get_rope_positions(0)
 	CurveUtils.apply_curve_data(main_path.curve, CurveUtils.precompute_curve_data(main_positions, sharpness))
 	var main_aux := _ensure_curve_child("MainPathBinormal")
-	main_aux.curve = CurveUtils.build_auxiliary_curve_from_points(main_positions, aux_offset_amount, sharpness)
+	main_aux.curve = CurveUtils.build_auxiliary_curve_from_points(main_positions, aux_offset_amount, sharpness, camber_amount)
 
 	# Shortcuts (ropes 1..N).
 	for i in range(1, rope_count):
@@ -269,7 +281,15 @@ func _build_all_curves() -> void:
 		CurveUtils.apply_curve_data(sc_path.curve, CurveUtils.precompute_curve_data(sc_positions, sharpness))
 
 		var aux_path := _ensure_curve_child("Shortcut%dBinormal" % idx)
-		aux_path.curve = CurveUtils.build_auxiliary_curve_from_points(sc_positions, aux_offset_amount, sharpness)
+		aux_path.curve = CurveUtils.build_auxiliary_curve_from_points(sc_positions, aux_offset_amount, sharpness, camber_amount)
+
+		# Blend shortcut binormal to match main path's plane at anchors.
+		var anchor_s := rope_physics.get_shortcut_start_anchor(idx)
+		var anchor_e := rope_physics.get_shortcut_end_anchor(idx)
+		CurveUtils.blend_auxiliary_endpoints(
+			aux_path.curve, sc_positions, main_aux.curve, main_positions,
+			anchor_s, anchor_e, sharpness, aux_offset_amount,
+			shortcut_blend_fraction)
 
 
 # ── Shortcut children cleanup ──────────────────────────────────────────────

@@ -365,7 +365,7 @@ static func _compute_cutter_section(
 	# +1 buffer ensures the cutter extends far enough through the junction to
 	# fully penetrate both sides of the main wall, even with short segments.
 	var segments_each_side := int(ceil(pathway_half_width / avg_seg_len) + 1)
-	var seg_start := maxi(0, center_segment - segments_each_side)
+	var seg_start := maxi(0, center_segment - segments_each_side - 1)
 	var seg_end := mini(num_segments, center_segment + segments_each_side)
 	return [seg_start, seg_end]
 
