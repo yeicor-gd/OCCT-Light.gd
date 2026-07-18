@@ -1,7 +1,7 @@
 [configuration]
 
 entry_symbol = "gdext_library_init"
-compatibility_minimum = "4.4"  # Due to @export_tool_button in demo (but technically could be 4.3 if we remove that)
+compatibility_minimum = "4.4" ; Due to @export_tool_button in demo (but technically could be 4.3 if we remove that)
 
 [libraries] ; See the workflow for build instructions (or simply download the prebuilt libraries)
 
