@@ -1,26 +1,46 @@
-[gd_resource type="StandardMaterial3D" format=3 uid="uid://c23eanwhxvlbu"]
+[gd_resource type="StandardMaterial3D" format=3 uid="uid://20dtxypvskpi"]
 
-[ext_resource type="Shader" uid="uid://dakevh28l3dkw" path="res://ball_game/materials/faces/face_arrows.gdshader" id="1_sr3qo"]
+[ext_resource type="Texture2D" uid="uid://c42fox2yb3pep" path="res://ball_game/materials/faces/rock_0001_color_1k.jpg" id="1_yvrm5"]
+[ext_resource type="Texture2D" uid="uid://8qfa03h308dl" path="res://ball_game/materials/faces/rock_0001_ao_1k.jpg" id="2_yikw1"]
+[ext_resource type="Shader" uid="uid://dakevh28l3dkw" path="res://ball_game/materials/faces/face_arrows.gdshader" id="3_4hjvj"]
+[ext_resource type="Texture2D" uid="uid://cjpubaiswmxv" path="res://ball_game/materials/faces/rock_0001_height_1k.png" id="3_gf6cl"]
+[ext_resource type="Texture2D" uid="uid://c33egm2mig8ux" path="res://ball_game/materials/faces/rock_0001_normal_opengl_1k.png" id="5_lacd7"]
+[ext_resource type="Texture2D" uid="uid://eqyj8nh5muot" path="res://ball_game/materials/faces/rock_0001_roughness_1k.jpg" id="6_8r2sm"]
 
-[sub_resource type="ShaderMaterial" id="ShaderMaterial_06u5y"]
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_0e071"]
 render_priority = 0
-shader = ExtResource("1_sr3qo")
+shader = ExtResource("3_4hjvj")
 shader_parameter/arrow_color = Color(0.15, 1, 0.15, 1)
 shader_parameter/emission_strength = 2.0
-shader_parameter/speed = -2.0
-shader_parameter/direction = 1.0
+shader_parameter/speed = 1.0
+shader_parameter/direction = -1.0
 shader_parameter/uv_meters_along = 25.0
-shader_parameter/row_spacing_meters = 15.0
+shader_parameter/row_spacing_meters = 7.0
 shader_parameter/column_count = 1.0
 shader_parameter/column_offset = 0.0
 shader_parameter/column_spacing = 1.0
-shader_parameter/chevron_width = 0.2
-shader_parameter/chevron_height = 0.6
-shader_parameter/line_width = 0.02
-shader_parameter/align_start = 0.0
-shader_parameter/align_end = 1.0
+shader_parameter/chevron_width = 0.32
+shader_parameter/chevron_height = 0.58
+shader_parameter/line_width = 0.07
+shader_parameter/align_start = 0.3
+shader_parameter/align_end = 0.7
 
 [resource]
-render_priority = -2
-next_pass = SubResource("ShaderMaterial_06u5y")
-albedo_color = Color(0.7657197, 0.7657191, 7.70092e-07, 1)
+render_priority = -1
+next_pass = SubResource("ShaderMaterial_0e071")
+albedo_texture = ExtResource("1_yvrm5")
+metallic = 0.27
+metallic_specular = 0.42
+metallic_texture = ExtResource("2_yikw1")
+roughness_texture = ExtResource("6_8r2sm")
+normal_enabled = true
+normal_texture = ExtResource("5_lacd7")
+ao_enabled = true
+ao_texture = ExtResource("2_yikw1")
+heightmap_enabled = true
+heightmap_deep_parallax = true
+heightmap_min_layers = 8
+heightmap_max_layers = 32
+heightmap_texture = ExtResource("3_gf6cl")
+uv1_scale = Vector3(0.5, 0.5, 0.5)
+uv1_triplanar_sharpness = 78.79336

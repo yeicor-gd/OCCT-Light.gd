@@ -35,5 +35,7 @@ const SUITES := [
 	"res://tests/test_OclDemoOnlyRopePhysics.gd",
 	"res://tests/test_OclMeshToGodot.gd",
 	"res://tests/test_cad_workflows.gd",
+	"res://tests/test_chunk_builder.gd",
+	"res://tests/test_obstacles.gd",
 	"res://tests/test_select_iter.gd",
 ]

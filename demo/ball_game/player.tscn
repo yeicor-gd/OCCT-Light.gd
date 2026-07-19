@@ -4,6 +4,7 @@
 [ext_resource type="Script" uid="uid://is6jonx3psx6" path="res://ball_game/scripts/player/player.gd" id="1_uuw2b"]
 [ext_resource type="Script" uid="uid://dd8xba3t4b6sx" path="res://ball_game/scripts/player/camera_rig.gd" id="2_yff8i"]
 [ext_resource type="Material" uid="uid://db44qt2qwxtiq" path="res://ball_game/materials/glass.tres" id="2_yji6d"]
+[ext_resource type="Script" uid="uid://cp3fcc5hiqbc" path="res://ball_game/scripts/player/touch_joystick.gd" id="3_touch"]
 
 [sub_resource type="SphereShape3D" id="SphereShape3D_0e071"]
 
@@ -41,12 +42,14 @@ current = true
 
 [node name="CanvasLayer" type="CanvasLayer" parent="." unique_id=494879786]
 
-[node name="VirtualJoystick" type="VirtualJoystick" parent="CanvasLayer" unique_id=1834041196]
-anchors_preset = -1
-anchor_top = 0.8
-anchor_right = 0.12
+[node name="TouchJoystick" type="Control" parent="CanvasLayer" unique_id=1834041196]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
 anchor_bottom = 1.0
-offset_top = 0.11993408
-offset_right = 0.06399536
-grow_vertical = 0
-metadata/_edit_use_anchors_ = true
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("3_touch")
+
+[connection signal="rotation_changed" from="CameraRig" to="." method="_on_camera_rig_rotation_changed"]

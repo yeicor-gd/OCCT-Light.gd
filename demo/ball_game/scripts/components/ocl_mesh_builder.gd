@@ -7,32 +7,30 @@ class_name OclMeshBuilder
 ## Reads path pairs (Path3D + auxiliary Path3D) from the MazePaths/Curves
 ## node, plans chunked segments via ChunkBuilder, then dispatches each chunk
 ## as a WorkerThreadPool background task.  Results arrive out of order and
-## are assembled into a per-chunk Node3D hierarchy on the main thread.
+## are assembled into a per-batch Node3D hierarchy on the main thread.
 ##
 ## Path pairs are always auto-discovered from the scene tree:
 ##   MainPath + MainPathBinormal  (primary pair)
 ##   Shortcut0 + Shortcut0Binormal, ... (additional pairs when sweep_shortcuts)
 ##
-## Chunk scene hierarchy:
-##   ChunkN (Node3D)
-##     Faces (StaticBody3D if physics enabled, Node3D otherwise)
-##       FacesCollision (CollisionShape3D, if physics)
-##       FacesMesh (MeshInstance3D, if display)
-##     Edges (StaticBody3D if physics enabled, Node3D otherwise)
-##       EdgesMesh (MultiMeshInstance3D, if display)
-##       _occtl_edge_N (CollisionShape3D, if physics)
-##     Vertices (StaticBody3D if physics enabled, Node3D otherwise)
-##       VerticesMesh (MultiMeshInstance3D, if display)
-##       _occtl_vertex_N (CollisionShape3D, if physics)
+## Batching: consecutive chunks (by rope order) are grouped into spatial
+## batches of size merge_batch_size.  A batch is flushed to the scene as
+## soon as every one of its chunks has completed, so early batches appear
+## progressively while later ones are still computing.  Each batch produces
+## exactly one draw call per feature type (faces/edges/vertices), which
+## amortises GPU overhead without sacrificing occlusion-culling granularity.
 ##
-## Chunk root is always a plain Node3D (not a static body).  Only the
-## feature sub-nodes (Vertices / Edges / Faces) MAY be StaticBody3D.
+## Batch scene hierarchy (merge_batch_size > 1):
+##   BatchN (Node3D)
+##     Faces (StaticBody3D if physics, Node3D otherwise)
+##       FacesMesh (MeshInstance3D)
+##       CollisionFaces (CollisionShape3D, if physics)
+##     Edges / Vertices — same pattern
 ##
-## Chunk subtrees are persisted as .scn (binary) PackedScene files for
-## clean caching.
+## With merge_batch_size <= 1 each chunk keeps its own ChunkN node.
 ##
-## Display and physics each have independent OclMeshOptions and fancy
-## profile flags so you can tune quality vs. performance independently.
+## Batch subtrees are persisted as .scn (binary) PackedScene files.
+## Display and physics have independent OclMeshOptions and fancy flags.
 
 # -----------------------------------------------------------------------------
 # Sweep mode enum (sorted from most to least complex)
@@ -86,22 +84,22 @@ enum SweepMode {
 
 @export_group("Obstacles (slow)")
 
-## Frequency of obstacles along the track (obstacles per segment unit).
-@export_range(0.0, 0.5, 0.01) var obstacle_frequency: float = 0.1
-## Enable positive (fused) obstacles that narrow the path.
-@export var obstacle_positive: bool = true
-## Enable negative (cut) obstacles that widen the path.
-@export var obstacle_negative: bool = true
+## Frequency of positive (fused) obstacles along the track (obstacles per segment unit).
+@export_range(0.0, 0.5, 0.01) var obstacle_positive_frequency: float = 0.05
+## Frequency of negative (cut) obstacles along the track (obstacles per segment unit).
+@export_range(0.0, 0.5, 0.01) var obstacle_negative_frequency: float = 0.05
 ## Seed offset for obstacle randomisation.
 @export var obstacle_seed_offset: int = 0
+## Debug mode: always adds boxes instead of obstacle shapes, for visualising placement.
+@export var obstacle_debug_mode: bool = false
 
 @export_group("Chunking")
 
-## Number of segments to merge into one OCCT graph.
-@export_range(1, 200, 1) var chunk_size: int = 8
+## Number of segments to merge into one OCCT graph (1 is more stable and the most parallelizable but may have some synchronization and GPU overhead due to extra planar walls and more objects / draw calls).
+@export_range(1, 200, 1) var chunk_size: int = 1
 
 ## Maximum number of chunk results to accumulate before flushing.
-@export_range(0, 200, 1) var merge_batch_size: int = 1
+@export_range(0, 200, 1) var merge_batch_size: int = 16
 
 ## Maximum concurrent WorkerThreadPool tasks. 0 = unlimited.
 @export_range(0, 32, 1) var max_concurrent: int = 0
@@ -126,8 +124,18 @@ enum SweepMode {
 @export var display_faces_material: Material
 ## Material for edges
 @export var display_edges_material: Material
-## Material for faces
+## Material for vertices
 @export var display_vertices_material: Material
+
+## Debug: tint each batch with a colour indicating which sweep attempt succeeded.
+## sweep+fancy=green, sweep+nf=yellow, loft+fancy=orange, loft+nf=red.
+## Overrides display_faces_material albedo modulate when enabled.
+@export var debug_color_sweep_mode: bool = false
+
+## Validate display sweep geometry (volume, face area, topology, self-intersection).
+## Disabling skips all analytical checks — only hard OCCT failures cause fallback.
+## Disable for fastest generation; enable for highest-quality geometry.
+@export var display_validate_geometry: bool = true
 
 @export_group("Physics")
 
@@ -139,6 +147,10 @@ enum SweepMode {
 @export var physics_options := OclMeshOptions.new()
 ## Apply 2D fillets to smooth profile corners (fancy mode) for physics.
 @export var physics_fancy := false
+## Validate physics sweep geometry (volume, face area, topology, self-intersection).
+## Disabling skips all analytical checks — only hard OCCT failures cause fallback.
+@export var physics_validate_geometry: bool = false
+
 ## Generate collision shapes for faces.
 @export var physics_show_faces := true
 ## Generate collision shapes for edges (== 0 = disabled, <0 = fixed size).
@@ -156,6 +168,31 @@ enum SweepMode {
 @export_tool_button("Regenerate") var regenerate_ = func(): await regenerate(false)
 
 # -----------------------------------------------------------------------------
+# Signals
+# -----------------------------------------------------------------------------
+
+## Emitted once when regeneration begins.
+## total_chunks: total number of chunks to be built across all pairs.
+signal generation_started(total_chunks: int)
+
+## Emitted each time one chunk worker finishes (from the main thread).
+## chunk_idx: the chunk's sequential global index (rope order).
+## pair_name: "" for main path, "ShortcutN_" for shortcuts.
+## elapsed_ms: wall-clock time the worker spent on this chunk.
+signal chunk_completed(chunk_idx: int, pair_name: String, elapsed_ms: float)
+
+## Emitted when a spatial batch is assembled and added to the scene.
+## batch_name: the node name of the batch (e.g. "Batch3").
+## chunks_in_batch: how many chunks contributed to this batch.
+signal batch_ready(batch_name: String, chunks_in_batch: int)
+
+## Emitted when all chunks are done and the scene is fully built.
+## total_ms: total wall-clock time since generation_started.
+## total_chunks: total chunks processed.
+## failed_chunks: chunks that returned empty geometry.
+signal generation_finished(total_ms: float, total_chunks: int, failed_chunks: int)
+
+# -----------------------------------------------------------------------------
 # State
 # -----------------------------------------------------------------------------
 
@@ -163,9 +200,17 @@ var _maze_generator: MazeGenerator
 var _profile_cfg: ProfileBuilder.Config
 var _is_regenerating: bool = false
 var _scheduler: TaskScheduler = null
-var _chunk_results: Array[Dictionary] = []
 var _wall_height_cdf: Curve
 var _wall_height_noise: FastNoiseLite
+# Per-batch accumulators: batch_id (int) -> { "pending": int, "name": String }
+var _batches: Dictionary = {}
+# Arriving results held until their batch is complete: batch_id -> Array[Dictionary]
+var _pending_results: Dictionary = {}
+# Progress counters (main thread only).
+var _progress_total: int = 0
+var _progress_done: int = 0
+var _progress_failed: int = 0
+var _progress_start_us: int = 0
 
 # -----------------------------------------------------------------------------
 # Initialisation
@@ -285,13 +330,17 @@ func _collect_path_pairs() -> Array[Dictionary]:
 				var start_frac := _find_closest_fraction(main_curve, sc_start, main_baked_len)
 				var end_frac := _find_closest_fraction(main_curve, sc_end, main_baked_len)
 
+				# Compute segment indices on the main path for both anchor points.
+				# Declared here so both junction blocks below can reference them.
+				var start_seg := _fraction_to_segment(start_frac, main_curve.point_count)
+				var end_seg := _fraction_to_segment(end_frac, main_curve.point_count)
+
 				# --- Shortcut pair junction data (cut shortcut wall with main interior) ---
 				var shortcut_junctions: Array = []
 				if clean_shortcuts:
 					var pathway_hw := _profile_cfg.ball_radius / _profile_cfg.ball_to_path_min_ratio.x + _profile_cfg.wall_thickness
 					var sc_num_segs := sc_curve.point_count - 1
 					# Start junction: main path cutter centered on start_frac
-					var start_seg := _fraction_to_segment(start_frac, main_curve.point_count)
 					var start_section := _compute_cutter_section(main_curve, start_seg, pathway_hw)
 					shortcut_junctions.append({
 						"other_curve": main_curve,
@@ -299,10 +348,10 @@ func _collect_path_pairs() -> Array[Dictionary]:
 						"other_name": "",
 						"other_segment_start": start_section[0],
 						"other_segment_end": start_section[1],
-						"junction_frac": 0.0,
+						"junction_frac": 0.0,           # fraction along THIS (shortcut) path
+						"junction_segment": 0,           # segment index along THIS (shortcut) path
 					})
 					# End junction: main path cutter centered on end_frac
-					var end_seg := _fraction_to_segment(end_frac, main_curve.point_count)
 					var end_section := _compute_cutter_section(main_curve, end_seg, pathway_hw)
 					shortcut_junctions.append({
 						"other_curve": main_curve,
@@ -311,6 +360,7 @@ func _collect_path_pairs() -> Array[Dictionary]:
 						"other_segment_start": end_section[0],
 						"other_segment_end": end_section[1],
 						"junction_frac": 1.0 if sc_num_segs <= 0 else float(sc_num_segs - 1) / float(sc_num_segs),
+						"junction_segment": maxi(0, sc_num_segs - 1), # segment index along THIS (shortcut) path
 					})
 				pairs.append({ "name": cn + "_", "path": child, "aux": sc_aux, "junctions": shortcut_junctions })
 
@@ -326,7 +376,8 @@ func _collect_path_pairs() -> Array[Dictionary]:
 						"other_name": cn + "_",
 						"other_segment_start": sc_start_section[0],
 						"other_segment_end": sc_start_section[1],
-						"junction_frac": start_frac,
+						"junction_frac": start_frac,    # fraction along THIS (main) path
+						"junction_segment": start_seg,  # segment index along THIS (main) path
 					})
 					# End junction: shortcut cutter centred on last segment
 					var sc_last_seg := sc_curve.point_count - 2
@@ -337,7 +388,8 @@ func _collect_path_pairs() -> Array[Dictionary]:
 						"other_name": cn + "_",
 						"other_segment_start": sc_end_section[0],
 						"other_segment_end": sc_end_section[1],
-						"junction_frac": end_frac,
+						"junction_frac": end_frac,      # fraction along THIS (main) path
+						"junction_segment": end_seg,    # segment index along THIS (main) path
 					})
 					pairs[0]["junctions"] = main_junctions
 
@@ -445,19 +497,53 @@ func regenerate(sync: bool) -> void:
 	var captured_display_shortcut_cutter_sweep_mode: int = display_shortcut_cutter_sweep_mode
 	var captured_physics_sweep_mode: int = physics_sweep_mode
 	var captured_physics_shortcut_cutter_sweep_mode: int = physics_shortcut_cutter_sweep_mode
+	var captured_debug_color_sweep: bool = debug_color_sweep_mode
+	var captured_display_validate: bool = display_validate_geometry
+	var captured_physics_validate: bool = physics_validate_geometry
 
-	var captured_obstacle_freq: float = obstacle_frequency
-	var captured_obstacle_pos: bool = obstacle_positive
-	var captured_obstacle_neg: bool = obstacle_negative
+	var captured_obstacle_pos_freq: float = obstacle_positive_frequency
+	var captured_obstacle_neg_freq: float = obstacle_negative_frequency
 	var captured_obstacle_seed: int = obstacle_seed_offset
+	var captured_obstacle_debug: bool = obstacle_debug_mode
 
 	var scheduler := TaskScheduler.new(sync)
 	scheduler.max_concurrent = max_concurrent
 	_scheduler = scheduler
-	_chunk_results.clear()
+	_batches.clear()
+	_pending_results.clear()
+	_progress_done = 0
+	_progress_failed = 0
 
+	# First pass: count all chunks and pre-register batches so we know when
+	# each batch is complete as results arrive out of order.
 	var total_segments := 0
+	var global_chunk_counter := 0
+	var all_dispatch_infos: Array[Dictionary] = []
 
+	for pair in path_pairs:
+		var seg_count: int = (pair["path"] as Path3D).curve.point_count - 1
+		if seg_count <= 0:
+			continue
+		total_segments += seg_count
+		var n_chunks := ChunkBuilder.new().plan_chunks(seg_count).size()
+		for _ci in range(n_chunks):
+			var batch_id: int = global_chunk_counter / maxi(merge_batch_size, 1) if merge_batch_size > 1 else global_chunk_counter
+			var pair_name: String = pair["name"]
+			var batch_name := pair_name + ("Batch" if merge_batch_size > 1 else "Chunk") + str(batch_id)
+			if not _batches.has(batch_id):
+				_batches[batch_id] = {"pending": 0, "name": batch_name}
+				_pending_results[batch_id] = []
+			(_batches[batch_id] as Dictionary)["pending"] += 1
+			global_chunk_counter += 1
+
+	_progress_total = global_chunk_counter
+	_progress_start_us = total_start
+	generation_started.emit(_progress_total)
+	print("[OclMeshBuilder] Dispatching ", _progress_total, " chunks across ",
+			path_pairs.size(), " pair(s), ", total_segments, " total segment(s). Polling...")
+
+	# Second pass: dispatch tasks with pre-computed batch IDs.
+	global_chunk_counter = 0
 	for pair in path_pairs:
 		var pair_name: String = pair["name"]
 		var pair_path: Path3D = pair["path"]
@@ -467,7 +553,6 @@ func regenerate(sync: bool) -> void:
 		var seg_count: int = pair_path.curve.point_count - 1
 		if seg_count <= 0:
 			continue
-		total_segments += seg_count
 
 		var chunker := ChunkBuilder.new()
 		chunker.chunk_size = chunk_size
@@ -478,25 +563,41 @@ func regenerate(sync: bool) -> void:
 		var captured_pair_name := pair_name
 		var captured_pair_junctions: Array = pair_junctions
 
+		# Force Godot's lazy bake cache to populate on the main thread before any
+		# worker accesses these curves. Curve3D._bake() is not thread-safe: parallel
+		# workers racing to call get_baked_length() / sample_baked() on an unbaked
+		# curve will corrupt the internal baked_points array, causing some chunks to
+		# receive garbage positions and fail (or silently produce wrong geometry).
+		captured_path_curve.get_baked_length()
+		captured_aux_curve.get_baked_length()
+		for junc in captured_pair_junctions:
+			var jc: Curve3D = junc.get("other_curve")
+			var ja: Curve3D = junc.get("other_aux_curve")
+			if jc: jc.get_baked_length()
+			if ja: ja.get_baked_length()
+
 		# Precompute per-segment wall heights for this pair.
 		var seg_count_for_heights: int = captured_path_curve.point_count
-		var segment_wall_heights: PackedFloat32Array = PackedFloat32Array()
+		var segment_wall_heights := PackedFloat32Array()
 		segment_wall_heights.resize(seg_count_for_heights)
 		for si in range(seg_count_for_heights):
 			var frac := float(si) / float(maxi(seg_count_for_heights - 1, 1)) + total_segments * 100
-			# Stable noise frequency over path length
 			segment_wall_heights[si] = _sample_wall_height(frac * pair_path.curve.get_baked_length())
 
 		var total_chunks := chunks.size()
-		for chunk_idx in range(total_chunks):
+		for chunk_idx in range(mini(total_chunks, 1) if OS.get_environment("OCL_DEBUG_FIRST_CHUNK_ONLY") == "1" else total_chunks):
 			var c: ChunkBuilder.Chunk = chunks[chunk_idx] as ChunkBuilder.Chunk
-			var idx := chunk_idx
-			var is_first := idx == 0
-			var is_last := idx == total_chunks - 1
+			var local_idx := chunk_idx
+			var global_idx := global_chunk_counter
+			var batch_id: int = global_idx / maxi(merge_batch_size, 1) if merge_batch_size > 1 else global_idx
+			var is_first := local_idx == 0
+			var is_last := local_idx == total_chunks - 1
 			var chunk_seg_heights: PackedFloat32Array = segment_wall_heights.slice(c.start_segment, c.end_segment + 1)
+			var dispatch_start_us := Time.get_ticks_usec()
 			scheduler.dispatch_task(func():
+				var worker_start := Time.get_ticks_usec()
 				var result: Dictionary = _worker_build_chunk(
-					idx, c,
+					global_idx, c,
 					captured_path_curve, captured_aux_curve,
 					captured_cfg,
 					captured_display_fancy, captured_physics_fancy,
@@ -510,25 +611,28 @@ func regenerate(sync: bool) -> void:
 					captured_pair_junctions if captured_clean_shortcuts else [],
 					captured_debug_fuse,
 					chunk_seg_heights,
-					captured_obstacle_freq,
-					captured_obstacle_pos,
-					captured_obstacle_neg,
-					captured_obstacle_seed + idx * 1337,
+					captured_obstacle_pos_freq,
+					captured_obstacle_neg_freq,
+					captured_obstacle_seed + global_idx * 1337,
+					captured_obstacle_debug,
 					captured_display_sweep_mode,
 					captured_display_shortcut_cutter_sweep_mode,
 					captured_physics_sweep_mode,
 					captured_physics_shortcut_cutter_sweep_mode,
+					captured_display_validate,
+					captured_physics_validate,
 				)
+				result["batch_id"] = batch_id
+				result["elapsed_ms"] = (Time.get_ticks_usec() - worker_start) / 1000.0
+				result["debug_color_sweep"] = captured_debug_color_sweep
 				scheduler.submit_result(result)
 			, false, "OclChunk")
-
-	print("[OclMeshBuilder] Dispatched tasks for ", path_pairs.size(), " path pair(s), ",
-			total_segments, " total segment(s). Polling...")
+			global_chunk_counter += 1
 
 	while true:
 		scheduler.reap_completed()
 		for res in scheduler.collect_all():
-			_handle_result(res as Dictionary)
+			_on_chunk_result(res as Dictionary)
 		if not scheduler.is_busy():
 			break
 		await get_tree().process_frame
@@ -536,13 +640,18 @@ func regenerate(sync: bool) -> void:
 			return
 
 	for res in scheduler.collect_all():
-		_handle_result(res as Dictionary)
+		_on_chunk_result(res as Dictionary)
 
-	if merge_batch_size > 0 and not _chunk_results.is_empty():
-		_flush_batch()
+	# Flush any partially-filled batches at the end of the run.
+	for batch_id in _batches.keys():
+		var bucket: Array = _pending_results.get(batch_id, [])
+		if not bucket.is_empty():
+			_flush_batch(batch_id)
 
-	print("[OclMeshBuilder] All ", total_segments, " segments generated in ",
-			(Time.get_ticks_usec() - total_start) / 1000.0, " ms")
+	var total_ms := (Time.get_ticks_usec() - total_start) / 1000.0
+	print("[OclMeshBuilder] All %d chunks done in %.1f ms (%d failed)" % [
+		_progress_total, total_ms, _progress_failed])
+	generation_finished.emit(total_ms, _progress_total, _progress_failed)
 
 	_persist_resources()
 	_scheduler = null
@@ -569,14 +678,16 @@ static func _worker_build_chunk(
 	pair_junctions_to_clean: Array = [],
 	pdebug_fuse_junctions: bool = false,
 	segment_wall_heights: PackedFloat32Array = PackedFloat32Array(),
-	pobstacle_frequency: float = 0.0,
-	pobstacle_positive: bool = true,
-	pobstacle_negative: bool = true,
+	pobstacle_pos_freq: float = 0.0,
+	pobstacle_neg_freq: float = 0.0,
 	pobstacle_seed: int = 0,
+	pobstacle_debug: bool = false,
 	cdisplay_sweep_mode: int = 0,
 	cdisplay_shortcut_cutter_sweep_mode: int = 0,
 	cphysics_sweep_mode: int = 0,
 	cphysics_shortcut_cutter_sweep_mode: int = 0,
+	cdisplay_validate: bool = true,
+	cphysics_validate: bool = false,
 ) -> Dictionary:
 	var result: Dictionary = {
 		"idx": chunk_idx,
@@ -607,75 +718,162 @@ static func _worker_build_chunk(
 	var add_end_cap := do_end_caps and is_last_chunk and not is_shortcut
 
 	# Filter junctions to those whose cutter tube may overlap this chunk.
-	# The cutter tube extends ~pathway_hw perpendicular to the OTHER path.
-	# At the junction, this projects onto THIS path as pathway_hw / sin(angle),
-	# which can be much larger for shallow angles.  Factor 3 covers angles
-	# down to ~20°; secondary concern is not cutting too many chunks.
+	# Uses junction_segment (a segment index on THIS path) for an exact,
+	# unit-consistent comparison — no baked-length vs segment-index mismatch.
+	# The cutter tube extends ~pathway_hw along THIS path at the junction point;
+	# factor 3 covers shallow-angle intersections (down to ~20°).
 	var chunk_junctions: Array = []
 	if not pair_junctions_to_clean.is_empty():
 		var pathway_hw := cfg.ball_radius / cfg.ball_to_path_min_ratio.x + cfg.wall_thickness
-		var margin_frac := 3.0 * pathway_hw / path_curve.get_baked_length()
-		var chunk_start_frac := float(chunk.start_segment) / float(path_curve.point_count - 1)
-		var chunk_end_frac := float(chunk.end_segment) / float(path_curve.point_count - 1)
+		var baked_len := path_curve.get_baked_length()
+		var num_segs := path_curve.point_count - 1
+		var avg_seg_len := baked_len / float(maxi(num_segs, 1))
+		# Margin in segments: how many segments the cutter tube spans along THIS path.
+		var margin_segs := int(ceil(pathway_hw * 3.0 / avg_seg_len)) + 1
 		for junc in pair_junctions_to_clean:
-			var jf: float = junc["junction_frac"]
-			if jf >= chunk_start_frac - margin_frac and jf <= chunk_end_frac + margin_frac:
-				chunk_junctions.append(junc)
+			var js: int = junc.get("junction_segment", -1)
+			if js < 0:
+				# Legacy junction without segment index — fall back to fraction comparison.
+				var jf: float = junc["junction_frac"]
+				var chunk_start_frac := float(chunk.start_segment) / float(maxi(num_segs, 1))
+				var chunk_end_frac := float(chunk.end_segment) / float(maxi(num_segs, 1))
+				var margin_frac := (pathway_hw * 3.0) / baked_len if baked_len > 0.001 else 0.1
+				if jf >= chunk_start_frac - margin_frac and jf <= chunk_end_frac + margin_frac:
+					chunk_junctions.append(junc)
+			else:
+				if js >= chunk.start_segment - margin_segs and js <= chunk.end_segment + margin_segs:
+					chunk_junctions.append(junc)
 
-	# Build display graphs and extract display data.
+	# Display: quality-descending fallback (starts from configured sweep+fancy).
+	var display_attempts := _make_sweep_attempts(cdisplay_sweep_mode, cdisplay_fancy, true)
+	# Physics: quality-ascending fallback (starts from its configured preference
+	# which is typically loft+non-fancy, and escalates toward sweep+fancy).
+	var phys_attempts := _make_sweep_attempts(cphysics_sweep_mode, cphysics_fancy, false)
+
 	var display_graphs: Array[OclGraphHandle] = []
+	var display_used_attempt := -1
+
 	if any_display:
-		display_graphs = _build_and_extract(
-			chunk, path_curve, aux_curve, cfg, cdisplay_fancy,
-			display_opts,
+		var disp_result := _build_and_extract(
+			chunk, path_curve, aux_curve, cfg,
+			display_attempts, display_opts,
 			has_display_vertices, has_display_edges, do_display_faces,
 			cdisplay_vertex_radius, cdisplay_edge_radius, result, true,
 			do_main_path, add_start_cap, add_end_cap,
-			chunk_junctions,
-			pdebug_fuse_junctions,
+			chunk_junctions, pdebug_fuse_junctions,
 			segment_wall_heights,
-			pobstacle_frequency,
-			pobstacle_positive,
-			pobstacle_negative,
-			pobstacle_seed,
-			cdisplay_sweep_mode,
+			pobstacle_pos_freq, pobstacle_neg_freq, pobstacle_seed, pobstacle_debug,
 			cdisplay_shortcut_cutter_sweep_mode,
+			cdisplay_validate,
 		)
+		display_graphs = disp_result[0]
+		display_used_attempt = disp_result[1]
+		result["display_used_attempt"] = display_used_attempt
+
+	if any_physics:
+		var phys_first: Dictionary = phys_attempts[0] if not phys_attempts.is_empty() else {}
+		var disp_attempt: Dictionary = display_attempts[display_used_attempt] if display_used_attempt >= 0 else {}
+		var phys_reuse_display: bool = (
+			not display_graphs.is_empty()
+			and not phys_first.is_empty()
+			and phys_first["mode"] == disp_attempt.get("mode", -1)
+			and phys_first["fancy"] == disp_attempt.get("fancy", false)
+		)
+
+		if phys_reuse_display:
+			_extract_physics_from_graphs(display_graphs, physics_opts,
+				has_physics_vertices, has_physics_edges, do_physics_faces,
+				cphysics_vertex_radius, cphysics_edge_radius, result)
+		else:
+			var phys_result := _build_and_extract(
+				chunk, path_curve, aux_curve, cfg,
+				phys_attempts, physics_opts,
+				has_physics_vertices, has_physics_edges, do_physics_faces,
+				cphysics_vertex_radius, cphysics_edge_radius, result, false,
+				do_main_path, add_start_cap, add_end_cap,
+				chunk_junctions, pdebug_fuse_junctions,
+				segment_wall_heights,
+				pobstacle_pos_freq, pobstacle_neg_freq, pobstacle_seed, pobstacle_debug,
+				cphysics_shortcut_cutter_sweep_mode,
+				cphysics_validate,
+			)
+			for g in phys_result[0]:
+				OclTopo.graph_free(g)
 
 	for g in display_graphs:
 		OclTopo.graph_free(g)
 
-	# Physics extraction.
-	if not any_physics:
-		return result
-
-	# Assume different profile for physics -- build a separate graph array.
-	var phys_graphs := _build_and_extract(
-		chunk, path_curve, aux_curve, cfg, cphysics_fancy,
-		physics_opts,
-		has_physics_vertices, has_physics_edges, do_physics_faces,
-		cphysics_vertex_radius, cphysics_edge_radius, result, false,
-		do_main_path, add_start_cap, add_end_cap,
-		chunk_junctions,
-		pdebug_fuse_junctions,
-		segment_wall_heights,
-		pobstacle_frequency,
-		pobstacle_positive,
-		pobstacle_negative,
-		pobstacle_seed,
-		cphysics_sweep_mode,
-		cphysics_shortcut_cutter_sweep_mode,
-	)
-
-	for g in phys_graphs:
-		OclTopo.graph_free(g)
-
 	return result
 
+
+## Extract physics mesh data from already-built graphs using physics mesh opts.
+static func _extract_physics_from_graphs(
+	graphs: Array[OclGraphHandle],
+	physics_opts: OclMeshOptions,
+	do_vertices: bool, do_edges: bool, do_faces: bool,
+	v_radius: float, e_radius: float,
+	result: Dictionary,
+) -> void:
+	for graph in graphs:
+		if do_vertices:
+			var mm := MultiMesh.new()
+			if OclMeshToGodot.mesh_vertices(graph, mm, physics_opts, null, v_radius) == OclCore.OK:
+				var xforms := _extract_multimesh_transforms(mm)
+				result["pv"] = (result.get("pv", PackedFloat64Array()) as PackedFloat64Array) + xforms
+		if do_edges:
+			var mm := MultiMesh.new()
+			if OclMeshToGodot.mesh_edges(graph, mm, physics_opts, null, e_radius) == OclCore.OK:
+				var xforms := _extract_multimesh_transforms(mm)
+				result["pe"] = (result.get("pe", PackedFloat64Array()) as PackedFloat64Array) + xforms
+		if do_faces:
+			var tris := OclMeshToGodot.extract_face_triangles(graph, physics_opts, null)
+			result["pf"] = (result.get("pf", PackedVector3Array()) as PackedVector3Array) + tris
+
+## Build a sweep attempt ladder from a preferred (mode, fancy) pair.
+## The ladder always escalates from the given preference toward the safest
+## fallback (non-fancy loft).  When prefer_quality=true the initial attempts
+## try higher quality; when false they start from the simplest and escalate.
+static func _make_sweep_attempts(mode: int, fancy: bool, prefer_quality: bool) -> Array:
+	# Full quality-descending ladder (display direction).
+	var full: Array = [
+		{"mode": SweepMode.SWEEP,      "fancy": true},
+		{"mode": SweepMode.SWEEP,      "fancy": false},
+		{"mode": SweepMode.LOFT_RULED, "fancy": true},
+		{"mode": SweepMode.LOFT_RULED, "fancy": false},
+	]
+	if prefer_quality:
+		# Start from the requested (mode, fancy) and continue downward.
+		var start := 0
+		for i in range(full.size()):
+			if full[i]["mode"] == mode and full[i]["fancy"] == fancy:
+				start = i
+				break
+		return full.slice(start)
+	else:
+		# Physics: start from the requested (mode, fancy) and escalate upward
+		# (trying simpler first, then escalating toward quality as fallback).
+		var start := full.size() - 1
+		for i in range(full.size()):
+			if full[i]["mode"] == mode and full[i]["fancy"] == fancy:
+				start = i
+				break
+		# Ladder: preferred first, then escalate toward higher quality.
+		# e.g. for LOFT_RULED+non-fancy: [loft/nf, loft/f, sweep/nf, sweep/f]
+		var result: Array = [full[start]]
+		# Add entries going up (toward more quality).
+		for i in range(start - 1, -1, -1):
+			result.append(full[i])
+		return result
+
+
+## Build graphs and extract mesh data into |result|.
+## |sweep_attempts| is the ordered fallback ladder ({mode, fancy} dicts).
+## Returns [graphs, used_attempt_idx]; graphs is empty on total failure.
 static func _build_and_extract(
 	chunk: ChunkBuilder.Chunk,
 	path_curve: Curve3D, aux_curve: Curve3D,
-	cfg: ProfileBuilder.Config, fancy: bool,
+	cfg: ProfileBuilder.Config,
+	sweep_attempts: Array,
 	mesh_opts: OclMeshOptions,
 	do_vertices: bool, do_edges: bool, do_faces: bool,
 	v_radius: float, e_radius: float,
@@ -684,19 +882,30 @@ static func _build_and_extract(
 	chunk_junctions: Array,
 	pdebug_fuse_junctions: bool = false,
 	segment_wall_heights: PackedFloat32Array = PackedFloat32Array(),
-	pobstacle_frequency: float = 0.0,
-	pobstacle_positive: bool = true,
-	pobstacle_negative: bool = true,
+	pobstacle_pos_freq: float = 0.0,
+	pobstacle_neg_freq: float = 0.0,
 	pobstacle_seed: int = 0,
-	psweep_mode: int = 0,
+	pobstacle_debug: bool = false,
 	pshortcut_cutter_sweep_mode: int = 0,
-) -> Array[OclGraphHandle]:
+	pvalidate_geometry: bool = true,
+) -> Array:  # [Array[OclGraphHandle], int used_attempt]
 	var prefix: String = "" if is_display else "p"
 
+	var out_used := [- 1]
 	var chunker := ChunkBuilder.new()
 	chunker.debug_fuse_junctions = pdebug_fuse_junctions
-	var graphs := chunker.build_chunk_graphs(chunk, path_curve, aux_curve, cfg, fancy, do_main_path, add_start_cap, add_end_cap, chunk_junctions, segment_wall_heights, pobstacle_frequency, pobstacle_positive, pobstacle_negative, pobstacle_seed, psweep_mode, pshortcut_cutter_sweep_mode)
-	assert(not graphs.is_empty(), "OclMeshBuilder: build_chunk_graphs returned empty")
+	chunker.validate_geometry = pvalidate_geometry
+	var graphs: Array[OclGraphHandle] = chunker.build_chunk_graphs(
+		chunk, path_curve, aux_curve, cfg,
+		do_main_path, add_start_cap, add_end_cap,
+		chunk_junctions, sweep_attempts, out_used,
+		segment_wall_heights,
+		pobstacle_pos_freq, pobstacle_neg_freq, pobstacle_seed, pobstacle_debug,
+		pshortcut_cutter_sweep_mode)
+	if graphs.is_empty():
+		if is_display:
+			push_warning("OclMeshBuilder: build_chunk_graphs returned empty for chunk %d (all sweep fallbacks failed)" % chunk.start_segment)
+		return [graphs, -1]
 
 	for graph_i in range(graphs.size()):
 		var graph := graphs[graph_i]
@@ -722,7 +931,6 @@ static func _build_and_extract(
 
 		if do_faces:
 			if is_display:
-				# FIXME(bad profile): XXX: Need to reverse faces in case of first graph and fancy mode.
 				var face_arr := _export_face_data(graph, mesh_opts)
 				if not face_arr.is_empty():
 					result["f"] = (result.get("f", []) as Array) + face_arr
@@ -730,16 +938,24 @@ static func _build_and_extract(
 				var tris := OclMeshToGodot.extract_face_triangles(graph, mesh_opts, null)
 				result["pf"] = (result.get("pf", PackedVector3Array()) as PackedVector3Array) + tris
 
-	return graphs
+	return [graphs, out_used[0]]
 
-static func _export_face_data(graph, opts: OclMeshOptions) -> Array:
+static func _export_face_data(graph: OclGraphHandle, opts: OclMeshOptions) -> Array:
 	var mesh := ArrayMesh.new()
 	var st: int = OclMeshToGodot.mesh_faces(graph, mesh, opts, null, true, true, true) as OclCore.status
 	if st != OclCore.OK:
 		return []
 	if mesh.get_surface_count() == 0:
 		return []
-	var arrays = mesh.surface_get_arrays(0)
+	var arrays: Array = mesh.surface_get_arrays(0)
+	if arrays.size() < ArrayMesh.ARRAY_MAX:
+		return []
+	var verts = arrays[ArrayMesh.ARRAY_VERTEX]
+	var idxs  = arrays[ArrayMesh.ARRAY_INDEX]
+	if verts == null or (verts is PackedVector3Array and (verts as PackedVector3Array).is_empty()):
+		return []
+	if idxs == null or (idxs is PackedInt32Array and (idxs as PackedInt32Array).is_empty()):
+		return []
 	return [arrays]
 
 static func _extract_multimesh_transforms(mm: MultiMesh) -> PackedFloat64Array:
@@ -794,27 +1010,278 @@ func _exit_tree() -> void:
 func _clear_all_chunks() -> void:
 	var to_remove: Array[Node] = []
 	for child in get_children():
-		if child is Node3D and "Chunk" in str(child.name):
+		if child is Node3D and ("Chunk" in str(child.name) or "Batch" in str(child.name)):
 			to_remove.append(child)
 	for n in to_remove:
 		n.queue_free()
-	_chunk_results.clear()
+	_batches.clear()
+	_pending_results.clear()
 
 # =============================================================================
 # Result handling (main thread)
 # =============================================================================
 
-func _handle_result(result: Dictionary) -> void:
-	_chunk_results.append(result)
-	if merge_batch_size == 0 or _chunk_results.size() >= merge_batch_size:
-		_flush_batch()
+## Called on the main thread for each arriving chunk result.
+func _on_chunk_result(result: Dictionary) -> void:
+	var batch_id: int = result.get("batch_id", 0)
+	_progress_done += 1
 
-func _flush_batch() -> void:
-	if _chunk_results.is_empty():
+	var is_empty_result := (result.get("f", []) as Array).is_empty() \
+		and (result.get("pf", PackedVector3Array()) as PackedVector3Array).is_empty() \
+		and (result.get("e", PackedFloat64Array()) as PackedFloat64Array).is_empty()
+	if is_empty_result:
+		_progress_failed += 1
+
+	chunk_completed.emit(
+		result.get("idx", 0),
+		result.get("prefix", ""),
+		result.get("elapsed_ms", 0.0),
+	)
+
+	# Accumulate into the batch bucket.
+	var bucket: Array = _pending_results.get(batch_id, [])
+	bucket.append(result)
+	_pending_results[batch_id] = bucket
+
+	# Decrement pending count; flush when this batch is complete.
+	var batch_info: Dictionary = _batches.get(batch_id, {})
+	batch_info["pending"] = (batch_info.get("pending", 1) as int) - 1
+	_batches[batch_id] = batch_info
+	if batch_info["pending"] <= 0:
+		_flush_batch(batch_id)
+
+
+func _flush_batch(batch_id: int) -> void:
+	var bucket: Array = _pending_results.get(batch_id, [])
+	if bucket.is_empty():
 		return
-	for result in _chunk_results:
-		_apply_chunk(result)
-	_chunk_results.clear()
+	var batch_info: Dictionary = _batches.get(batch_id, {})
+	var batch_name: String = batch_info.get("name", "Batch" + str(batch_id))
+
+	if merge_batch_size <= 1:
+		# No merging: one node per chunk result.
+		for result in bucket:
+			_apply_chunk(result)
+	else:
+		var typed_bucket: Array[Dictionary] = []
+		typed_bucket.assign(bucket)
+		_apply_batch(typed_bucket, batch_name)
+
+	_pending_results.erase(batch_id)
+	batch_ready.emit(batch_name, bucket.size())
+
+
+## Merge geometry from multiple chunk results into a single named batch node,
+## reducing draw calls and scene-tree overhead.
+func _apply_batch(results: Array[Dictionary], batch_name: String) -> void:
+	if results.is_empty():
+		return
+	var batch_root := Node3D.new()
+	batch_root.name = batch_name
+	add_child(batch_root, true)
+	if Engine.is_editor_hint():
+		batch_root.set_owner(_scene_root())
+
+	# Accumulate geometry across all results.
+	var all_f_surfaces: Array = []
+	var all_pf_tris := PackedVector3Array()
+	var all_e_transforms := PackedFloat64Array()
+	var all_pe_transforms := PackedFloat64Array()
+	var all_v_transforms := PackedFloat64Array()
+	var all_pv_transforms := PackedFloat64Array()
+	var has_physics_faces := false
+	var has_physics_edges := false
+	var has_physics_vertices := false
+
+	for result in results:
+		var f: Array = result.get("f", [])
+		var pf: PackedVector3Array = result.get("pf", PackedVector3Array())
+		var e: PackedFloat64Array = result.get("e", PackedFloat64Array())
+		var pe: PackedFloat64Array = result.get("pe", PackedFloat64Array())
+		var v: PackedFloat64Array = result.get("v", PackedFloat64Array())
+		var pv: PackedFloat64Array = result.get("pv", PackedFloat64Array())
+		all_f_surfaces.append_array(f)
+		all_pf_tris.append_array(pf)
+		all_e_transforms.append_array(e)
+		all_pe_transforms.append_array(pe)
+		all_v_transforms.append_array(v)
+		all_pv_transforms.append_array(pv)
+		if pf.size() >= 3: has_physics_faces = true
+		if pe.size() > 0: has_physics_edges = true
+		if pv.size() > 0: has_physics_vertices = true
+
+	var has_faces_display := not all_f_surfaces.is_empty()
+	var has_edges_display := all_e_transforms.size() > 0
+	var has_vertices_display := all_v_transforms.size() > 0
+
+	# Debug sweep-mode colouring: pick the most common used_attempt across results.
+	var debug_sweep_mat: Material = null
+	if results[0].get("debug_color_sweep", false):
+		var attempt_counts := {}
+		for r in results:
+			var a: int = r.get("display_used_attempt", -1)
+			attempt_counts[a] = attempt_counts.get(a, 0) + 1
+		var most_common := -1
+		var best_count := 0
+		for k in attempt_counts:
+			if attempt_counts[k] > best_count:
+				best_count = attempt_counts[k]
+				most_common = k
+		# Map attempt index to colour: 0=sweep+fancy(green), 1=sweep+nf(yellow),
+		# 2=loft+fancy(orange), 3=loft+nf(red), -1/unknown=grey
+		var debug_colors := [Color.GREEN, Color.YELLOW, Color.ORANGE_RED, Color.RED, Color.GRAY]
+		var ci := clampi(most_common, 0, 4)
+		var col: Color = debug_colors[ci] if ci >= 0 else debug_colors[4]
+		var dbg_mat := StandardMaterial3D.new()
+		dbg_mat.albedo_color = col
+		dbg_mat.flags_unshaded = true
+		debug_sweep_mat = dbg_mat
+
+	# --- Merged face node ---
+	if has_faces_display or has_physics_faces:
+		var faces_node: Node3D
+		if has_physics_faces:
+			faces_node = StaticBody3D.new()
+		else:
+			faces_node = Node3D.new()
+		faces_node.name = "Faces"
+		batch_root.add_child(faces_node, true)
+		if Engine.is_editor_hint():
+			faces_node.set_owner(_scene_root())
+
+		if has_physics_faces:
+			var shape := ConcavePolygonShape3D.new()
+			shape.set_faces(all_pf_tris)
+			var cs := CollisionShape3D.new()
+			cs.name = "CollisionFaces"
+			cs.shape = shape
+			faces_node.add_child(cs, true)
+			if Engine.is_editor_hint():
+				cs.set_owner(_scene_root())
+
+		if has_faces_display:
+			var merged: Array
+			if all_f_surfaces.size() == 1:
+				merged = all_f_surfaces[0]
+				merged.resize(Mesh.ARRAY_MAX)
+			else:
+				merged = OclMeshToGodot.merge_surface_arrays(all_f_surfaces)
+				merged.resize(Mesh.ARRAY_MAX)
+			var am := ArrayMesh.new()
+			am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, merged)
+			am.surface_set_material(0, debug_sweep_mat if debug_sweep_mat else display_faces_material)
+			var mi := MeshInstance3D.new()
+			mi.name = "FacesMesh"
+			mi.mesh = am
+			faces_node.add_child(mi, true)
+			if Engine.is_editor_hint():
+				mi.set_owner(_scene_root())
+
+	# --- Merged edge node ---
+	if has_edges_display or has_physics_edges:
+		var edges_node: Node3D
+		if has_physics_edges:
+			edges_node = StaticBody3D.new()
+		else:
+			edges_node = Node3D.new()
+		edges_node.name = "Edges"
+		batch_root.add_child(edges_node, true)
+		if Engine.is_editor_hint():
+			edges_node.set_owner(_scene_root())
+
+		if has_edges_display:
+			var mm := MultiMesh.new()
+			mm.transform_format = MultiMesh.TRANSFORM_3D
+			var slices := _slices_from_angle(display_options.angle)
+			var cyl := CylinderMesh.new()
+			cyl.height = 1.0
+			cyl.radial_segments = slices
+			cyl.rings = 1
+			cyl.cap_top = false
+			cyl.cap_bottom = false
+			cyl.surface_set_material(0, display_edges_material)
+			mm.mesh = cyl
+			var n := int(all_e_transforms.size() / 16.0)
+			if n > 0:
+				mm.instance_count = n
+				for i in range(n):
+					mm.set_instance_transform(i, _decode_transform(all_e_transforms, i))
+			var mmi := MultiMeshInstance3D.new()
+			mmi.name = "EdgesMesh"
+			mmi.multimesh = mm
+			edges_node.add_child(mmi, true)
+			if Engine.is_editor_hint():
+				mmi.set_owner(_scene_root())
+
+		if has_physics_edges:
+			var n := int(all_pe_transforms.size() / 16.0)
+			for i in range(n):
+				var t := _decode_transform(all_pe_transforms, i)
+				var radius := t.basis.x.length()
+				var seg_len := t.basis.y.length()
+				if radius < 0.0001:
+					continue
+				var cs := CollisionShape3D.new()
+				var shape := CapsuleShape3D.new()
+				shape.radius = radius
+				shape.height = maxf(0.001, seg_len - 2.0 * radius)
+				cs.shape = shape
+				cs.transform = Transform3D(Basis(t.basis.x.normalized(), t.basis.y.normalized(), t.basis.z.normalized()), t.origin)
+				cs.name = "_occtl_edge_" + str(i)
+				edges_node.add_child(cs, true)
+				if Engine.is_editor_hint():
+					cs.set_owner(_scene_root())
+
+	# --- Merged vertex node ---
+	if has_vertices_display or has_physics_vertices:
+		var verts_node: Node3D
+		if has_physics_vertices:
+			verts_node = StaticBody3D.new()
+		else:
+			verts_node = Node3D.new()
+		verts_node.name = "Vertices"
+		batch_root.add_child(verts_node, true)
+		if Engine.is_editor_hint():
+			verts_node.set_owner(_scene_root())
+
+		if has_vertices_display:
+			var mm := MultiMesh.new()
+			mm.transform_format = MultiMesh.TRANSFORM_3D
+			var slices := _slices_from_angle(display_options.angle)
+			var sph := SphereMesh.new()
+			sph.radius = 1.0
+			sph.radial_segments = slices
+			sph.rings = maxi(int(slices / 2.0), 2)
+			sph.surface_set_material(0, display_vertices_material)
+			mm.mesh = sph
+			var n := int(all_v_transforms.size() / 16.0)
+			if n > 0:
+				mm.instance_count = n
+				for i in range(n):
+					mm.set_instance_transform(i, _decode_transform(all_v_transforms, i))
+			var mmi := MultiMeshInstance3D.new()
+			mmi.name = "VerticesMesh"
+			mmi.multimesh = mm
+			verts_node.add_child(mmi, true)
+			if Engine.is_editor_hint():
+				mmi.set_owner(_scene_root())
+
+		if has_physics_vertices:
+			var n := int(all_pv_transforms.size() / 16.0)
+			for i in range(n):
+				var t := _decode_transform(all_pv_transforms, i)
+				var radius := t.basis.x.length()
+				if radius < 0.0001:
+					continue
+				var cs := CollisionShape3D.new()
+				var shape := SphereShape3D.new()
+				shape.radius = radius
+				cs.shape = shape
+				cs.transform = Transform3D(Basis.IDENTITY, t.origin)
+				cs.name = "_occtl_vertex_" + str(i)
+				verts_node.add_child(cs, true)
+				if Engine.is_editor_hint():
+					cs.set_owner(_scene_root())
 
 func _apply_chunk(result: Dictionary) -> void:
 	var idx: int = result.get("idx", 0)
@@ -905,7 +1372,17 @@ func _apply_chunk(result: Dictionary) -> void:
 				am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, merged)
 				mi.mesh = am
 
-			mi.mesh.surface_set_material(0, display_faces_material)
+			# Debug sweep-mode tint for per-chunk path.
+			var chunk_dbg_mat: Material = display_faces_material
+			if result.get("debug_color_sweep", false):
+				var a: int = result.get("display_used_attempt", -1)
+				var dbg_colors := [Color.GREEN, Color.YELLOW, Color.ORANGE_RED, Color.RED, Color.GRAY]
+				var ci := clampi(a, 0, 4)
+				var dbm := StandardMaterial3D.new()
+				dbm.albedo_color = dbg_colors[ci] if ci >= 0 else dbg_colors[4]
+				dbm.flags_unshaded = true
+				chunk_dbg_mat = dbm
+			mi.mesh.surface_set_material(0, chunk_dbg_mat)
 
 	# --- Edges ---
 	var e_transforms: PackedFloat64Array = result.get("e", PackedFloat64Array()) as PackedFloat64Array
@@ -1055,7 +1532,7 @@ func _persist_resources() -> void:
 	DirAccess.make_dir_recursive_absolute(dir_abs)
 
 	for branch in get_children().duplicate():
-		if not (branch is Node3D and "Chunk" in str(branch.name)):
+		if not (branch is Node3D and ("Chunk" in str(branch.name) or "Batch" in str(branch.name))):
 			push_warning("Unexpected child of OclManager", branch)
 			continue
 

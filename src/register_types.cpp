@@ -13,6 +13,9 @@
 // Hand-written rope physics solver
 #include "OclDemoOnlyRopePhysics.h"
 
+// Hand-written topology utilities
+#include "OclTopoExtra.h"
+
 // OCCT-Light core runtime
 #include <occtl/occtl_core.h>
 
@@ -95,11 +98,18 @@ static void occtl_light_gd_initialize(ModuleInitializationLevel p_level) {
     GDREGISTER_CLASS(OclMeshToGodot);
     GDREGISTER_CLASS(OclDemoOnlyRopePhysics);
 
+    // Register hand-written topology utility class.
+    GDREGISTER_CLASS(OclTopoExtra);
+
     // Register an atexit handler as a safety net: if Godot calls exit()
     // directly (bypassing GDExtension uninitialize), this ensures OCCT's
     // messenger printers are nullified before C++ static destructors run.
     // The guard flag prevents double-shutdown if uninitialize runs first.
     std::atexit(occtl_runtime_shutdown_once);
+    // Clear messenger printers first to prevent crashes during exit()
+    // that occur when OCCT's static destructors try to flush std::cout
+    // after Godot has already destroyed it.
+    clear_messenger_printers();
 }
 
 static void occtl_light_gd_uninitialize(ModuleInitializationLevel p_level) {
@@ -128,11 +138,11 @@ extern "C" {
         const godot::GDExtensionBinding::InitObject init_obj(
             p_get_proc_address, p_library, r_initialization
         );
-    
+
         init_obj.register_initializer(occtl_light_gd_initialize);
         init_obj.register_terminator(occtl_light_gd_uninitialize);
         init_obj.set_minimum_library_initialization_level(MODULE_INITIALIZATION_LEVEL_SCENE);
-    
+
         return init_obj.init();
     }
 }

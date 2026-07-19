@@ -37,7 +37,7 @@ class_name MazePaths
 ## proportional to local curvature, keeping the spine→aux distance equal
 ## to [code]aux_offset_amount[/code].  Banks into the curve; fades to
 ## zero for near-zero curvature and near rope ends.
-@export var camber_amount: float = 0.0
+@export var camber_amount: float = 4.0
 
 ## Fraction of each shortcut curve (per end) over which the auxiliary
 ## right direction is projected into the main path's binormal plane,

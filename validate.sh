@@ -243,7 +243,7 @@ if [ "$USE_PERF" = "1" ] || [ "$USE_PERF" = "true" ]; then
     PERF_DATA="$SCRIPT_DIR/perf.data"
     rm -f "$PERF_DATA"
     timeout $((GODOT_TEST_RUNNER_TIMEOUT * 2 / 1000)) \
-        perf record -g --no-compress -o "$PERF_DATA" --call-graph dwarf \
+        perf record -g --no-compress -z=0 -o "$PERF_DATA" --call-graph dwarf \
         "$GODOT_BIN" --path "$SCRIPT_DIR/demo" --headless 2>&1 | tee -a "$RUNTIME_LOG"
     RUNTIME_EXIT=${PIPESTATUS[0]}
     echo "perf data written to $PERF_DATA"

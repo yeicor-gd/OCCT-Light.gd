@@ -429,13 +429,12 @@ static func collect_kinds(
 
 ## Deletes every orphan node whose kind is present in `kinds`.
 ##
-## A node is considered an orphan if it is not reachable from any solid
-## through the topology hierarchy.
+## A node is considered an orphan if it is not reachable from any root node
+## (typically KIND_SOLID) through the topology hierarchy.
 ##
 ## Example:
-##     delete_orphans(graph, [
-##         OclCore.KIND_EDGE,
-##         OclCore.KIND_WIRE,
+##     delete_orphans(graph, [OclCore.KIND_SHELL], [
+##         OclCore.KIND_EDGE, OclCore.KIND_WIRE,
 ##     ])
 ##
 ## Returns the number of nodes successfully removed.

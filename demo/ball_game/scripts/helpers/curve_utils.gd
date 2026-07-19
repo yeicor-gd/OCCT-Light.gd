@@ -27,10 +27,10 @@ static func precompute_curve_data(
 		var pos := positions[i]
 		var prev := positions[max(i - 1, 0)]
 		var next := positions[min(i + 1, n - 1)]
-		var tangent := (next - prev).normalized()
+		#var tangent := (next - prev).normalized()
 
-		var up := pos.normalized()
-		var right := tangent.cross(up).normalized()
+		#var up := pos.normalized()
+		#var right := tangent.cross(up).normalized()
 
 		#var tilt := atan2(right.dot(up), up.dot(up))
 
@@ -211,27 +211,6 @@ static func build_auxiliary_curve_from_points(
 
 	var offset_positions := PackedVector3Array()
 	offset_positions.resize(n)
-	var tilts := PackedFloat32Array()
-	tilts.resize(n)
-
-	for i in range(n):
-		var pos := positions[i]
-		var prev := positions[max(i - 1, 0)]
-		var next := positions[min(i + 1, n - 1)]
-		var tangent := (next - prev).normalized()
-
-		## Tilt (same logic as precompute_curve_data).
-		#var wup := Vector3.UP
-		#if abs(tangent.dot(wup)) > 0.98:
-			#wup = Vector3.RIGHT
-		#var r_vec := tangent.cross(wup).normalized()
-		#var u_vec := r_vec.cross(tangent).normalized()
-		#var desired := pos - tangent * pos.dot(tangent)
-		#if desired.length_squared() > 1e-10:
-			#desired = desired.normalized()
-		#else:
-			#desired = u_vec
-		#tilts[i] = atan2(r_vec.dot(desired), u_vec.dot(desired))
 
 	# Phase 1 — compute raw camber angles per point.
 	var raw_angles: PackedFloat32Array
@@ -323,9 +302,6 @@ static func build_auxiliary_curve_from_points(
 		var handle := t * mean_len / sharpness
 		res.set_point_out(i, handle)
 		res.set_point_in(i, -handle)
-
-	for i in range(n):
-		res.set_point_tilt(i, tilts[i])
 
 	return res
 

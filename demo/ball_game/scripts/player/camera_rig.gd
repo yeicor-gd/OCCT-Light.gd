@@ -25,6 +25,8 @@ var pitch := deg_to_rad(-20.0)
 
 var time_since_manual := 999.0
 
+signal rotation_changed(_global_basis)
+
 
 func _ready():
 
@@ -136,6 +138,8 @@ func _physics_process(delta):
 		desired,
 		position_smoothing * delta
 	)
+	
+	rotation_changed.emit(global_basis)
 
 
 func _camera_input() -> Vector2:

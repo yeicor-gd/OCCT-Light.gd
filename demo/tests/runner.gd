@@ -17,6 +17,7 @@ var total_failed: int = 0
 var is_headless := false
 var tests_complete := false
 var bootstrap_error := false
+var test_filter: String = ""
 
 static var ctx := TestContext.new()
 
@@ -46,6 +47,8 @@ func _ready() -> void:
 		log_label.text = ""
 
 	ctx.runner = self
+
+	test_filter = OS.get_environment("GODOT_TEST_RUNNER_FILTER")
 
 	# Set up a timeout failsafe in case tests get stuck.
 	var timeout_ms := 60000
@@ -214,6 +217,11 @@ func _on_timeout() -> void:
 
 func _run_suite(path: String) -> void:
 	var file := path.get_file()
+	var suite_name := file.trim_suffix(".gd")
+
+	if not _matches_filter_prefix(suite_name):
+		return
+
 	var script := load(path)
 
 	if script == null:
@@ -238,7 +246,14 @@ func _run_suite(path: String) -> void:
 	if methods.is_empty():
 		return
 
-	var suite_name := file.trim_suffix(".gd")
+	var filtered_methods: Array[String] = []
+	for method in methods:
+		if _matches_filter(suite_name, method):
+			filtered_methods.append(method)
+
+	if filtered_methods.is_empty():
+		return
+
 	log_info("Suite: %s" % suite_name)
 	indent_level += 1
 
@@ -246,7 +261,7 @@ func _run_suite(path: String) -> void:
 	var suite_failed := 0
 	var suite_start := Time.get_ticks_usec()
 
-	for method in methods:
+	for method in filtered_methods:
 		ctx.current_test = "%s.%s" % [suite_name, method]
 
 		var start := Time.get_ticks_usec()
@@ -275,6 +290,24 @@ func _run_suite(path: String) -> void:
 
 	total_passed += suite_passed
 	total_failed += suite_failed
+
+
+func _matches_filter_prefix(suite_name: String) -> bool:
+	if test_filter.is_empty():
+		return true
+	var dot_idx := test_filter.find(".")
+	if dot_idx < 0:
+		return suite_name.matchn(test_filter)
+	return suite_name.matchn(test_filter.substr(0, dot_idx))
+
+
+func _matches_filter(suite_name: String, method_name: String) -> bool:
+	if test_filter.is_empty():
+		return true
+	var qualified := "%s.%s" % [suite_name, method_name]
+	if qualified.matchn(test_filter):
+		return true
+	return false
 
 
 func _run_test(script: Object, method: String) -> String:

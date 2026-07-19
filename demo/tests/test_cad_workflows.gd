@@ -2428,6 +2428,31 @@ static func test_graph_history_deleted_all() -> String:
 # Compound child count test (empty)
 # ---------------------------------------------------------------------------
 
+## Test solid_is_self_intersecting: a clean box should not self-intersect;
+## a deliberately twisted shape (created by fusing two overlapping boxes)
+## should also not self-intersect (fuse produces a clean manifold).
+## The test only validates the API plumbing since we can't easily construct
+## a guaranteed self-intersecting solid via normal boolean operations.
+static func test_solid_is_self_intersecting_clean_box() -> String:
+	var result = _make_box(10.0, 10.0, 10.0)
+	if result.has("error"):
+		return result.error
+	var graph: OclGraphHandle = result.graph
+	var solids := _collect_ids(graph, OclCore.KIND_SOLID)
+	if solids.is_empty():
+		OclTopo.graph_free(graph)
+		return "no solid in box graph"
+	var out_result := OclInt32.new()
+	var st := OclTopoExtra.solid_is_self_intersecting(
+		graph, solids[0], 1e-3, out_result) as OclCore.status
+	OclTopo.graph_free(graph)
+	if st != OclCore.OK:
+		return "solid_is_self_intersecting returned status %d" % st
+	if out_result.value != 0:
+		return "clean box reported as self-intersecting (false positive)"
+	return "OK"
+
+
 static func test_compound_child_count_empty() -> String:
 	var result = _make_box()
 	if result.has("error"):

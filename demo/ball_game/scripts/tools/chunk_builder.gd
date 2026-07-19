@@ -25,6 +25,13 @@ var chunk_size: int = 1
 ## Debug: fuse cutter solids instead of cutting, so they remain visible.
 var debug_fuse_junctions: bool = false
 
+## When true, run analytical geometry validation after each sweep/loft attempt
+## (volume, face area, topology errors, face-face intersection).  Failed checks
+## trigger fallback to the next attempt in the ladder.
+## When false, only a hard OCCT failure (non-OK status) causes a fallback —
+## much faster but may let degenerate geometry through.
+var validate_geometry: bool = true
+
 # -----------------------------------------------------------------------------
 # Data
 # -----------------------------------------------------------------------------
@@ -66,136 +73,77 @@ func plan_chunks(total_segments: int) -> Array[Chunk]:
 ##
 ## The main sweep graph is always first in the returned array.  If end caps
 ## are requested, they follow as additional entries (start cap first, then
-## end cap).  Each graph is independent -- no boolean operations link them.
+## end cap).  Each graph is independent — no boolean operations link them.
 ##
-## When |clean_shortcuts| is true and |chunk_junctions| is non-empty,
-## an inner-profile sweep is built and boolean-cut at each junction point
-## to create connected openings between the main path and shortcuts.
+## |sweep_attempts| is an ordered list of {mode: SweepMode, fancy: bool}
+## dictionaries tried in sequence; the first that succeeds wins.  This lets
+## the caller express any fallback ladder — display escalates quality while
+## physics starts low and can escalate if needed.
 ##
 ## Returns an array of graph handles (caller must mesh and free each).
+## Returns an empty array only when every attempt in |sweep_attempts| fails.
+##
+## |out_used_attempt| is set to the index into |sweep_attempts| that produced
+## the graphs, so callers can detect when two configurations converge on the
+## same attempt and share the result.
 func build_chunk_graphs(
 	chunk: Chunk,
 	path_curve: Curve3D,
 	aux_curve: Curve3D,
 	profile_cfg: ProfileBuilder.Config,
-	fancy: bool,
 	do_main_path: bool,
 	add_start_cap: bool,
 	add_end_cap: bool,
 	chunk_junctions_to_clean: Array,
+	sweep_attempts: Array,       # Array[{mode: int, fancy: bool}] ordered best→worst
+	out_used_attempt: Array,     # [int] out-param; set to winning attempt index, or -1
 	segment_wall_heights: PackedFloat32Array = PackedFloat32Array(),
-	pobstacle_frequency: float = 0.0,
-	pobstacle_positive: bool = true,
-	pobstacle_negative: bool = true,
+	pobstacle_pos_freq: float = 0.0,
+	pobstacle_neg_freq: float = 0.0,
 	pobstacle_seed: int = 0,
-	psweep_mode: int = 0,
+	pobstacle_debug: bool = false,
 	pshortcut_cutter_sweep_mode: int = 0,
 ) -> Array[OclGraphHandle]:
+	if not out_used_attempt.is_empty():
+		out_used_attempt[0] = -1
 	var graphs: Array[OclGraphHandle] = []
-	var status: OclCore.status
+	var winning_fancy := false  # tracked for cap building
 
 	if do_main_path:
-		var graph := GraphUtils.create_graph()
+		var graph: OclGraphHandle = null
+		var used_idx := -1
 
-		# Build multi-segment spine wire (main path).
-		var spine_edges: Array[PackedInt64Array] = [PackedInt64Array()]
+		for attempt_idx in range(sweep_attempts.size()):
+			var attempt: Dictionary = sweep_attempts[attempt_idx]
+			var attempt_fancy: bool = attempt.get("fancy", false)
+			var attempt_mode: int  = attempt.get("mode", OclMeshBuilder.SweepMode.LOFT_RULED)
+			var candidate := _build_chunk_graph(chunk, path_curve, aux_curve, profile_cfg,
+				attempt_fancy, attempt_mode, segment_wall_heights, validate_geometry)
+			if candidate != null:
+				graph = candidate
+				used_idx = attempt_idx
+				winning_fancy = attempt_fancy
+				break
 
-		# Build multi-segment auxiliary wire (orientation).
-		var aux_edges: Array[PackedInt64Array] = [PackedInt64Array()]
+		if graph == null:
+			return []  # All attempts failed.
 
-		# Build profiles at all the curve nodes of the chunk.
-		var max_profile_count := 0
-		var segments_profiles := []
-		for segment_i in range(chunk.start_segment, chunk.end_segment + 1):
-			var segment_xf := CurveUtils.transform_at_index(path_curve, segment_i, aux_curve)
-			var seg_off := segment_i - chunk.start_segment
-			var wall_height := segment_wall_heights[seg_off]
-			var segment_profiles := ProfileBuilder.build_profiles(graph, profile_cfg, segment_xf, fancy, false, wall_height)
-			max_profile_count = max(max_profile_count, segment_profiles.size())
-			segments_profiles.append(segment_profiles)
-
-		if Engine.is_editor_hint() and graph != null:
-			GraphUtils.check_graph(graph)
-
-		# Sweep the multi-edge spine wire, one pipe_shell per profile shape.
-		for pi in range(max_profile_count):
-			# Split sweeps for non-continuous profile indices of sections.
-			var splits_profiles := []
-			var run_start := -1  # First point index of current contiguous run (-1 = no active run).
-			for segment_i_off in range(chunk.end_segment + 1 - chunk.start_segment):
-				var segment_i := chunk.start_segment + segment_i_off
-				var has_profile: bool = pi < segments_profiles[segment_i_off].size()
-				var is_end := segment_i == chunk.end_segment
-
-				# Start a new run when we find a point with the profile.
-				if has_profile and run_start == -1:
-					run_start = segment_i
-
-				# Determine whether to finalize the current run.
-				var finalize := false
-				var last_good := -1  # Last point in the run that has the profile (inclusive).
-				if not has_profile and run_start != -1:
-					# This point lacks the profile; end run at the previous point.
-					finalize = true
-					last_good = segment_i - 1
-				elif is_end and run_start != -1:
-					# End of chunk; include this point only if it has the profile.
-					finalize = true
-					last_good = segment_i if has_profile else segment_i - 1
-
-				if finalize and last_good > run_start:
-					var from_off := run_start - chunk.start_segment
-					var to_off := last_good - chunk.start_segment
-					var profiles: Array[OclNodeId]
-					profiles.assign(segments_profiles.slice(from_off, to_off + 1).map(func(a: Array): return a[pi]))
-					splits_profiles.append({
-						"profiles": profiles,
-						"run_start": run_start,
-						"pi": pi,
-						"sub_spine_wire": _build_multi_wire(graph, path_curve, Chunk.new(run_start, last_good), spine_edges),
-						"sub_aux_wire": _build_multi_wire(graph, aux_curve, Chunk.new(run_start, last_good), aux_edges),
-					})
-
-				if finalize:
-					run_start = -1
-
-			# Actually sub-sweep for each split
-			for split in splits_profiles:
-				var split_run_start: int = split["run_start"]
-				var split_pi: int = split["pi"]
-				var rebuild_fn: Callable
-				if fancy:
-					rebuild_fn = func(g: OclGraphHandle, idx: int) -> OclNodeId:
-						var seg_i := split_run_start + idx
-						var seg_off := seg_i - chunk.start_segment
-						var xf := CurveUtils.transform_at_index(path_curve, seg_i, aux_curve)
-						var wh: float = segment_wall_heights[seg_off]
-						var rebuilt := ProfileBuilder.build_profiles(g, profile_cfg, xf, false, false, wh)
-						return rebuilt[split_pi] if split_pi < rebuilt.size() else rebuilt[0]
-				var sweep_result := sweep_with_fallback_to_loft(graph, split["profiles"], split["sub_spine_wire"], split["sub_aux_wire"], rebuild_fn, psweep_mode, _compute_max_face_area(profile_cfg, path_curve, aux_curve, split_run_start, split_run_start + split["profiles"].size() - 1))
-				if sweep_result.is_empty():
-					return [] # Assertion failed and error already pushed
-
-		GraphUtils.delete_orphans(graph, [OclCore.KIND_SHELL], [OclCore.KIND_EDGE, OclCore.KIND_WIRE])
-
-		# Clean up temporary sketches.
-		for bits in spine_edges[0]:
-			status = OclTopoBuild.topo_remove_subgraph(graph, bits) as OclCore.status
-			assert(status == OclCore.OK, "Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
-		for bits in aux_edges[0]:
-			status = OclTopoBuild.topo_remove_subgraph(graph, bits) as OclCore.status
-			assert(status == OclCore.OK, "Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
+		if not out_used_attempt.is_empty():
+			out_used_attempt[0] = used_idx
 
 		if Engine.is_editor_hint() and graph != null:
 			GraphUtils.check_graph(graph)
 
 		# --- Generate obstacles after sweep ---
-		if pobstacle_frequency > 0.0 and (pobstacle_positive or pobstacle_negative):
-			_generate_obstacles(graph, path_curve, aux_curve, chunk, profile_cfg, pobstacle_frequency, pobstacle_positive, pobstacle_negative, pobstacle_seed, segment_wall_heights)
+		if (pobstacle_pos_freq > 0.0 or pobstacle_neg_freq > 0.0):
+			_generate_obstacles(graph, path_curve, aux_curve, chunk, profile_cfg, pobstacle_pos_freq, pobstacle_neg_freq, pobstacle_seed, segment_wall_heights, pobstacle_debug)
 
 		# --- Clean shortcuts: build inner sweep and boolean-cut at junctions ---
+		# _apply_junction_cuts always tries both fancy levels per junction,
+		# so the cutter can match the other path's geometry regardless of
+		# which fancy level this chunk ended up using.
 		if not chunk_junctions_to_clean.is_empty():
-			_apply_junction_cuts(graph, profile_cfg, fancy, chunk_junctions_to_clean, debug_fuse_junctions, pshortcut_cutter_sweep_mode)
+			_apply_junction_cuts(graph, profile_cfg, winning_fancy, chunk_junctions_to_clean, debug_fuse_junctions, pshortcut_cutter_sweep_mode)
 
 		graphs.append(graph)
 
@@ -205,10 +153,10 @@ func build_chunk_graphs(
 		var start_wh: float = -1.0
 		if segment_wall_heights.size() > 0:
 			start_wh = segment_wall_heights[0]
-		var cap_graph := _build_cap_graph(profile_cfg, start_xf2, true, fancy, start_wh)
+		var cap_graph := _build_cap_graph(profile_cfg, start_xf2, true, winning_fancy, start_wh)
 		if cap_graph != null:
 			if not chunk_junctions_to_clean.is_empty():
-				_apply_junction_cuts(cap_graph, profile_cfg, fancy, chunk_junctions_to_clean, debug_fuse_junctions, pshortcut_cutter_sweep_mode)
+				_apply_junction_cuts(cap_graph, profile_cfg, winning_fancy, chunk_junctions_to_clean, debug_fuse_junctions, pshortcut_cutter_sweep_mode)
 			graphs.append(cap_graph)
 
 	if add_end_cap:
@@ -216,13 +164,122 @@ func build_chunk_graphs(
 		var end_wh: float = -1.0
 		if segment_wall_heights.size() > 1:
 			end_wh = segment_wall_heights[segment_wall_heights.size() - 1]
-		var cap_graph := _build_cap_graph(profile_cfg, end_xf, false, fancy, end_wh)
+		var cap_graph := _build_cap_graph(profile_cfg, end_xf, false, winning_fancy, end_wh)
 		if cap_graph != null:
 			if not chunk_junctions_to_clean.is_empty():
-				_apply_junction_cuts(cap_graph, profile_cfg, fancy, chunk_junctions_to_clean, debug_fuse_junctions, pshortcut_cutter_sweep_mode)
+				_apply_junction_cuts(cap_graph, profile_cfg, winning_fancy, chunk_junctions_to_clean, debug_fuse_junctions, pshortcut_cutter_sweep_mode)
 			graphs.append(cap_graph)
 
 	return graphs
+
+
+## Build the main sweep graph for a chunk in a single fresh graph.
+##
+## Creates a new graph, builds profiles at all chunk points, and sweeps each
+## split.  Returns the completed graph on success, or null on failure (any
+## partially-created geometry is freed).
+static func _build_chunk_graph(
+	chunk: Chunk,
+	path_curve: Curve3D,
+	aux_curve: Curve3D,
+	profile_cfg: ProfileBuilder.Config,
+	fancy: bool,
+	sweep_mode: int,
+	segment_wall_heights: PackedFloat32Array,
+	validate: bool = true,
+) -> OclGraphHandle:
+	var graph := GraphUtils.create_graph()
+	var status: OclCore.status
+
+	# Build multi-segment spine wire (main path).
+	var spine_edges: Array[PackedInt64Array] = [PackedInt64Array()]
+
+	# Build multi-segment auxiliary wire (orientation).
+	var aux_edges: Array[PackedInt64Array] = [PackedInt64Array()]
+
+	# Build profiles at all the curve nodes of the chunk.
+	var max_profile_count := 0
+	var segments_profiles := []
+	for segment_i in range(chunk.start_segment, chunk.end_segment + 1):
+		var segment_xf := CurveUtils.transform_at_index(path_curve, segment_i, aux_curve)
+		var seg_off := segment_i - chunk.start_segment
+		var wall_height := segment_wall_heights[seg_off]
+		var segment_profiles := ProfileBuilder.build_profiles(graph, profile_cfg, segment_xf, fancy, false, wall_height)
+		max_profile_count = max(max_profile_count, segment_profiles.size())
+		segments_profiles.append(segment_profiles)
+
+	# Sweep the multi-edge spine wire, one pipe_shell per profile shape.
+	for pi in range(max_profile_count):
+		# Split sweeps for non-continuous profile indices of sections.
+		var splits_profiles := []
+		var run_start := -1  # First point index of current contiguous run (-1 = no active run).
+		for segment_i_off in range(chunk.end_segment + 1 - chunk.start_segment):
+			var segment_i := chunk.start_segment + segment_i_off
+			var has_profile: bool = pi < segments_profiles[segment_i_off].size()
+			var is_end := segment_i == chunk.end_segment
+
+			# Start a new run when we find a point with the profile.
+			if has_profile and run_start == -1:
+				run_start = segment_i
+
+			# Determine whether to finalize the current run.
+			var finalize := false
+			var last_good := -1  # Last point in the run that has the profile (inclusive).
+			if not has_profile and run_start != -1:
+				# This point lacks the profile; end run at the previous point.
+				finalize = true
+				last_good = segment_i - 1
+			elif is_end and run_start != -1:
+				# End of chunk; include this point only if it has the profile.
+				finalize = true
+				last_good = segment_i if has_profile else segment_i - 1
+
+			if finalize and last_good > run_start:
+				var from_off := run_start - chunk.start_segment
+				var to_off := last_good - chunk.start_segment
+				var profiles: Array[OclNodeId]
+				profiles.assign(segments_profiles.slice(from_off, to_off + 1).map(func(a: Array): return a[pi]))
+				splits_profiles.append({
+					"profiles": profiles,
+					"run_start": run_start,
+					"pi": pi,
+					"sub_spine_wire": _build_multi_wire(graph, path_curve, Chunk.new(run_start, last_good), spine_edges),
+					"sub_aux_wire": _build_multi_wire(graph, aux_curve, Chunk.new(run_start, last_good), aux_edges),
+				})
+
+			if finalize:
+				run_start = -1
+
+		# Sweep each split — any failure aborts the entire chunk.
+		for split in splits_profiles:
+			var split_run_start: int = split["run_start"]
+			var split_pi: int = split["pi"]
+
+			var sweep_result: Array[OclNodeId] = []
+			var max_area := _compute_max_face_area(profile_cfg, path_curve, aux_curve, split_run_start, split_run_start + split["profiles"].size() - 1)
+			if sweep_mode == OclMeshBuilder.SweepMode.SWEEP:
+				sweep_result = _try_sweep_and_validate(graph, split["profiles"], split["sub_spine_wire"], split["sub_aux_wire"], max_area if validate else -1.0, validate)
+			elif sweep_mode == OclMeshBuilder.SweepMode.LOFT_RULED:
+				sweep_result = _try_pairwise_loft(graph, split["profiles"], Callable(), max_area if validate else -1.0, validate)
+			else:
+				assert(false, "Unknown sweep_mode")
+
+			if sweep_result.is_empty():
+				# This split failed — abort the entire chunk.
+				_free_graph(graph)
+				return null
+
+	GraphUtils.delete_orphans(graph, [OclCore.KIND_SHELL], [OclCore.KIND_EDGE, OclCore.KIND_WIRE])
+
+	# Clean up temporary sketches.
+	for bits in spine_edges[0]:
+		status = OclTopoBuild.topo_remove_subgraph(graph, bits) as OclCore.status
+		assert(status == OclCore.OK, "Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
+	for bits in aux_edges[0]:
+		status = OclTopoBuild.topo_remove_subgraph(graph, bits) as OclCore.status
+		assert(status == OclCore.OK, "Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
+
+	return graph
 
 # -----------------------------------------------------------------------------
 # Standalone cap graph builder
@@ -341,94 +398,156 @@ static func _compute_max_face_area(profile_cfg: ProfileBuilder.Config, curve: Cu
 	return 8 * tube_width * max_seg_len
 
 
-const DEGENERATE_EDGE_LENGTH_RATIO := 1.8
-const DEGENERATE_EDGE_SAMPLES := 10
+## BRepCheck_Status bit values for issues that indicate a genuinely broken
+## or self-intersecting solid — not just tolerance/parameterisation warnings.
+##
+## Indices are 0-based from BRepCheck_Status enum; status_bit = 1 << index.
+##   18 = SelfIntersectingWire   (wire crosses itself)
+##   22 = IntersectingWires      (two wires on a face intersect)
+##   26 = BadOrientation         (face orientation inconsistent with shell)
+##   27 = BadOrientationOfSubshape (subshape oriented wrongly — wrong edge link)
+##   28 = NotClosed              (shell is not closed — open solid)
+##   29 = NotConnected           (shell has disconnected components)
+const TOPOLOGY_ERROR_BITS := (
+	(1 << 18) |  # SelfIntersectingWire
+	(1 << 22) |  # IntersectingWires
+	(1 << 26) |  # BadOrientation
+	(1 << 27) |  # BadOrientationOfSubshape — catches wrong-profile-edge-link
+	(1 << 28) |  # NotClosed
+	(1 << 29)    # NotConnected
+)
 
-## Check if any edge of a solid has arc length exceeding
-## DEGENERATE_EDGE_LENGTH_RATIO × chord length, indicating it meanders
-## far beyond a straight connection between its vertices.
-static func _has_degenerate_edge(graph: OclGraphHandle, solid_id: OclNodeId) -> bool:
-	var edge_buf := OclNodeIdArray.new()
-	if OclTopoBuild.graph_descendant_edges_get(graph, solid_id.bits, edge_buf) != OclCore.OK:
-		return false
-	for edge_bits in edge_buf.data:
-		var t_min := OclDouble.new()
-		var t_max := OclDouble.new()
-		if OclTopo.topo_edge_range(graph, edge_bits, t_min, t_max) != OclCore.OK:
-			continue
-		var span: float = t_max.value - t_min.value
-		if span <= 0.0:
-			continue
-
-		var pts: PackedVector3Array = PackedVector3Array()
-		pts.resize(DEGENERATE_EDGE_SAMPLES)
-		var ok := true
-		for i in range(DEGENERATE_EDGE_SAMPLES):
-			var t: float = t_min.value + span * float(i) / float(DEGENERATE_EDGE_SAMPLES - 1)
-			var p := OclPoint3.new()
-			if OclTopo.topo_edge_eval(graph, edge_bits, t, p) != OclCore.OK:
-				ok = false
-				break
-			pts[i] = Vector3(p.x, p.y, p.z)
-		if not ok:
-			continue
-
-		var chord: float = pts[0].distance_to(pts[-1])
-		if chord < 1e-12:
-			continue
-
-		var arc := 0.0
-		for i in range(1, pts.size()):
-			arc += pts[i - 1].distance_to(pts[i])
-
-		if arc > DEGENERATE_EDGE_LENGTH_RATIO * chord:
-			push_warning("Edge %d arc length %.2f > %sx chord %.2f — degenerate" % [edge_bits, arc, DEGENERATE_EDGE_LENGTH_RATIO, chord])
+## Return true if the graph has any FATAL issues, or any ERROR issues whose
+## status_bit indicates self-intersection, bad orientation, or disconnection.
+## Tolerance/parameterisation ERRORs (e.g. InvalidSameParameterFlag) are
+## intentionally ignored — they are common on valid swept geometry.
+static func _solid_has_topology_errors(graph: OclGraphHandle, _solid_id: OclNodeId) -> bool:
+	var issues := OclTopoCheckIssueArray.new()
+	if OclTopoAlgo.check(graph, issues) != OclCore.OK:
+		return false  # check call failed — be optimistic
+	for issue_ in issues.data:
+		var issue: OclTopoCheckIssue = issue_
+		if issue.severity >= OclTopoAlgo.TOPO_CHECK_FATAL:
 			return true
+		if issue.severity == OclTopoAlgo.TOPO_CHECK_ERROR:
+			if (issue.status_bit & TOPOLOGY_ERROR_BITS) != 0:
+				return true
 	return false
 
 
-## Validate solid geometry: has faces, no individual face exceeds
-## |max_face_area| (default -1 = skip), and no edge arc length exceeds
-## DEGENERATE_EDGE_LENGTH_RATIO × chord length.
-static func _validate_solid_geometry(graph: OclGraphHandle, solid_id: OclNodeId, max_face_area: float = -1.0) -> bool:
+## Deep-clone a topology graph.  The caller owns the returned handle and
+## must free it with _free_graph (or OclTopo.graph_free).
+static func _clone_graph(source: OclGraphHandle) -> OclGraphHandle:
+	var cloned := OclGraphHandle.new()
+	var status := OclTopoBuild.graph_clone(source, cloned) as OclCore.status
+	assert(status == OclCore.OK, "ChunkBuilder: graph_clone failed: %s" % [OclCore.status_to_string(status)])
+	return cloned
+
+
+## Null-safe graph free.
+static func _free_graph(graph: OclGraphHandle) -> void:
+	if graph != null:
+		OclTopo.graph_free(graph)
+
+
+## Validate a sweep or loft solid.
+##
+## |check_volume|: set true only for full pipe_shell solids (not per-pair lofts
+##   whose thin slab shape yields near-zero volume by construction).
+##   Volume > 0 catches self-intersecting / inside-out multi-segment sweeps.
+## |max_face_area|: cheap early-out for runaway large faces (default -1 = skip).
+##
+## FATAL topology issues are checked unconditionally — they indicate a genuinely
+## broken B-rep (missing faces, non-manifold structure, etc.).
+static func _validate_solid_geometry(
+		graph: OclGraphHandle, solid_id: OclNodeId,
+		max_face_area: float = -1.0,
+		check_volume: bool = false) -> bool:
 	if not _has_faces(graph, solid_id):
 		return false
 
+	# ── Volume check (multi-segment sweeps only) ───────────────────────────────
+	if check_volume:
+		var props := OclGraphMassProperties.new()
+		if OclTopoBuild.graph_mass_properties_get(graph, solid_id.bits, props) == OclCore.OK:
+			# Reject clearly negative or zero volume (self-intersecting / inside-out).
+			# Use a small negative tolerance rather than strict > 0 to avoid rejecting
+			# thin solids (e.g. roof slabs) where BRepGProp returns a tiny negative
+			# value due to numerical cancellation.
+			if props.get_volume() < -1e-6:
+				return false
+
+	# ── Optional face area cap ─────────────────────────────────────────────────
 	if max_face_area > 0:
 		var face_buf := OclNodeIdArray.new()
 		if OclTopoBuild.graph_descendants_get(graph, solid_id.bits, OclCore.KIND_FACE, face_buf) == OclCore.OK:
 			for face_bits in face_buf.data:
-				var area := _face_area(graph, face_bits)
-				if area > max_face_area:
-					push_warning("Face area %.2f exceeds threshold %.2f — treating as invalid" % [area, max_face_area])
+				if _face_area(graph, face_bits) > max_face_area:
 					return false
 
-	if _has_degenerate_edge(graph, solid_id):
+	# ── OCCT topology check (FATAL + structural ERRORs) ───────────────────────
+	if _solid_has_topology_errors(graph, solid_id):
+		return false
+
+	# ── Face-face self-intersection (slowest, only when volume check passed) ──
+	# Only run the expensive face-pair intersection test when check_volume is
+	# enabled (pipe_shell sweeps) because those are the solids where wrong-edge-
+	# linking self-intersections can occur.  For per-pair lofts the volume check
+	# is disabled and this check would produce too many false positives.
+	if check_volume and _solid_has_face_intersections(graph, solid_id):
 		return false
 
 	return true
 
 
+## Delegates to OclTopoRelation.solid_is_self_intersecting — a native API
+## that runs bounded BRepAlgoAPI_Section on every face pair, skips existing
+## boundary edges, and only counts new intersection edges above min_edge_length.
+## Min arc-length for a face-face intersection edge to count as genuine.
+## Set conservatively to avoid false positives from curved swept surfaces
+## whose underlying geometric extensions produce short phantom section edges.
+## A genuine wrong-winding crossing spans at least the profile inner width.
+const SELF_INTERSECTION_MIN_EDGE_LENGTH := 0.3
+
+static func _solid_has_face_intersections(graph: OclGraphHandle, solid_id: OclNodeId) -> bool:
+	var out_result := OclInt32.new()
+	var st := OclTopoExtra.solid_is_self_intersecting(
+		graph, solid_id.bits, SELF_INTERSECTION_MIN_EDGE_LENGTH, out_result) as OclCore.status
+	if st != OclCore.OK:
+		return false  # call failed — be optimistic
+	return out_result.value != 0
+
+
+## Attempt pipe_shell with progressively more forgiving transition modes.
+## RIGHT_CORNER is fastest but fails on sharp-curvature spines with fancy profiles.
+## ROUND_CORNER handles tight bends more robustly.
+## MODIFIED (DiscreteTrihedron law) is the most forgiving fallback.
 static func _try_sweep(graph: OclGraphHandle, profiles: Array[OclNodeId], spine: OclNodeId, spine_aux: OclNodeId) -> Array[OclNodeId]:
-	var sweep_info := OclPrimPipeShellInfo.new()
-	sweep_info.profiles = PackedInt64Array(profiles.map(func(p: OclNodeId): return p.bits))
-	sweep_info.mode = OclPrimSweep.PIPE_MODE_AUXILIARY_SPINE
-	sweep_info.spine_wire = spine.bits
-	sweep_info.auxiliary_spine_wire = spine_aux.bits
-	sweep_info.transition = OclPrimSweep.PIPE_TRANSITION_RIGHT_CORNER
-	sweep_info.make_solid = 1
-	var sweep_id := OclNodeId.new()
-	var status := OclPrimSweep.pipe_shell(graph, sweep_info, sweep_id) as OclCore.status
-	if status != OclCore.OK or sweep_id.bits == 0:
-		return []
-	return [sweep_id]
+	var profile_bits := PackedInt64Array(profiles.map(func(p: OclNodeId): return p.bits))
+	for transition in [
+		OclPrimSweep.PIPE_TRANSITION_RIGHT_CORNER,
+		OclPrimSweep.PIPE_TRANSITION_ROUND_CORNER,
+		OclPrimSweep.PIPE_TRANSITION_MODIFIED,
+	]:
+		var sweep_info := OclPrimPipeShellInfo.new()
+		sweep_info.profiles = profile_bits
+		sweep_info.mode = OclPrimSweep.PIPE_MODE_AUXILIARY_SPINE
+		sweep_info.spine_wire = spine.bits
+		sweep_info.auxiliary_spine_wire = spine_aux.bits
+		sweep_info.transition = transition
+		sweep_info.make_solid = 1
+		var sweep_id := OclNodeId.new()
+		var status := OclPrimSweep.pipe_shell(graph, sweep_info, sweep_id) as OclCore.status
+		if status == OclCore.OK and sweep_id.bits != 0:
+			return [sweep_id]
+	return []
 
 
 ## Try pairwise ruled loft through profile pairs.  For each pair, fancy
 ## profiles are tried first; on failure the specific pair falls back to
 ## non-fancy profiles via rebuild_fn (when provided).
 ## Any invalid geometry from a failed attempt is removed before retrying.
-static func _try_pairwise_loft(graph: OclGraphHandle, profiles: Array[OclNodeId], rebuild_fn: Callable = Callable(), max_face_area: float = -1.0) -> Array[OclNodeId]:
+static func _try_pairwise_loft(graph: OclGraphHandle, profiles: Array[OclNodeId], rebuild_fn: Callable = Callable(), max_face_area: float = -1.0, validate: bool = true) -> Array[OclNodeId]:
 	var solids: Array[OclNodeId] = []
 	for i in range(profiles.size() - 1):
 		var info := OclPrimLoftInfo.new()
@@ -437,7 +556,10 @@ static func _try_pairwise_loft(graph: OclGraphHandle, profiles: Array[OclNodeId]
 		info.sections = PackedInt64Array([profiles[i].bits, profiles[i + 1].bits])
 		var solid := OclNodeId.new()
 		var status := OclPrimSweep.loft(graph, info, solid) as OclCore.status
-		var valid := status == OclCore.OK and _validate_solid_geometry(graph, solid, max_face_area)
+		# Per-pair lofts: validate with face area cap and topology check when enabled.
+		# Volume check is skipped — OCCT cannot reliably compute volume for
+		# ruled-loft solids built from open (U-channel) profiles.
+		var valid := status == OclCore.OK and (not validate or _validate_solid_geometry(graph, solid, max_face_area, false))
 
 		if not valid and rebuild_fn.is_valid():
 			if solid.bits != 0:
@@ -448,12 +570,12 @@ static func _try_pairwise_loft(graph: OclGraphHandle, profiles: Array[OclNodeId]
 			info.sections = PackedInt64Array([p0.bits, p1.bits])
 			solid = OclNodeId.new()
 			status = OclPrimSweep.loft(graph, info, solid) as OclCore.status
-			valid = status == OclCore.OK and _validate_solid_geometry(graph, solid, max_face_area)
+			valid = status == OclCore.OK and (not validate or _validate_solid_geometry(graph, solid, max_face_area, false))
 
 		if not valid:
 			if solid.bits != 0:
 				OclTopoBuild.topo_remove_subgraph(graph, solid.bits)
-			push_error("loft pair %d failed all fallbacks: %s - %s" % [i, OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
+			#push_error("loft pair %d failed all fallbacks: %s - %s" % [i, OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
 			# Clean up previously accumulated solids from earlier pairs.
 			for prev in solids:
 				if prev.bits != 0:
@@ -464,40 +586,20 @@ static func _try_pairwise_loft(graph: OclGraphHandle, profiles: Array[OclNodeId]
 	return solids
 
 
-## Sweep a set of profiles along spine/aux wires with a 4-phase fallback chain:
-##   1. Sweep (pipe_shell) with current profiles
-##   2. Sweep with non-fancy profiles (rebuilt via rebuild_fn)
-##   3. Pairwise ruled loft with current profiles (per-pair)
-##   4. Pairwise ruled loft with non-fancy profiles (per-pair fallback)
-##
-## Each phase validates results via _validate_solid_geometry (face count,
-## face-area check, and edge arc-length check).  When sweep_mode == 1 (LOFT_RULED) the sweep
-## phases are skipped entirely.
-static func sweep_with_fallback_to_loft(graph: OclGraphHandle, profiles: Array[OclNodeId], spine: OclNodeId, spine_aux: OclNodeId, rebuild_fn: Callable = Callable(), sweep_mode: int = 0, max_face_area: float = -1.0) -> Array[OclNodeId]:
-	# Phase 1: sweep + current (fancy) profiles
-	if sweep_mode == 0:
-		var sweep_ids := _try_sweep(graph, profiles, spine, spine_aux)
-		if not sweep_ids.is_empty() and _validate_solid_geometry(graph, sweep_ids[0], max_face_area):
-			return sweep_ids
-		# Remove failed sweep solid before falling through to next phase.
-		if not sweep_ids.is_empty():
-			OclTopoBuild.topo_remove_subgraph(graph, sweep_ids[0].bits)
-
-	# Phase 2: sweep + non-fancy profiles
-	if sweep_mode == 0 and rebuild_fn.is_valid():
-		var nf_profiles: Array[OclNodeId] = []
-		for i in range(profiles.size()):
-			nf_profiles.append(rebuild_fn.call(graph, i) as OclNodeId)
-		var sweep_ids := _try_sweep(graph, nf_profiles, spine, spine_aux)
-		if not sweep_ids.is_empty() and _validate_solid_geometry(graph, sweep_ids[0], max_face_area):
-			push_warning("Sweep with fancy profiles failed, succeeded with non-fancy")
-			return sweep_ids
-		# Remove failed sweep solid before falling through to next phase.
-		if not sweep_ids.is_empty():
-			OclTopoBuild.topo_remove_subgraph(graph, sweep_ids[0].bits)
-
-	# Phase 3 & 4: pairwise ruled loft (per-pair fancy → non-fancy fallback)
-	return _try_pairwise_loft(graph, profiles, rebuild_fn, max_face_area)
+## Try a single sweep (pipe_shell) in-place on |graph|, then validate.
+## Returns [OclNodeId] of the solid on success, or [] on failure.
+## On failure any partially-created geometry is cleaned up from the graph.
+static func _try_sweep_and_validate(graph: OclGraphHandle, profiles: Array[OclNodeId], spine: OclNodeId, spine_aux: OclNodeId, max_face_area: float = -1.0, validate: bool = true) -> Array[OclNodeId]:
+	var sweep_ids := _try_sweep(graph, profiles, spine, spine_aux)
+	if sweep_ids.is_empty():
+		return []
+	# check_volume=true: pipe_shell produces a closed solid whose volume must be > 0.
+	if not validate or _validate_solid_geometry(graph, sweep_ids[0], max_face_area, true):
+		return sweep_ids
+	for s in sweep_ids:
+		if s.bits != 0:
+			OclTopoBuild.topo_remove_subgraph(graph, s.bits)
+	return []
 
 # -----------------------------------------------------------------------------
 # Junction boolean-cut helpers
@@ -506,9 +608,12 @@ static func sweep_with_fallback_to_loft(graph: OclGraphHandle, profiles: Array[O
 ## Build inner-profile cutter solids from a section of |other_curve|.
 ##
 ## Sweeps the inner (hollow) profile along the other path's spine+aux wires
-## for the given segment range.  Each pair of adjacent profiles produces one
-## solid.  Returns [Array[OclNodeId] of pair solids, edge_bits, wire_bits]
-## where the latter two are temporary topology to remove after the boolean cuts.
+## for the given segment range.  Attempts sweep first, then pairwise loft.
+## Returns [Array[OclNodeId] of pair solids, edge_bits, wire_bits,
+## profile_bits, result_graph] where the first four are temporary topology to
+## clean up after the boolean cuts, and result_graph is the graph that contains
+## the cutter solids (same as input — no cloning).
+## On total failure, cleans up all its geometry and returns empty solids.
 ## No fuse is performed — the caller cuts with each solid individually.
 static func _build_inner_cutter_sweep(
 	graph: OclGraphHandle,
@@ -520,54 +625,72 @@ static func _build_inner_cutter_sweep(
 	segment_end: int,  # exclusive
 	cutter_sweep_mode: int = 0,
 ) -> Array:
+	var profile_bits: Dictionary = {}  # { bits: true }
+
 	# Build inner profile at all points in the section.
 	# segment_end is exclusive (last segment = segment_end - 1),
 	# so the last point index = segment_end.
 	var profiles: Array[OclNodeId] = []
 	for segment_i in range(segment_start, segment_end + 1):
 		var xf := CurveUtils.transform_at_index(other_curve, segment_i, other_aux_curve)
-		profiles.append(ProfileBuilder.build_profiles(graph, profile_cfg, xf, fancy, true, 1.0)[0]) # Only one inner wire!
-	var fallback_builder: Callable
-	if fancy:
-		fallback_builder = func(g: OclGraphHandle, idx: int) -> OclNodeId:
-			var seg_i := segment_start + idx
-			var xf := CurveUtils.transform_at_index(other_curve, seg_i, other_aux_curve)
-			return ProfileBuilder.build_profiles(g, profile_cfg, xf, false, true, 1.0)[0]
+		# Use wall_height = 1.0 so the inner cutter matches the full tunnel height
+		# including the roof layer, producing a flush opening at roofed junctions.
+		var p := ProfileBuilder.build_profiles(graph, profile_cfg, xf, fancy, true, 1.0)[0] # Only one inner wire!
+		profiles.append(p)
+		profile_bits[p.bits] = true
 
-	# Sweep inner profile along the wires.
-	# Going in pairs avoids matching the wrong wire edges between the first and last profiles,
-	# as edges change slowly across the sweep but can accumulate a lot of changes across edges of sweep.
-	# Each pair produces one solid; we return them individually so the caller
-	# can cut with each one separately (avoids fuse instability).
-	# IMPORTANT: each pair gets its own sub-spine covering only its 1 segment
-	# (2 points), because pipe_shell places the 2 profiles at the start/end
-	# of the given spine.
-	var all_edge_bits := PackedInt64Array()
-	var all_wire_bits := PackedInt64Array()
-	var cutter_solids: Array[OclNodeId] = []
-	var pair_seg_start := segment_start
-	var pair_seg_end := segment_end  # exclusive, covers exactly 1 segment (2 points)
+	# Build sub-spine/aux for this segment pair.
 	var pair_spine_edges: Array[PackedInt64Array] = [PackedInt64Array()]
-	var pair_spine_wire := _build_multi_wire(graph, other_curve, Chunk.new(pair_seg_start, pair_seg_end), pair_spine_edges)
+	var pair_spine_wire := _build_multi_wire(graph, other_curve, Chunk.new(segment_start, segment_end), pair_spine_edges)
 	var pair_aux_edges: Array[PackedInt64Array] = [PackedInt64Array()]
-	var pair_aux_wire := _build_multi_wire(graph, other_aux_curve, Chunk.new(pair_seg_start, pair_seg_end), pair_aux_edges)
-	var pair_solids := sweep_with_fallback_to_loft(graph, profiles, pair_spine_wire, pair_aux_wire, fallback_builder, cutter_sweep_mode, _compute_max_face_area(profile_cfg, other_curve, other_aux_curve, segment_start, segment_end))
+	var pair_aux_wire := _build_multi_wire(graph, other_aux_curve, Chunk.new(segment_start, segment_end), pair_aux_edges)
+	var max_area := _compute_max_face_area(profile_cfg, other_curve, other_aux_curve, segment_start, segment_end)
+
+	# Try sweep first, then pairwise loft — both in the same graph.
+	var pair_solids: Array[OclNodeId] = []
+	if cutter_sweep_mode == 0:
+		pair_solids = _try_sweep_and_validate(graph, profiles, pair_spine_wire, pair_aux_wire, max_area)
+	# Loft is always available as a fallback when sweep fails or is skipped.
 	if pair_solids.is_empty():
-		return [[], PackedInt64Array(), PackedInt64Array()] # Assertion failed and error already pushed
-	cutter_solids.append_array(pair_solids)
+		pair_solids = _try_pairwise_loft(graph, profiles, Callable(), max_area)
+
+	if pair_solids.is_empty():
+		# Total failure — clean up all geometry we built.
+		for bits in pair_spine_edges[0]:
+			if bits != 0:
+				OclTopoBuild.topo_remove_subgraph(graph, bits)
+		for bits in pair_aux_edges[0]:
+			if bits != 0:
+				OclTopoBuild.topo_remove_subgraph(graph, bits)
+		if pair_spine_wire.bits != 0:
+			OclTopoBuild.topo_remove_subgraph(graph, pair_spine_wire.bits)
+		if pair_aux_wire.bits != 0:
+			OclTopoBuild.topo_remove_subgraph(graph, pair_aux_wire.bits)
+		for bits in profile_bits:
+			if bits != 0:
+				OclTopoBuild.topo_remove_subgraph(graph, bits)
+		return [[], PackedInt64Array(), PackedInt64Array(), {}, graph]
+
+	var all_edge_bits := PackedInt64Array()
 	all_edge_bits.append_array(pair_spine_edges[0])
 	all_edge_bits.append_array(pair_aux_edges[0])
+	var all_wire_bits := PackedInt64Array()
 	all_wire_bits.append(pair_spine_wire.bits)
 	all_wire_bits.append(pair_aux_wire.bits)
 
-	return [cutter_solids, all_edge_bits, all_wire_bits]
+	return [pair_solids, all_edge_bits, all_wire_bits, profile_bits, graph]
 
 
 ## Apply boolean cuts at shortcut junction points.
 ##
 ## For each junction, builds an inner-profile cutter solid from the other path's
-## curve and boolean-cuts it from the main sweep solid.  The graph is modified
-## in place: the original sweep solid is replaced by the cut result.
+## curve and boolean-cuts it from the main sweep solid.
+##
+## Always tries both fancy and non-fancy cutter profiles per junction (each on
+## a fresh clone) because the cutter is built along the OTHER path's curve and
+## we don't know what fancy level that path used.  The first successful cut wins.
+##
+## Returns the (possibly swapped) graph handle.
 static func _apply_junction_cuts(
 	graph: OclGraphHandle,
 	profile_cfg: ProfileBuilder.Config,
@@ -593,24 +716,29 @@ static func _apply_junction_cuts(
 		var seg_end: int = junc["other_segment_end"]
 
 		var pre_junction_solids := sweep_solids.duplicate()
-		var current_fancy := fancy
 
-		# Try up to 2 times: first with fancy profiles, then with non-fancy
-		# if the boolean operation fails (e.g. parity-orientation error).
-		while true:
+		# Retry ladder per junction:
+		#   0 — fancy cutter
+		#   1 — non-fancy cutter
+		#   2 — compact graph, then non-fancy cutter (OCCT boolean robustness workaround)
+		# graph_compact rebuilds internal BRep structures and often resolves sporadic
+		# parity/orientation errors that occur even when the geometry is correct.
+		for attempt in range(3):
+			var attempt_fancy := fancy and attempt == 0
+			var do_compact := attempt == 2
+
+			if do_compact:
+				OclTopoBuild.graph_compact(graph)
+
 			# Build cutter solids in the same graph (one per pair of adjacent profiles).
 			var cutter_data := _build_inner_cutter_sweep(
-				graph, other_curve, other_aux_curve, profile_cfg, current_fancy, seg_start, seg_end, cutter_sweep_mode,
+				graph, other_curve, other_aux_curve, profile_cfg, attempt_fancy, seg_start, seg_end, cutter_sweep_mode,
 			)
 			var cutter_solids: Array = cutter_data[0]
 			var edge_bits: PackedInt64Array = cutter_data[1]
 			var wire_bits: PackedInt64Array = cutter_data[2]
 
-			var actually_cut := true
-
 			# Cut (or fuse for debugging) with each pair-solid individually.
-			# All cutter solid cleanup happens after the loop so that removing
-			# one pair's topology does not corrupt subsequent pairs.
 			var old_solids: Array[OclNodeId] = []
 			var result_solids: Array[OclNodeId] = []
 			var boolean_failed := false
@@ -626,11 +754,11 @@ static func _apply_junction_cuts(
 						result[0],
 					) as OclCore.status
 					if status != OclCore.OK:
-						push_warning("junction fuse failed: %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
+						push_warning("junction fuse failed (attempt %d): %s - %s" % [attempt, OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
 						boolean_failed = true
 						break
 				else:
-					# Check first if they intersect
+					# Skip the boolean if the cutter doesn't actually touch the sweep solid.
 					var do_cut := false
 					for sweep_solid in sweep_solids:
 						var dist := OclDouble.new()
@@ -641,10 +769,8 @@ static func _apply_junction_cuts(
 							do_cut = true
 							break
 					if not do_cut:
-						actually_cut = false
 						result = sweep_solids
 					else:
-						actually_cut = true
 						status = OclBool.cut(
 							graph,
 							PackedInt64Array(sweep_solids.map(func(n: OclNodeId): return n.bits)),
@@ -653,17 +779,12 @@ static func _apply_junction_cuts(
 							result[0],
 						) as OclCore.status
 						if status != OclCore.OK:
-							push_warning("junction cut failed: %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
+							push_warning("junction cut failed (attempt %d): %s - %s" % [attempt, OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
 							boolean_failed = true
 							break
-
-				# The cut may completely miss the original object causing no changes.
-				# When the cutter misses, AddWithHistory returns the same root node ID,
-				# so we can detect no-op cuts by comparing node IDs directly.
-				if actually_cut:
-					old_solids.append_array(sweep_solids)
-					result_solids.append_array(result)
-				sweep_solids = result
+						old_solids.append_array(sweep_solids)
+						result_solids.append_array(result)
+					sweep_solids = result
 
 			# Remove cutter solids (only when cutting — keep visible for fuse debug).
 			if not debug_fuse:
@@ -672,13 +793,11 @@ static func _apply_junction_cuts(
 						var rm_status := OclTopoBuild.topo_remove_subgraph(graph, cutter_id.bits) as OclCore.status
 						assert(rm_status == OclCore.OK, "ChunkBuilder: failed to remove cutter solid: %s" % [OclCore.status_to_string(rm_status)])
 
-			if boolean_failed and current_fancy:
-				# Boolean failed with fancy profiles — clean up and retry with non-fancy.
-				# Remove successful result solids (not in pre-junction state).
+			if boolean_failed:
+				# Roll back any partial cuts this attempt made.
 				for sol in result_solids:
 					if sol.bits != 0:
 						OclTopoBuild.topo_remove_subgraph(graph, sol.bits)
-				# Remove old solids from successful cuts that are not originals.
 				var pre_bits := {}
 				for p in pre_junction_solids:
 					pre_bits[p.bits] = true
@@ -686,7 +805,7 @@ static func _apply_junction_cuts(
 					if old_id.bits != 0 and not pre_bits.has(old_id.bits):
 						OclTopoBuild.topo_remove_subgraph(graph, old_id.bits)
 				sweep_solids = pre_junction_solids.duplicate()
-				# Clean up temporary edges/wires.
+				# Clean up temporary edges/wires before the next attempt.
 				for bits in edge_bits:
 					var rm_status := OclTopoBuild.topo_remove_subgraph(graph, bits) as OclCore.status
 					assert(rm_status == OclCore.OK, "ChunkBuilder: failed to remove cutter edge: %s" % [OclCore.status_to_string(rm_status)])
@@ -694,21 +813,22 @@ static func _apply_junction_cuts(
 					var rm_status := OclTopoBuild.topo_remove_subgraph(graph, bits) as OclCore.status
 					assert(rm_status == OclCore.OK, "ChunkBuilder: failed to remove cutter wire: %s" % [OclCore.status_to_string(rm_status)])
 				GraphUtils.delete_orphans(graph, [OclCore.KIND_SHELL], [OclCore.KIND_EDGE, OclCore.KIND_WIRE])
-				current_fancy = false
-				push_warning("Junction boolean failed with fancy profiles, retrying with non-fancy")
-				continue
-
-			# Success or non-fancy also failed — clean up edges/wires and old solids.
-			for bits in edge_bits:
-				var rm_status := OclTopoBuild.topo_remove_subgraph(graph, bits) as OclCore.status
-				assert(rm_status == OclCore.OK, "ChunkBuilder: failed to remove cutter edge: %s" % [OclCore.status_to_string(rm_status)])
-			for bits in wire_bits:
-				var rm_status := OclTopoBuild.topo_remove_subgraph(graph, bits) as OclCore.status
-				assert(rm_status == OclCore.OK, "ChunkBuilder: failed to remove cutter wire: %s" % [OclCore.status_to_string(rm_status)])
-			# Remove the now-orphaned original sweep solid(s)
-			for old_id in old_solids:
-				var rm_status := OclTopoBuild.topo_remove_subgraph(graph, old_id.bits) as OclCore.status
-				assert(rm_status == OclCore.OK, "ChunkBuilder: failed to remove old solid: %s" % [OclCore.status_to_string(rm_status)])
+				if attempt < 2:
+					push_warning("Junction boolean failed on attempt %d — retrying" % attempt)
+					continue
+				push_warning("Junction boolean failed on all attempts — skipping junction cut")
+			else:
+				# Success — remove the now-replaced original sweep solid(s).
+				for old_id in old_solids:
+					var rm_status := OclTopoBuild.topo_remove_subgraph(graph, old_id.bits) as OclCore.status
+					assert(rm_status == OclCore.OK, "ChunkBuilder: failed to remove old solid: %s" % [OclCore.status_to_string(rm_status)])
+				# Clean up temporary edges/wires.
+				for bits in edge_bits:
+					var rm_status := OclTopoBuild.topo_remove_subgraph(graph, bits) as OclCore.status
+					assert(rm_status == OclCore.OK, "ChunkBuilder: failed to remove cutter edge: %s" % [OclCore.status_to_string(rm_status)])
+				for bits in wire_bits:
+					var rm_status := OclTopoBuild.topo_remove_subgraph(graph, bits) as OclCore.status
+					assert(rm_status == OclCore.OK, "ChunkBuilder: failed to remove cutter wire: %s" % [OclCore.status_to_string(rm_status)])
 			break
 
 		GraphUtils.delete_orphans(graph, [OclCore.KIND_SHELL], [OclCore.KIND_EDGE, OclCore.KIND_WIRE])
@@ -718,20 +838,53 @@ static func _apply_junction_cuts(
 # Obstacle generation
 # -----------------------------------------------------------------------------
 
+## Discover all available obstacle build scripts at runtime.
+static func _discover_obstacle_scripts() -> Array[Script]:
+	var scripts: Array[Script] = []
+	var dir := DirAccess.open("res://ball_game/scripts/components/obstacles")
+	if dir != null:
+		dir.list_dir_begin()
+		while true:
+			var fname := dir.get_next()
+			if fname == "":
+				break
+			if dir.current_is_dir():
+				continue
+			if not fname.begins_with("obstacle_") or not fname.ends_with(".gd"):
+				continue
+			if fname == "obstacle_base.gd" or fname == "obstacle_index.gd":
+				continue
+			var path := "res://ball_game/scripts/components/obstacles/" + fname
+			var script := load(path)
+			if script is Script and script.has_method("build"):
+				scripts.append(script)
+		dir.list_dir_end()
+		return scripts
+	# Fallback: ObstacleIndex (exported builds).
+	var entries := ObstacleIndex.get_all()
+	for e in entries:
+		scripts.append(e["script"])
+	return scripts
+
+
+## Surface type for obstacle placement.
+enum Surface { FLOOR, LEFT_WALL, RIGHT_WALL, LEFT_CORNER, RIGHT_CORNER }
+
+
 ## Generate positive (fused) and negative (cut) obstacles along a chunk.
-## Obstacles are placed at regular intervals along the path, offset to one
-## side. Positive obstacles narrow the path; negative obstacles widen it.
+## Obstacles are placed on floor, walls, or corners with random orientation
+## in the surface plane, using the full available space (track width / wall height).
 static func _generate_obstacles(
 	graph: OclGraphHandle,
 	path_curve: Curve3D,
 	aux_curve: Curve3D,
 	chunk: Chunk,
 	profile_cfg: ProfileBuilder.Config,
-	frequency: float,
-	do_positive: bool,
-	do_negative: bool,
+	pos_freq: float,
+	neg_freq: float,
 	seed_offset: int,
 	segment_wall_heights: PackedFloat32Array = PackedFloat32Array(),
+	debug_mode: bool = false,
 ) -> void:
 	var seg_count := chunk.end_segment - chunk.start_segment
 	if seg_count <= 0:
@@ -742,16 +895,26 @@ static func _generate_obstacles(
 
 	var br := profile_cfg.ball_radius
 	var pwh := br / profile_cfg.ball_to_path_min_ratio.x
-	var obstacle_size := br * 0.6
+	var wt := profile_cfg.wall_thickness
+	var wth := (2.0 * br) / profile_cfg.ball_to_path_min_ratio.y
+	var total_freq := pos_freq + neg_freq
+	if total_freq <= 0.0:
+		return
 
-	# Collect all existing sweep solids for fuse/cut operations.
+	var obstacle_scripts := _discover_obstacle_scripts()
+	if obstacle_scripts.is_empty():
+		return
+
 	var sweep_solids: Array[OclNodeId] = []
 	sweep_solids.assign(GraphUtils._collect_ids(graph, OclCore.KIND_SOLID).map(func(i: int):
 		var r := OclNodeId.new()
 		r.bits = i
 		return r))
 
-	var num_obstacles := maxi(1, int(seg_count * frequency))
+	if sweep_solids.is_empty():
+		return
+
+	var num_obstacles := maxi(1, int(seg_count * total_freq))
 	var status: OclCore.status
 
 	for obs_i in range(num_obstacles):
@@ -760,44 +923,118 @@ static func _generate_obstacles(
 		seg_idx = clampi(seg_idx, chunk.start_segment, mini(chunk.end_segment - 1, path_curve.point_count - 2))
 		var xf := CurveUtils.transform_at_index(path_curve, seg_idx, aux_curve)
 
-		var side := 1.0 if (obs_i % 2 == 0) else -1.0
-		var offset := pwh * (0.3 + rng.randf() * 0.4) * side
-
 		var seg_off := seg_idx - chunk.start_segment
 		var wall_h := clampf(segment_wall_heights[seg_off], 0.0, 1.0)
-		var wth := (2.0 * br) / profile_cfg.ball_to_path_min_ratio.y
-		var obstacle_height := wall_h * wth * 0.5
+		var wh_clamped := minf(wall_h, 1.0) * wth
 
-		var box_xf := xf.translated_local(Vector3(offset, -br + obstacle_height, 0))
+		# Decide positive or negative.
+		var is_positive := rng.randf() < (pos_freq / total_freq)
 
-		var box_info := OclPrimBoxInfo.new()
-		box_info.placement = OcctConversionUtils.transform3d_to_occt_placement(box_xf)
-		box_info.dx = obstacle_size * 2.0
-		box_info.dy = obstacle_size * 2.0
-		box_info.dz = obstacle_size * 2.0
+		# Choose surface type with weighted randomness.
+		var surfaces: Array[int] = [Surface.FLOOR, Surface.LEFT_WALL, Surface.RIGHT_WALL]
+		if wh_clamped > br * 0.3:
+			surfaces.append(Surface.LEFT_CORNER)
+			surfaces.append(Surface.RIGHT_CORNER)
+		var surface: int = surfaces[rng.randi() % surfaces.size()]
 
-		var box_id := OclNodeId.new()
-		status = OclPrimSolid.box(graph, box_info, box_id) as OclCore.status
-		if status != OclCore.OK:
-			push_warning("Obstacle box creation failed: %s" % OclCore.status_to_string(status))
+		# Compute placement transform, AABB, and surface normal.
+		var local_pos := Vector3.ZERO
+		var local_normal := Vector3.ZERO
+		var aabb_size := Vector3.ZERO
+
+		match surface:
+			Surface.FLOOR:
+				var lateral_offset := pwh * (0.2 + rng.randf() * 0.6) * (1.0 if obs_i % 2 == 0 else -1.0)
+				local_pos = Vector3(0, -br, lateral_offset)
+				local_normal = Vector3(0, 1, 0)
+				aabb_size = Vector3(
+					rng.randf_range(0.8, 1.5) * br,
+					rng.randf_range(0.3, 0.7) * br,
+					rng.randf_range(0.8, 1.5) * br,
+				)
+			Surface.LEFT_WALL:
+				local_pos = Vector3(0, -br + wh_clamped * rng.randf_range(0.2, 0.8), -pwh)
+				local_normal = Vector3(0, 0, 1)
+				aabb_size = Vector3(
+					rng.randf_range(0.8, 1.5) * br,
+					rng.randf_range(0.3, minf(wh_clamped, br)) * 0.8,
+					rng.randf_range(0.2, 0.5) * br,
+				)
+			Surface.RIGHT_WALL:
+				local_pos = Vector3(0, -br + wh_clamped * rng.randf_range(0.2, 0.8), pwh)
+				local_normal = Vector3(0, 0, -1)
+				aabb_size = Vector3(
+					rng.randf_range(0.8, 1.5) * br,
+					rng.randf_range(0.3, minf(wh_clamped, br)) * 0.8,
+					rng.randf_range(0.2, 0.5) * br,
+				)
+			Surface.LEFT_CORNER:
+				local_pos = Vector3(0, -br + br * 0.15, -pwh + br * 0.15)
+				local_normal = Vector3(0, 1, 1).normalized()
+				aabb_size = Vector3(
+					rng.randf_range(0.6, 1.2) * br,
+					rng.randf_range(0.3, 0.6) * br,
+					rng.randf_range(0.3, 0.6) * br,
+				)
+			Surface.RIGHT_CORNER:
+				local_pos = Vector3(0, -br + br * 0.15, pwh - br * 0.15)
+				local_normal = Vector3(0, 1, -1).normalized()
+				aabb_size = Vector3(
+					rng.randf_range(0.6, 1.2) * br,
+					rng.randf_range(0.3, 0.6) * br,
+					rng.randf_range(0.3, 0.6) * br,
+				)
+
+		# Build the obstacle local transform.
+		var tangent := xf.basis * Vector3(1, 0, 0)
+		var up := xf.basis * Vector3(0, 1, 0)
+		var right := xf.basis * Vector3(0, 0, 1)
+		var surface_normal := xf.basis * local_normal
+
+		# Random rotation in the surface plane.
+		var angle := rng.randf() * PI * 2.0
+		var rot_basis := Basis.IDENTITY
+		if local_normal.length_squared() > 0.01:
+			rot_basis = Basis(local_normal.normalized(), angle)
+		else:
+			rot_basis = Basis(Vector3(0, 1, 0), angle)
+
+		# Build the obstacle local transform.
+		var obs_xf := xf.translated_local(local_pos)
+		obs_xf.basis = xf.basis * rot_basis
+
+		# Build the obstacle AABB.
+		var obs_aabb := AABB(-aabb_size * 0.5, aabb_size)
+
+		# Build the obstacle directly into the main graph so boolean ops work.
+		# OCCT booleans require both operands in the same graph — a separate
+		# obs_graph would always cause the fuse/cut to fail silently.
+		var obs_bits: PackedInt64Array
+		if debug_mode:
+			var box_info := OclPrimBoxInfo.new()
+			box_info.placement = OcctConversionUtils.transform3d_to_occt_placement(obs_xf)
+			box_info.dx = aabb_size.x
+			box_info.dy = aabb_size.y
+			box_info.dz = aabb_size.z
+			var box_id := OclNodeId.new()
+			status = OclPrimSolid.box(graph, box_info, box_id) as OclCore.status
+			if status != OclCore.OK:
+				push_warning("obstacle debug box failed: %s" % OclCore.status_to_string(status))
+				continue
+			obs_bits = PackedInt64Array([box_id.get_bits()])
+		else:
+			obs_bits = obstacle_scripts[rng.randi() % obstacle_scripts.size()].build(graph, obs_aabb, obs_xf)
+
+		if obs_bits.is_empty():
 			continue
 
-		if sweep_solids.is_empty():
-			OclTopoBuild.topo_remove_subgraph(graph, box_id.bits)
-			continue
-
-		var fuse_it := false
-		if do_positive and do_negative:
-			fuse_it = rng.randf() < 0.5
-		elif do_positive:
-			fuse_it = true
-
+		# Fuse or cut with the sweep solid.
 		var result_id := OclNodeId.new()
-		if fuse_it:
+		if is_positive:
 			status = OclBool.fuse(
 				graph,
 				PackedInt64Array(sweep_solids.map(func(n: OclNodeId): return n.bits)),
-				PackedInt64Array([box_id.bits]),
+				obs_bits,
 				OclBoolOptions.new(),
 				result_id,
 			) as OclCore.status
@@ -805,7 +1042,7 @@ static func _generate_obstacles(
 			status = OclBool.cut(
 				graph,
 				PackedInt64Array(sweep_solids.map(func(n: OclNodeId): return n.bits)),
-				PackedInt64Array([box_id.bits]),
+				obs_bits,
 				OclBoolOptions.new(),
 				result_id,
 			) as OclCore.status
@@ -813,9 +1050,19 @@ static func _generate_obstacles(
 		if status == OclCore.OK:
 			for old in sweep_solids:
 				OclTopoBuild.topo_remove_subgraph(graph, old.bits)
+			# Also remove the obstacle solid itself — it is now part of the result.
+			for bits in obs_bits:
+				if bits != 0:
+					OclTopoBuild.topo_remove_subgraph(graph, bits)
 			sweep_solids = [result_id]
 		else:
-			OclTopoBuild.topo_remove_subgraph(graph, box_id.bits)
+			push_warning("obstacle boolean failed (%s): %s" % [
+				"fuse" if is_positive else "cut",
+				OclCore.status_to_string(status)])
+			# Remove the failed obstacle solid to keep the graph clean.
+			for bits in obs_bits:
+				if bits != 0:
+					OclTopoBuild.topo_remove_subgraph(graph, bits)
 
 	GraphUtils.delete_orphans(graph, [OclCore.KIND_SHELL], [OclCore.KIND_EDGE, OclCore.KIND_WIRE])
 

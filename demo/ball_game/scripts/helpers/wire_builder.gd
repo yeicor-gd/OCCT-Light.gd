@@ -22,6 +22,7 @@ var _edges: Array[OclOrientedNode] = []
 var _current_2d := Vector2(INF, INF)
 var _start_2d := Vector2(INF, INF)
 var _prev_vertex := OclNodeId.new()
+var _first_vertex := OclNodeId.new()
 var _has_start := false
 
 
@@ -35,6 +36,7 @@ func move_to(x: float, y: float) -> WireBuilder:
 	_start_2d = Vector2(x, y)
 	_current_2d = Vector2(x, y)
 	_prev_vertex = TopoBuilders.make_vertex(_graph, _to_world.call(Vector2(x, y)))
+	_first_vertex = _prev_vertex
 	_has_start = true
 	return self
 
@@ -48,7 +50,13 @@ func line_to(x: float, y: float) -> WireBuilder:
 	var to_world_pt: Vector3 = _to_world.call(to_2d)
 
 	var sv := _prev_vertex
-	var ev := TopoBuilders.make_vertex(_graph, to_world_pt)
+	# Reuse the original start vertex when closing back to it so the wire is
+	# topologically (not just geometrically) closed.
+	var ev: OclNodeId
+	if _has_start and to_2d.distance_squared_to(_start_2d) < 1e-10:
+		ev = _first_vertex
+	else:
+		ev = TopoBuilders.make_vertex(_graph, to_world_pt)
 
 	var curve := TopoBuilders.make_line_curve(_graph, _to_world.call(_current_2d), to_world_pt)
 	var edge := TopoBuilders.make_edge(_graph, curve, sv, ev)
@@ -99,7 +107,12 @@ func arc(cx: float, cy: float, r: float, start_deg: float, end_deg: float, ccw: 
 
 	# Create arc edge.
 	var sv := _prev_vertex
-	var ev := TopoBuilders.make_vertex(_graph, _to_world.call(p_end))
+	# Reuse the original start vertex when the arc closes back to it.
+	var ev: OclNodeId
+	if _has_start and p_end.distance_squared_to(_start_2d) < 1e-10:
+		ev = _first_vertex
+	else:
+		ev = TopoBuilders.make_vertex(_graph, _to_world.call(p_end))
 
 	var curve := TopoBuilders.make_arc_3pt(
 		_graph, _to_world.call(p_start), _to_world.call(p_mid), _to_world.call(p_end),
@@ -117,9 +130,17 @@ func arc(cx: float, cy: float, r: float, start_deg: float, end_deg: float, ccw: 
 
 
 ## Close the wire and return the OCCT wire node.
+##
+## When auto_close=true, a closing edge is added (if needed) from the current
+## position back to the start point, reusing the original start vertex so the
+## wire is both geometrically and topologically closed.  A topologically closed
+## wire is required for swept solids (open wires produce open shells, not solids).
+## line_to/arc also reuse _first_vertex automatically when returning to the start,
+## so calling build(true) after a manual close is also safe (no duplicate edge).
 func build(auto_close: bool = false) -> OclNodeId:
 	if auto_close:
 		assert(_has_start, "WireBuilder: move_to() must be called before build() for auto_close mode")
 		if _current_2d.distance_squared_to(_start_2d) > 1e-12:
+			# line_to reuses _first_vertex when target == _start_2d.
 			line_to(_start_2d.x, _start_2d.y)
 	return TopoBuilders.make_wire(_graph, _edges)

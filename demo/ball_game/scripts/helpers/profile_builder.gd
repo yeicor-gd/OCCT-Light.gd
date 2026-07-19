@@ -71,7 +71,7 @@ static func build_profiles(
 	if inner: # Just close the inside
 		wb.line_to(pwh, -br + wh)
 		wb.line_to(-pwh, -br + wh)
-		wb.line_to(-pwh, -br + wh_clamped - rt) # Start point
+		# build(true) below adds the closing segment back to start using _first_vertex
 	else: # Go around the outside making a proper thick solid (could be done with occt apis instead)
 		if not fancy or wr:
 			wb.line_to(pwh + wt, -br + wh_clamped)
@@ -89,18 +89,28 @@ static func build_profiles(
 		else:
 			wb.arc(-pwh - rt, -br + wh_clamped - rt, rt, 180, 0)
 	
-	result.append(wb.build())
+	result.append(wb.build(true)) # always topologically close the profile wire
 	
 	# --- Roof mode (wall_height >= 1.0) ---
+	#if wr and not inner:
+		#var roof_info := OclPrimRectangleInfo.new()
+		#roof_info.width = pw + 2 * wt
+		#roof_info.height = wt
+		#var roof_xf := xf.translated_local(Vector3.UP * (-br + wth + wt/2))
+		#roof_info.placement = OcctConversionUtils.transform3d_to_occt_placement(roof_xf)
+		#var roof_wire := OclNodeId.new()
+		#status = OclPrimSketch.rectangle(graph, roof_info, roof_wire) as OclCore.status
+		#assert(status == OclCore.OK, "Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
+		#result.append(roof_wire)
 	if wr and not inner:
-		var roof_info := OclPrimRectangleInfo.new()
-		roof_info.width = pw + 2 * wt
-		roof_info.height = wt
-		var roof_xf := xf.translated_local(Vector3.UP * (-br + wth + wt/2))
-		roof_info.placement = OcctConversionUtils.transform3d_to_occt_placement(roof_xf)
-		var roof_wire := OclNodeId.new()
-		status = OclPrimSketch.rectangle(graph, roof_info, roof_wire) as OclCore.status
-		assert(status == OclCore.OK, "Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
-		result.append(roof_wire)
+		var roof_wb := WireBuilder.new(graph, func(v2: Vector2):
+			return xf.translated_local(Vector3(v2.x, v2.y, 0)).origin)
+
+		roof_wb.move_to(-pwh - wt, -br + wh_clamped)
+		roof_wb.line_to(-pwh - wt, -br + wh_clamped + wt)
+		roof_wb.line_to( pwh + wt, -br + wh_clamped + wt)
+		roof_wb.line_to( pwh + wt, -br + wh_clamped)
+
+		result.append(roof_wb.build(true))
 
 	return result

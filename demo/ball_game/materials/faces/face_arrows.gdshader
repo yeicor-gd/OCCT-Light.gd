@@ -155,7 +155,7 @@ void fragment()
     // Output
     //------------------------------------------------
 
-    ALBEDO = arrow_color.rgb;
+    ALBEDO = arrow_color.rgb * mask;
     EMISSION = arrow_color.rgb * emission_strength * mask;
 	if (mask * arrow_color.a < 0.5)
     	discard;
