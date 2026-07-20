@@ -49,3 +49,27 @@ static func _apply_transform(graph: OclGraphHandle, root_bits: int, xf: Transfor
 	if status != OK:
 		return {}
 	return {"graph": out_graph, "root": out_root.get_bits()}
+
+static func _aabb_center(aabb: AABB, xf: Transform3D) -> Vector3:
+	return xf.origin + xf.basis * (aabb.position + aabb.size * 0.5)
+
+static func _make_box(graph: OclGraphHandle, xf: Transform3D, aabb: AABB, dx: float, dy: float, dz: float, out: OclNodeId) -> int:
+	var box_xf := xf
+	box_xf.origin += xf.basis * (aabb.position + aabb.size * 0.5 - Vector3(dx * 0.5, dy * 0.5, dz * 0.5))
+	var info := OclPrimBoxInfo.new()
+	info.placement = _placement(box_xf)
+	info.dx = dx
+	info.dy = dy
+	info.dz = dz
+	return OclPrimSolid.box(graph, info, out) as int
+
+static func _make_wedge(graph: OclGraphHandle, xf: Transform3D, aabb: AABB, dx: float, dy: float, dz: float, ltx: float, out: OclNodeId) -> int:
+	var box_xf := xf
+	box_xf.origin += xf.basis * (aabb.position + aabb.size * 0.5 - Vector3(dx * 0.5, dy * 0.5, dz * 0.5))
+	var info := OclPrimWedgeInfo.new()
+	info.placement = _placement(box_xf)
+	info.dx = dx
+	info.dy = dy
+	info.dz = dz
+	info.ltx = ltx
+	return OclPrimSolid.wedge(graph, info, out) as int

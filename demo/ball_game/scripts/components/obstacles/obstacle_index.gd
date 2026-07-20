@@ -10,17 +10,17 @@ const PATH := "res://ball_game/scripts/components/obstacles"
 const OBSTACLES: Array[Dictionary] = [
 	{"name": "obstacle_box", "path": "res://ball_game/scripts/components/obstacles/obstacle_box.gd"},
 	{"name": "obstacle_check_topology", "path": "res://ball_game/scripts/components/obstacles/obstacle_check_topology.gd"},
+	{"name": "obstacle_column", "path": "res://ball_game/scripts/components/obstacles/obstacle_column.gd"},
 	{"name": "obstacle_common_intersection", "path": "res://ball_game/scripts/components/obstacles/obstacle_common_intersection.gd"},
+	{"name": "obstacle_cone", "path": "res://ball_game/scripts/components/obstacles/obstacle_cone.gd"},
 	{"name": "obstacle_cut_shape", "path": "res://ball_game/scripts/components/obstacles/obstacle_cut_shape.gd"},
-	{"name": "obstacle_draft_faces", "path": "res://ball_game/scripts/components/obstacles/obstacle_draft_faces.gd"},
-	{"name": "obstacle_ellipse_prism", "path": "res://ball_game/scripts/components/obstacles/obstacle_ellipse_prism.gd"},
-	{"name": "obstacle_fillet_box", "path": "res://ball_game/scripts/components/obstacles/obstacle_fillet_box.gd"},
 	{"name": "obstacle_fused_pair", "path": "res://ball_game/scripts/components/obstacles/obstacle_fused_pair.gd"},
 	{"name": "obstacle_halfspace_slice", "path": "res://ball_game/scripts/components/obstacles/obstacle_halfspace_slice.gd"},
 	{"name": "obstacle_offset_shape", "path": "res://ball_game/scripts/components/obstacles/obstacle_offset_shape.gd"},
 	{"name": "obstacle_prism_hexagon", "path": "res://ball_game/scripts/components/obstacles/obstacle_prism_hexagon.gd"},
 	{"name": "obstacle_revolve_half", "path": "res://ball_game/scripts/components/obstacles/obstacle_revolve_half.gd"},
-	{"name": "obstacle_section_plane", "path": "res://ball_game/scripts/components/obstacles/obstacle_section_plane.gd"},
+	{"name": "obstacle_sphere", "path": "res://ball_game/scripts/components/obstacles/obstacle_sphere.gd"},
+	{"name": "obstacle_torus", "path": "res://ball_game/scripts/components/obstacles/obstacle_torus.gd"},
 	{"name": "obstacle_wedge", "path": "res://ball_game/scripts/components/obstacles/obstacle_wedge.gd"},
 ]
 

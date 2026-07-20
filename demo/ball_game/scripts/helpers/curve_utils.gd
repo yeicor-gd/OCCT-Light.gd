@@ -144,7 +144,9 @@ static func transform_at_index(curve: Curve3D, i: int, aux_curve: Curve3D = null
 	if aux_curve != null and i < aux_curve.point_count:
 		var right := aux_curve.get_point_position(i) - from
 		if right.length_squared() > 1e-10:
-			up = right.cross(forward).normalized()
+			var cross := right.cross(forward)
+			if cross.length_squared() > 1e-10:
+				up = cross.normalized()
 
 	res = res.looking_at(from + forward, up)
 	return res
@@ -188,7 +190,9 @@ static func transform_at_baked(
 			var aux_pos := aux_curve.sample_baked(aux_len, cubic_interp)
 			var right := aux_pos - from
 			if right.length_squared() > 1e-10:
-				up = right.cross(forward).normalized()
+				var cross := right.cross(forward)
+				if cross.length_squared() > 1e-10:
+					up = cross.normalized()
 
 	res = res.looking_at(from + forward, up)
 	return res
@@ -330,9 +334,8 @@ static func blend_auxiliary_endpoints(
 	if n < 3:
 		return
 
-	var main_n := main_spine_positions.size()
 	var blend_count := maxi(3, int(n * clampf(blend_fraction, 0.0, 0.5)))
-	blend_count = mini(blend_count, n / 2)
+	blend_count = mini(blend_count, int(n / 2.0))
 
 	# Main path binormal-plane normals at both anchors.
 	var plane_s := _binormal_plane_normal(main_spine_positions, main_aux_curve, anchor_start)

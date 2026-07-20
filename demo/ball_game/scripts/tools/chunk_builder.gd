@@ -99,9 +99,11 @@ func build_chunk_graphs(
 	out_used_attempt: Array,     # [int] out-param; set to winning attempt index, or -1
 	segment_wall_heights: PackedFloat32Array = PackedFloat32Array(),
 	pobstacle_pos_freq: float = 0.0,
-	pobstacle_neg_freq: float = 0.0,
-	pobstacle_seed: int = 0,
+	_seed: int = 0,
 	pobstacle_debug: bool = false,
+	pobstacle_max_rotation: float = 1.0,
+	pobstacle_max_offset: Vector2 = Vector2(1.0, 1.0),
+	pobstacle_min_offset: Vector2 = Vector2(0.0, 0.0),
 	pshortcut_cutter_sweep_mode: int = 0,
 ) -> Array[OclGraphHandle]:
 	if not out_used_attempt.is_empty():
@@ -135,8 +137,8 @@ func build_chunk_graphs(
 			GraphUtils.check_graph(graph)
 
 		# --- Generate obstacles after sweep ---
-		if (pobstacle_pos_freq > 0.0 or pobstacle_neg_freq > 0.0):
-			_generate_obstacles(graph, path_curve, aux_curve, chunk, profile_cfg, pobstacle_pos_freq, pobstacle_neg_freq, pobstacle_seed, segment_wall_heights, pobstacle_debug)
+		if (pobstacle_pos_freq > 0.0):
+			_generate_obstacles(graph, path_curve, aux_curve, chunk, profile_cfg, pobstacle_pos_freq, _seed, segment_wall_heights, pobstacle_debug, pobstacle_max_rotation, pobstacle_max_offset, pobstacle_min_offset)
 
 		# --- Clean shortcuts: build inner sweep and boolean-cut at junctions ---
 		# _apply_junction_cuts always tries both fancy levels per junction,
@@ -253,7 +255,6 @@ static func _build_chunk_graph(
 		# Sweep each split — any failure aborts the entire chunk.
 		for split in splits_profiles:
 			var split_run_start: int = split["run_start"]
-			var split_pi: int = split["pi"]
 
 			var sweep_result: Array[OclNodeId] = []
 			var max_area := _compute_max_face_area(profile_cfg, path_curve, aux_curve, split_run_start, split_run_start + split["profiles"].size() - 1)
@@ -316,16 +317,17 @@ static func _build_cap_graph(
 		var half_face := _cut_face_in_half(graph, face, xf, cfg)
 
 		var axis_origin := xf.origin + xf.basis.y * 0.0001 # No clue why this offset is needed to avoid an error, but it does not affect the result...
-		var axis := OcctConversionUtils.v3_to_axis1(axis_origin, xf.basis.y)
+		var axis := OcctConversionUtils.v3_to_axis1(axis_origin, -xf.basis.y if is_start else xf.basis.y)
 		var revol_info := OclPrimRevolInfo.new()
 		revol_info.profile = half_face.bits
 		revol_info.axis = axis
-		revol_info.angle = PI if is_start else -PI
+		revol_info.angle = -PI
 		revol_info.copy = 1
 		var cap := OclNodeId.new()
 		status = OclPrimSweep.revol(graph, revol_info, cap) as OclCore.status
-		assert(status == OclCore.OK, "Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
-
+		if status != OclCore.OK:
+			push_warning("_build_cap_graph: OclPrimSweep.revol: Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
+		
 		status = OclTopoBuild.topo_remove_subgraph(graph, half_face.bits) as OclCore.status
 		assert(status == OclCore.OK, "Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
 
@@ -867,13 +869,14 @@ static func _discover_obstacle_scripts() -> Array[Script]:
 	return scripts
 
 
-## Surface type for obstacle placement.
-enum Surface { FLOOR, LEFT_WALL, RIGHT_WALL, LEFT_CORNER, RIGHT_CORNER }
+## Surface type for obstacle placement (planar against floor or walls only).
+enum Surface { FLOOR, LEFT_WALL, RIGHT_WALL }
 
 
-## Generate positive (fused) and negative (cut) obstacles along a chunk.
-## Obstacles are placed on floor, walls, or corners with random orientation
-## in the surface plane, using the full available space (track width / wall height).
+## Generate independent positive obstacles along a chunk.
+## Obstacles are planar against floor or walls with 1-DOF orientation
+## (rotation in the surface plane) and 3-DOF positioning (AABB stays inside
+## the corridor, center path always clear for the ball to pass through).
 static func _generate_obstacles(
 	graph: OclGraphHandle,
 	path_curve: Curve3D,
@@ -881,41 +884,47 @@ static func _generate_obstacles(
 	chunk: Chunk,
 	profile_cfg: ProfileBuilder.Config,
 	pos_freq: float,
-	neg_freq: float,
-	seed_offset: int,
+	_seed: int,
 	segment_wall_heights: PackedFloat32Array = PackedFloat32Array(),
 	debug_mode: bool = false,
+	debug_max_rotation: float = 1.0,
+	debug_max_offset: Vector2 = Vector2(1.0, 1.0),
+	debug_min_offset: Vector2 = Vector2(0.0, 0.0),
 ) -> void:
 	var seg_count := chunk.end_segment - chunk.start_segment
 	if seg_count <= 0:
 		return
 
 	var rng := RandomNumberGenerator.new()
-	rng.seed = seed_offset
+	rng.seed = _seed
 
-	var br := profile_cfg.ball_radius
-	var pwh := br / profile_cfg.ball_to_path_min_ratio.x
-	var wt := profile_cfg.wall_thickness
-	var wth := (2.0 * br) / profile_cfg.ball_to_path_min_ratio.y
-	var total_freq := pos_freq + neg_freq
-	if total_freq <= 0.0:
+	var br: float = profile_cfg.ball_radius
+	var bd: float = 2.0 * br
+	var ratio := profile_cfg.ball_to_path_min_ratio
+	# Inner rectangle of the sweep cross-section (path frame):
+	#   X (lateral/binormal): [-inner_hw, +inner_hw]
+	#   Y (up):               [-br, -br + inner_h]  (floor to wall top)
+	# Size: bd / ratio on both axes.
+	var inner_hw: float = bd / ratio.x * 0.5  # = br / ratio.x  (half-width)
+	var inner_h: float = bd / ratio.y          # full wall height
+	# Per-segment clamped wall height (may be less than inner_h).
+	if pos_freq <= 0.0:
 		return
 
 	var obstacle_scripts := _discover_obstacle_scripts()
 	if obstacle_scripts.is_empty():
 		return
 
-	var sweep_solids: Array[OclNodeId] = []
-	sweep_solids.assign(GraphUtils._collect_ids(graph, OclCore.KIND_SOLID).map(func(i: int):
-		var r := OclNodeId.new()
-		r.bits = i
-		return r))
-
-	if sweep_solids.is_empty():
-		return
-
-	var num_obstacles := maxi(1, int(seg_count * total_freq))
+	var num_obstacles := maxi(1, int(seg_count * pos_freq))
 	var status: OclCore.status
+
+	# --- Safe maximums derived from inner rectangle ---
+	# Clearance: max protrusion so the ball can still pass on the other side.
+	var clearance: float = inner_hw - br
+	# Floor obstacle height: ball rolls over if h < br; use 40% for gameplay.
+	var max_floor_h: float = br * 0.4
+	# Wall protrusion: limited by clearance.
+	var max_wall_d: float = clearance
 
 	for obs_i in range(num_obstacles):
 		var t := (obs_i + 0.5) / num_obstacles
@@ -924,91 +933,92 @@ static func _generate_obstacles(
 		var xf := CurveUtils.transform_at_index(path_curve, seg_idx, aux_curve)
 
 		var seg_off := seg_idx - chunk.start_segment
-		var wall_h := clampf(segment_wall_heights[seg_off], 0.0, 1.0)
-		var wh_clamped := minf(wall_h, 1.0) * wth
+		var wall_h: float = clampf(segment_wall_heights[seg_off], 0.0, 1.0)
+		var wh_clamped: float = minf(wall_h, 1.0) * inner_h
 
-		# Decide positive or negative.
-		var is_positive := rng.randf() < (pos_freq / total_freq)
+		# Choose surface: FLOOR, LEFT_WALL, or RIGHT_WALL.
+		var surface: int = [Surface.FLOOR, Surface.LEFT_WALL, Surface.RIGHT_WALL][rng.randi() % 3]
 
-		# Choose surface type with weighted randomness.
-		var surfaces: Array[int] = [Surface.FLOOR, Surface.LEFT_WALL, Surface.RIGHT_WALL]
-		if wh_clamped > br * 0.3:
-			surfaces.append(Surface.LEFT_CORNER)
-			surfaces.append(Surface.RIGHT_CORNER)
-		var surface: int = surfaces[rng.randi() % surfaces.size()]
-
-		# Compute placement transform, AABB, and surface normal.
+		# Compute placement: flush against the inner rectangle surface.
+		# Path frame: X=-binormal (lateral), Y=up, Z=-forward (along path).
+		# All obstacles rotate around Y (up) for 1-DOF orientation.
 		var local_pos := Vector3.ZERO
-		var local_normal := Vector3.ZERO
 		var aabb_size := Vector3.ZERO
+
+		# All surfaces share rotation around Y.
+		var local_normal := Vector3(0, 1, 0)
+
+		# Compute rotation angle first (shared across surfaces).
+		# All obstacles rotate around Y (up) for 1-DOF orientation.
+		var angle: float = rng.randf() * TAU * debug_max_rotation
+		var cos_a: float = cos(angle)
+		var sin_a: float = sin(angle)
 
 		match surface:
 			Surface.FLOOR:
-				var lateral_offset := pwh * (0.2 + rng.randf() * 0.6) * (1.0 if obs_i % 2 == 0 else -1.0)
-				local_pos = Vector3(0, -br, lateral_offset)
-				local_normal = Vector3(0, 1, 0)
-				aabb_size = Vector3(
-					rng.randf_range(0.8, 1.5) * br,
-					rng.randf_range(0.3, 0.7) * br,
-					rng.randf_range(0.8, 1.5) * br,
-				)
-			Surface.LEFT_WALL:
-				local_pos = Vector3(0, -br + wh_clamped * rng.randf_range(0.2, 0.8), -pwh)
-				local_normal = Vector3(0, 0, 1)
-				aabb_size = Vector3(
-					rng.randf_range(0.8, 1.5) * br,
-					rng.randf_range(0.3, minf(wh_clamped, br)) * 0.8,
-					rng.randf_range(0.2, 0.5) * br,
-				)
-			Surface.RIGHT_WALL:
-				local_pos = Vector3(0, -br + wh_clamped * rng.randf_range(0.2, 0.8), pwh)
-				local_normal = Vector3(0, 0, -1)
-				aabb_size = Vector3(
-					rng.randf_range(0.8, 1.5) * br,
-					rng.randf_range(0.3, minf(wh_clamped, br)) * 0.8,
-					rng.randf_range(0.2, 0.5) * br,
-				)
-			Surface.LEFT_CORNER:
-				local_pos = Vector3(0, -br + br * 0.15, -pwh + br * 0.15)
-				local_normal = Vector3(0, 1, 1).normalized()
-				aabb_size = Vector3(
-					rng.randf_range(0.6, 1.2) * br,
-					rng.randf_range(0.3, 0.6) * br,
-					rng.randf_range(0.3, 0.6) * br,
-				)
-			Surface.RIGHT_CORNER:
-				local_pos = Vector3(0, -br + br * 0.15, pwh - br * 0.15)
-				local_normal = Vector3(0, 1, -1).normalized()
-				aabb_size = Vector3(
-					rng.randf_range(0.6, 1.2) * br,
-					rng.randf_range(0.3, 0.6) * br,
-					rng.randf_range(0.3, 0.6) * br,
-				)
+				# Inner floor surface is at Y = -br in path frame.
+				# OCCT box is corner-aligned: corner at obs_xf.origin, extends +size.
+				# Negative: same box rotated 180° around floor → extends downward.
+				var h: float = rng.randf_range(0.2, 0.5) * max_floor_h
+				var sx: float = rng.randf_range(0.3, 0.8) * br
+				var sz: float = rng.randf_range(0.3, 0.8) * br
+				aabb_size = Vector3(sx, h, sz)
+				# Compute lateral (X) extent after rotation around Y.
+				var lateral_x: float = sx * abs(cos_a) + sz * abs(sin_a)
+				# Compute min_ox: offset from corner to the leftmost X point after rotation.
+				var min_ox: float = minf(0.0, minf(sx * cos_a, minf(sz * sin_a, sx * cos_a + sz * sin_a)))
+				# Desired center of the box's world-X range: cx ∈ [-inner_hw + lateral_x/2, inner_hw - lateral_x/2].
+				var cx_max: float = inner_hw - lateral_x * 0.5
+				var x_frac: float = clampf(rng.randf_range(debug_min_offset.x, debug_max_offset.x), 0.0, 1.0)
+				var cx: float = x_frac * cx_max * (1.0 if rng.randi() % 2 == 0 else -1.0)
+				# Same lateral placement for both. Flip around floor surface (Y=-br).
+				# Positive: corner at Y=-br, extends upward → [Y=-br, Y=-br+h].
+				# Negative: corner at Y=-br-h, extends upward → [Y=-br-h, Y=-br].
+				var y_pos: float = -br
+				local_pos = Vector3(cx - min_ox - lateral_x * 0.5, y_pos, 0.0)
+			Surface.LEFT_WALL, Surface.RIGHT_WALL:
+				# Wall surface: place box so its world-X range is centered on cx.
+				# After rotation, box X-range is [cx - eff_x/2, cx + eff_x/2].
+				# Negative: same box rotated 180° around wall surface → extends outward.
+				var h: float = rng.randf_range(0.3, 0.8) * minf(wh_clamped, br * 0.6)
+				var protrusion: float = rng.randf_range(0.5, 1.0) * max_wall_d
+				var length: float = rng.randf_range(0.6, 1.0) * br
+				aabb_size = Vector3(protrusion, h, length)
+				var eff_x: float = protrusion * abs(cos_a) + length * abs(sin_a)
+				if eff_x > clearance:
+					var s: float = clearance / eff_x
+					protrusion *= s
+					length *= s
+					aabb_size = Vector3(protrusion, h, length)
+					eff_x = clearance
+				# Compute min_ox with (possibly scaled) dimensions.
+				var min_ox: float = minf(0.0, minf(protrusion * cos_a, minf(length * sin_a, protrusion * cos_a + length * sin_a)))
+				# Flip around wall surface (X = ±inner_hw).
+				# Positive cx: midpoint between wall and ball → extends inward.
+				# Negative cx: mirror of positive around wall surface → extends outward.
+				var cx: float
+				if surface == Surface.LEFT_WALL:
+					cx = -(inner_hw + br) * 0.5
+				else:
+					cx = (inner_hw + br) * 0.5
+				# Random height within wall, floor at Y=-br, top at Y=-br+wh_clamped.
+				var y_range: float = wh_clamped - h
+				var y_frac: float = clampf(rng.randf_range(debug_min_offset.y, debug_max_offset.y), 0.0, 1.0) if y_range > 0 else 0.5
+				var y_pos: float = -br + y_frac * y_range
+				# Place corner so box X-range is centered on cx.
+				local_pos = Vector3(cx - min_ox - eff_x * 0.5, y_pos, 0.0)
 
-		# Build the obstacle local transform.
-		var tangent := xf.basis * Vector3(1, 0, 0)
-		var up := xf.basis * Vector3(0, 1, 0)
-		var right := xf.basis * Vector3(0, 0, 1)
-		var surface_normal := xf.basis * local_normal
-
-		# Random rotation in the surface plane.
-		var angle := rng.randf() * PI * 2.0
-		var rot_basis := Basis.IDENTITY
-		if local_normal.length_squared() > 0.01:
-			rot_basis = Basis(local_normal.normalized(), angle)
-		else:
-			rot_basis = Basis(Vector3(0, 1, 0), angle)
+		# Build rotation basis from the angle computed above.
+		var rot_basis := Basis(local_normal.normalized(), angle)
 
 		# Build the obstacle local transform.
 		var obs_xf := xf.translated_local(local_pos)
 		obs_xf.basis = xf.basis * rot_basis
 
-		# Build the obstacle AABB.
-		var obs_aabb := AABB(-aabb_size * 0.5, aabb_size)
+		# Build the obstacle AABB (corner-aligned to match OCCT box convention).
+		var obs_aabb := AABB(Vector3.ZERO, aabb_size)
 
-		# Build the obstacle directly into the main graph so boolean ops work.
-		# OCCT booleans require both operands in the same graph — a separate
-		# obs_graph would always cause the fuse/cut to fail silently.
+		# Build the obstacle solid directly into the main graph.
 		var obs_bits: PackedInt64Array
 		if debug_mode:
 			var box_info := OclPrimBoxInfo.new()
@@ -1028,41 +1038,8 @@ static func _generate_obstacles(
 		if obs_bits.is_empty():
 			continue
 
-		# Fuse or cut with the sweep solid.
-		var result_id := OclNodeId.new()
-		if is_positive:
-			status = OclBool.fuse(
-				graph,
-				PackedInt64Array(sweep_solids.map(func(n: OclNodeId): return n.bits)),
-				obs_bits,
-				OclBoolOptions.new(),
-				result_id,
-			) as OclCore.status
-		else:
-			status = OclBool.cut(
-				graph,
-				PackedInt64Array(sweep_solids.map(func(n: OclNodeId): return n.bits)),
-				obs_bits,
-				OclBoolOptions.new(),
-				result_id,
-			) as OclCore.status
-
-		if status == OclCore.OK:
-			for old in sweep_solids:
-				OclTopoBuild.topo_remove_subgraph(graph, old.bits)
-			# Also remove the obstacle solid itself — it is now part of the result.
-			for bits in obs_bits:
-				if bits != 0:
-					OclTopoBuild.topo_remove_subgraph(graph, bits)
-			sweep_solids = [result_id]
-		else:
-			push_warning("obstacle boolean failed (%s): %s" % [
-				"fuse" if is_positive else "cut",
-				OclCore.status_to_string(status)])
-			# Remove the failed obstacle solid to keep the graph clean.
-			for bits in obs_bits:
-				if bits != 0:
-					OclTopoBuild.topo_remove_subgraph(graph, bits)
+		# Positive obstacles are left as independent solids.
+		pass
 
 	GraphUtils.delete_orphans(graph, [OclCore.KIND_SHELL], [OclCore.KIND_EDGE, OclCore.KIND_WIRE])
 

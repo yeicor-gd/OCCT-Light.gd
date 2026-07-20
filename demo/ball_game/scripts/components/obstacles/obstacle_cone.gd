@@ -1,17 +1,17 @@
-class_name ObstaclePrismHexagon
+class_name ObstacleCone
 extends ObstacleBase
 
 static func build(graph: OclGraphHandle, aabb: AABB, xf: Transform3D) -> PackedInt64Array:
-	var r := minf(aabb.size.x, aabb.size.z) * 0.5
-	var poly_info := OclPrimRegularPolygonInfo.new()
-	var center_xf := xf
-	center_xf.origin += xf.basis * (aabb.position + Vector3(aabb.size.x * 0.5, 0, aabb.size.z * 0.5))
-	center_xf.basis = xf.basis * Basis(Vector3(1, 0, 0), -PI / 2)
-	poly_info.placement = _placement(center_xf)
-	poly_info.circumradius = r
-	poly_info.sides = 6
+	var r := minf(aabb.size.x, aabb.size.z) * 0.45
+
+	var circle_info := OclPrimCircleInfo.new()
+	var circle_xf := xf
+	circle_xf.origin += xf.basis * (aabb.position + Vector3(aabb.size.x * 0.5, 0, aabb.size.z * 0.5))
+	circle_xf.basis = xf.basis * Basis(Vector3(1, 0, 0), -PI / 2)
+	circle_info.placement = _placement(circle_xf)
+	circle_info.radius = r
 	var wire := OclNodeId.new()
-	if OclPrimSketch.regular_polygon(graph, poly_info, wire) != OK:
+	if OclPrimSketch.circle(graph, circle_info, wire) != OK:
 		return PackedInt64Array()
 
 	var prism_info := OclPrimPrismInfo.new()

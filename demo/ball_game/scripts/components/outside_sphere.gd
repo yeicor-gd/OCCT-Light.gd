@@ -6,13 +6,12 @@ class_name OutsideSphere
 ## outer radius.
 
 func _ready():
-	if Engine.is_editor_hint():
-		# Use a timer to defer until the parent generator is fully ready.
-		var timer := Timer.new()
-		timer.timeout.connect(_sync_from_parent)
-		add_child(timer)
-		timer.start(0.0)
-	else:
+	# Use a timer to defer until the parent generator is fully ready.
+	var timer := Timer.new()
+	timer.timeout.connect(_sync_from_parent)
+	add_child(timer)
+	timer.start(0.0)
+	if not Engine.is_editor_hint():
 		_sync_from_parent()
 		visible = true
 

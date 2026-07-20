@@ -5,6 +5,7 @@
 [ext_resource type="Script" uid="uid://dd8xba3t4b6sx" path="res://ball_game/scripts/player/camera_rig.gd" id="2_yff8i"]
 [ext_resource type="Material" uid="uid://db44qt2qwxtiq" path="res://ball_game/materials/glass.tres" id="2_yji6d"]
 [ext_resource type="Script" uid="uid://cp3fcc5hiqbc" path="res://ball_game/scripts/player/touch_joystick.gd" id="3_touch"]
+[ext_resource type="Script" path="res://ball_game/scripts/player/touch_jump_button.gd" id="4_jumpbtn"]
 
 [sub_resource type="SphereShape3D" id="SphereShape3D_0e071"]
 
@@ -16,6 +17,7 @@ script = ExtResource("1_uuw2b")
 
 [node name="Ball" type="RigidBody3D" parent="." unique_id=766000929 node_paths=PackedStringArray("camera_rig")]
 script = ExtResource("1_2bd7h")
+jump_impulse = 1.0
 camera_rig = NodePath("../CameraRig")
 
 [node name="CSGSphere3D" type="CSGSphere3D" parent="Ball" unique_id=582683701]
@@ -51,5 +53,15 @@ grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
 script = ExtResource("3_touch")
+
+[node name="TouchJumpButton" type="Control" parent="CanvasLayer"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("4_jumpbtn")
 
 [connection signal="rotation_changed" from="CameraRig" to="." method="_on_camera_rig_rotation_changed"]

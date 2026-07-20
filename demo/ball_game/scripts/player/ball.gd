@@ -6,9 +6,9 @@ extends RigidBody3D
 
 @export var acceleration := 10.0
 @export var max_speed := 10.0
-@export var jump_impulse := 2.5
+@export var jump_impulse := 0.5
 
-@export var grounded_min_vertical_projection := 0.3
+@export var grounded_min_vertical_projection := 0.5
 @export var air_control := 0.5
 @export var air_torque := 2.0
 
@@ -23,6 +23,17 @@ var ground_normal := Vector3.UP
 
 var jump_pressed := false
 
+var game_active := true
+
+signal jumped
+
+
+func set_game_active(active: bool) -> void:
+	game_active = active
+	if not active:
+		move_input = Vector2.ZERO
+		jump_pressed = false
+
 
 func _ready():
 	contact_monitor = true
@@ -30,6 +41,11 @@ func _ready():
 
 
 func _process(_delta):
+
+	if not game_active:
+		move_input = Vector2.ZERO
+		jump_pressed = false
+		return
 
 	move_input = Input.get_vector(
 		"move_left",
@@ -133,13 +149,14 @@ func _integrate_forces(_state):
 	# Jump
 	# -------------------------------------------------
 
-	if grounded and jump_pressed:
+	if grounded and jump_pressed: # Use up instead of ground_normal for more control
 
-		var vertical_speed = linear_velocity.dot(ground_normal)
+		var vertical_speed = linear_velocity.dot(up)
 
 		if vertical_speed < 0.0:
-			linear_velocity -= ground_normal * vertical_speed
+			linear_velocity -= up * vertical_speed
 
 		apply_central_impulse(
-			ground_normal * jump_impulse * mass
+			up * jump_impulse * mass
 		)
+		jumped.emit()

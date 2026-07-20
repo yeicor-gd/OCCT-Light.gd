@@ -2,13 +2,8 @@ class_name ObstacleOffsetShape
 extends ObstacleBase
 
 static func build(graph: OclGraphHandle, aabb: AABB, xf: Transform3D) -> PackedInt64Array:
-	var info := OclPrimBoxInfo.new()
-	info.placement = _placement(xf)
-	info.dx = aabb.size.x * 0.6
-	info.dy = aabb.size.y * 0.6
-	info.dz = aabb.size.z * 0.6
 	var box := OclNodeId.new()
-	if OclPrimSolid.box(graph, info, box) != OK:
+	if _make_box(graph, xf, aabb, aabb.size.x * 0.6, aabb.size.y * 0.6, aabb.size.z * 0.6, box) != OK:
 		return PackedInt64Array()
 
 	var off_info := OclPrimOffsetShapeInfo.new()

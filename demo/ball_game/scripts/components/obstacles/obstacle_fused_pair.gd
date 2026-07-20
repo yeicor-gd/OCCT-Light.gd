@@ -3,26 +3,15 @@ extends ObstacleBase
 
 static func build(graph: OclGraphHandle, aabb: AABB, xf: Transform3D) -> PackedInt64Array:
 	var half := aabb.size * 0.5
-	var cx := _placement(xf)
 
-	var info1 := OclPrimBoxInfo.new()
-	info1.placement = cx
-	info1.dx = half.x
-	info1.dy = aabb.size.y
-	info1.dz = aabb.size.z
 	var id1 := OclNodeId.new()
-	if OclPrimSolid.box(graph, info1, id1) != OK:
+	if _make_box(graph, xf, aabb, half.x, aabb.size.y, aabb.size.z, id1) != OK:
 		return PackedInt64Array()
 
 	var xf2 := xf
 	xf2.origin += xf.basis * Vector3(-half.x * 0.3, half.y * 0.3, 0)
-	var info2 := OclPrimBoxInfo.new()
-	info2.placement = _placement(xf2)
-	info2.dx = half.x
-	info2.dy = aabb.size.y * 0.8
-	info2.dz = aabb.size.z * 0.8
 	var id2 := OclNodeId.new()
-	if OclPrimSolid.box(graph, info2, id2) != OK:
+	if _make_box(graph, xf2, aabb, half.x, aabb.size.y * 0.8, aabb.size.z * 0.8, id2) != OK:
 		return PackedInt64Array()
 
 	var out := OclNodeId.new()

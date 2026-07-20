@@ -171,7 +171,10 @@ static func _build_obstacle_and_cut(script: Script, aabb: AABB, xf: Transform3D)
 
 	var cutter_bits := roots[0]
 
+	var base_xf := xf
+	base_xf.origin += xf.basis * aabb.position
 	var base_info := OclPrimBoxInfo.new()
+	base_info.placement = OcctConversionUtils.transform3d_to_occt_placement(base_xf)
 	base_info.set_dx(aabb.size.x)
 	base_info.set_dy(aabb.size.y)
 	base_info.set_dz(aabb.size.z)

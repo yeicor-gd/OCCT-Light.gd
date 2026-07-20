@@ -30,27 +30,46 @@ class_name MazeGenerator
 var regenerate_all_ := func(): await regenerate_all(false)
 
 # -----------------------------------------------------------------------------
+# Signals
+# -----------------------------------------------------------------------------
+
+signal paths_generation_started
+signal paths_generation_finished(elapsed_ms: float)
+signal mesh_generation_finished(total_ms: float, paths_ms: float, mesh_ms: float)
+
+# -----------------------------------------------------------------------------
 # Actions
 # -----------------------------------------------------------------------------
 
 ## Regenerate everything: paths (main + shortcuts) + OCCT mesh.
 func regenerate_all(sync: bool):
-	var start_time := Time.get_ticks_usec()
+	# Refresh seed in case seed_source was changed externally.
+	seed_value = hash(seed_source)
+
+	var total_start := Time.get_ticks_usec()
 
 	# 1. Regenerate all paths (main, binormal, shortcuts).
+	paths_generation_started.emit()
+	var paths_start := Time.get_ticks_usec()
 	if not sync: await $Paths.regenerate(sync)
 	else: $Paths.regenerate(sync)
+	var paths_ms := (Time.get_ticks_usec() - paths_start) / 1000.0
+	paths_generation_finished.emit(paths_ms)
 
 	# 2. Regenerate OCCT mesh.
+	var mesh_start := Time.get_ticks_usec()
 	if not sync: await $Meshes.regenerate(sync)
 	else: $Meshes.regenerate(sync)
+	var mesh_ms := (Time.get_ticks_usec() - mesh_start) / 1000.0
 
 	# 3. Regenerate markers if present.
 	var markers := get_node_or_null("Markers")
 	if markers and markers.has_method("_build_markers"):
 		markers._build_markers()
 
-	print("[Maze] Total generation time: ", (Time.get_ticks_usec() - start_time) / 1000.0, "ms")
+	var total_ms := (Time.get_ticks_usec() - total_start) / 1000.0
+	mesh_generation_finished.emit(total_ms, paths_ms, mesh_ms)
+	print("[Maze] Total generation time: ", total_ms, "ms (paths: ", paths_ms, "ms, mesh: ", mesh_ms, "ms)")
 
 
 ## Clear the cached mesh files and regenerate from scratch.
@@ -59,19 +78,20 @@ func clear_and_regenerate() -> void:
 	# Update the seed value in case seed_source changed.
 	seed_value = hash(seed_source)
 
-	# Clear persisted mesh cache so they are rebuilt from scratch.
-	var save_path: String = $Meshes.resource_save_path
-	if not save_path.is_empty():
-		var abs_path := ProjectSettings.globalize_path(save_path)
-		if DirAccess.dir_exists_absolute(abs_path):
-			var dir := DirAccess.open(save_path)
-			if dir:
-				dir.list_dir_begin()
-				var fname := dir.get_next()
-				while fname != "":
-					if fname.ends_with(".scn"):
-						dir.remove(fname)
-					fname = dir.get_next()
-				dir.list_dir_end()
+	# Clear persisted mesh cache so they are rebuilt from scratch (editor only).
+	if Engine.is_editor_hint():
+		var save_path: String = $Meshes.resource_save_path
+		if not save_path.is_empty():
+			var abs_path := ProjectSettings.globalize_path(save_path)
+			if DirAccess.dir_exists_absolute(abs_path):
+				var dir := DirAccess.open(save_path)
+				if dir:
+					dir.list_dir_begin()
+					var fname := dir.get_next()
+					while fname != "":
+						if fname.ends_with(".scn"):
+							dir.remove(fname)
+						fname = dir.get_next()
+					dir.list_dir_end()
 
 	await regenerate_all(false)

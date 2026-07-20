@@ -332,9 +332,13 @@ static func _dump_edge(graph, edge:int, indent:String, visited, do_print: bool =
 	var ev := OclNodeId.new()
 
 	var st := OclTopo.topo_edge_start_vertex(graph, edge, sv)
-	assert(st == OclCore.OK, "Got status %s - %s" % [OclCore.status_to_string(st), var_to_str(OclCore.error_last())])
+	if st != OclCore.OK:
+		visited.vertex[0] = true
+		return
 	st = OclTopo.topo_edge_end_vertex(graph, edge, ev)
-	assert(st == OclCore.OK, "Got status %s - %s" % [OclCore.status_to_string(st), var_to_str(OclCore.error_last())])
+	if st != OclCore.OK:
+		visited.vertex[0] = true
+		return
 
 	if do_print:
 		var boundary := OclInt32.new()

@@ -18,6 +18,7 @@ var _overlay_title: Label = null
 
 
 func _ready() -> void:
+	process_mode = Node.PROCESS_MODE_PAUSABLE
 	modulate = COLOR_RUNNING
 	text = "0:00.000"
 	_running = false
@@ -74,7 +75,7 @@ func _elapsed_secs() -> float:
 
 func _update_text(secs: float) -> void:
 	var s := maxf(secs, 0.0)
-	var minutes := int(s) / 60
+	var minutes := int(s / 60)
 	var seconds := int(s) % 60
 	var ms := int(fmod(s, 1.0) * 1000.0)
 	text = "%d:%02d.%03d" % [minutes, seconds, ms]

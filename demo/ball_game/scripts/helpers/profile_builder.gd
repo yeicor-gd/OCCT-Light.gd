@@ -44,7 +44,6 @@ static func build_profiles(
 	var br := cfg.ball_radius
 	var bd := 2.0 * br # Ball diameter
 	var pwh := br / cfg.ball_to_path_min_ratio.x # pathway half width
-	var pw := bd / cfg.ball_to_path_min_ratio.x  # pathway width
 	var wt := cfg.wall_thickness # Wall thickness
 	var wth := (bd / cfg.ball_to_path_min_ratio.y)  # Maybe-wall total height above pathway floor
 	var wh_base := wall_height
@@ -56,7 +55,6 @@ static func build_profiles(
 	var ri := minf(wh_clamped, br) - rt if fancy else 0.0 # inner radius
 	var ro := ri + wt if fancy else 0.0 # outer radius
 	var result: Array[OclNodeId] = []
-	var status: OclCore.status
 	
 	var wb := WireBuilder.new(graph, func(v2: Vector2): return xf.translated_local(Vector3(v2.x, v2.y, 0)).origin)
 	

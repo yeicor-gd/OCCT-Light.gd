@@ -60,7 +60,7 @@ enum SweepMode {
 
 ## Frequency of the smooth noise that varies wall height along the track.
 ## Lower values produce gradual changes; higher values produce rapid oscillation.
-@export_range(0.001, 1.0, 0.001) var wall_height_noise_freq := 0.05
+@export_range(0.0001, 1.0, 0.0001) var wall_height_noise_freq := 0.05
 
 ## CDF curve controlling wall height distribution along the track.
 ## Smooth noise is evaluated at each segment to provide spatial coherence,
@@ -73,25 +73,29 @@ enum SweepMode {
 @export_group("Shortcuts (slow)")
 
 ## Sweep all generated shortcut / longcut paths in addition to the main path.
-@export var sweep_shortcuts: bool = false
+@export var sweep_shortcuts: bool = true
 
 ## When true, build an inner hollow profile for each path and perform
 ## boolean cuts at shortcut junction points so the interior is connected.
-@export var clean_shortcuts: bool = false
+@export var clean_shortcuts: bool = true
 
 ## Debug: fuse cutter solids instead of cutting so they remain visible.
 @export var debug_fuse_junctions: bool = false
 
 @export_group("Obstacles (slow)")
 
-## Frequency of positive (fused) obstacles along the track (obstacles per segment unit).
-@export_range(0.0, 0.5, 0.01) var obstacle_positive_frequency: float = 0.05
-## Frequency of negative (cut) obstacles along the track (obstacles per segment unit).
-@export_range(0.0, 0.5, 0.01) var obstacle_negative_frequency: float = 0.05
+## Frequency of positive obstacles along the track (obstacles per segment unit).
+@export_range(0.0, 0.5, 0.01) var obstacle_positive_frequency: float = 0.1
 ## Seed offset for obstacle randomisation.
 @export var obstacle_seed_offset: int = 0
 ## Debug mode: always adds boxes instead of obstacle shapes, for visualising placement.
 @export var obstacle_debug_mode: bool = false
+## Debug: max rotation multiplier [0-1] applied to obstacle placement (0 = axis-aligned, 1 = full).
+@export_range(0.0, 1.0, 0.01) var obstacle_debug_max_rotation: float = 1.0
+## Debug: max offset multiplier [0-1] applied to obstacle placement.
+@export var obstacle_debug_max_offset: Vector2 = Vector2(1.0, 1.0)
+## Debug: min offset multiplier [0-1] applied to force minimum displacement.
+@export var obstacle_debug_min_offset: Vector2 = Vector2(0.0, 0.0)
 
 @export_group("Chunking")
 
@@ -117,9 +121,9 @@ enum SweepMode {
 ## Show tessellated face surfaces.
 @export var display_show_faces := true
 ## Display edges as cylinders (== 0 = disabled, <0 = fixed size).
-@export var display_edge_radius: float = 0.01
+@export var display_edge_radius: float = -0.01
 ## Display vertices as spheres (== 0 = disabled, <0 = fixed size).
-@export var display_vertex_radius: float = 0.02
+@export var display_vertex_radius: float = -0.02
 ## Material for faces
 @export var display_faces_material: Material
 ## Material for edges
@@ -140,9 +144,9 @@ enum SweepMode {
 @export_group("Physics")
 
 ## Sweep algorithm for physics face geometry. Falls back to simpler modes on failure.
-@export var physics_sweep_mode: SweepMode = SweepMode.SWEEP
+@export var physics_sweep_mode: SweepMode = SweepMode.LOFT_RULED
 ## Sweep algorithm for physics shortcut cutter geometry. Falls back to simpler modes on failure.
-@export var physics_shortcut_cutter_sweep_mode: SweepMode = SweepMode.SWEEP
+@export var physics_shortcut_cutter_sweep_mode: SweepMode = SweepMode.LOFT_RULED
 ## OCCT mesh tessellation options for PHYSICS (collision) geometry.
 @export var physics_options := OclMeshOptions.new()
 ## Apply 2D fillets to smooth profile corners (fancy mode) for physics.
@@ -154,9 +158,9 @@ enum SweepMode {
 ## Generate collision shapes for faces.
 @export var physics_show_faces := true
 ## Generate collision shapes for edges (== 0 = disabled, <0 = fixed size).
-@export var physics_edge_radius: float = 0.01
+@export var physics_edge_radius: float = 0.0
 ## Generate collision shapes for vertices (== 0 = disabled, <0 = fixed size).
-@export var physics_vertex_radius: float = 0.02
+@export var physics_vertex_radius: float = 0.0
 
 @export_group("Persistence")
 
@@ -251,10 +255,20 @@ func _ensure_wall_height_cdf() -> Curve:
 ## Sample the wall height at a given parametric progress along the track.
 ## Uses smooth noise for spatial coherence, then maps through the CDF curve
 ## to control the height distribution.
-func _sample_wall_height(baked_length: float) -> float:
-	var n := _wall_height_noise.get_noise_1d(baked_length)
+func _sample_wall_height(noise_input: float) -> float:
+	if not is_finite(noise_input):
+		push_warning("OclMeshBuilder: non-finite noise input %.2f in _sample_wall_height, using default" % noise_input)
+		return 0.8
+	var n := _wall_height_noise.get_noise_1d(noise_input)
+	if not is_finite(n):
+		push_warning("OclMeshBuilder: FastNoiseLite returned NaN for input %.2f" % noise_input)
+		return 0.8
 	var t := clampf(n * 0.5 + 0.5, 0.0, 1.0) # Remap [-1,1] -> [0,1]
-	return _wall_height_cdf.sample(t)
+	var h := _wall_height_cdf.sample(t)
+	if not is_finite(h):
+		push_warning("OclMeshBuilder: CDF returned non-finite height for t=%.4f" % t)
+		return 0.8
+	return h
 
 ## Return the scene root for setting node owners.
 ##
@@ -502,9 +516,11 @@ func regenerate(sync: bool) -> void:
 	var captured_physics_validate: bool = physics_validate_geometry
 
 	var captured_obstacle_pos_freq: float = obstacle_positive_frequency
-	var captured_obstacle_neg_freq: float = obstacle_negative_frequency
 	var captured_obstacle_seed: int = obstacle_seed_offset
 	var captured_obstacle_debug: bool = obstacle_debug_mode
+	var captured_obstacle_max_rotation: float = obstacle_debug_max_rotation
+	var captured_obstacle_max_offset: Vector2 = obstacle_debug_max_offset
+	var captured_obstacle_min_offset: Vector2 = obstacle_debug_min_offset
 
 	var scheduler := TaskScheduler.new(sync)
 	scheduler.max_concurrent = max_concurrent
@@ -518,7 +534,6 @@ func regenerate(sync: bool) -> void:
 	# each batch is complete as results arrive out of order.
 	var total_segments := 0
 	var global_chunk_counter := 0
-	var all_dispatch_infos: Array[Dictionary] = []
 
 	for pair in path_pairs:
 		var seg_count: int = (pair["path"] as Path3D).curve.point_count - 1
@@ -527,7 +542,7 @@ func regenerate(sync: bool) -> void:
 		total_segments += seg_count
 		var n_chunks := ChunkBuilder.new().plan_chunks(seg_count).size()
 		for _ci in range(n_chunks):
-			var batch_id: int = global_chunk_counter / maxi(merge_batch_size, 1) if merge_batch_size > 1 else global_chunk_counter
+			var batch_id: int = int(global_chunk_counter / float(maxi(merge_batch_size, 1))) if merge_batch_size > 1 else global_chunk_counter
 			var pair_name: String = pair["name"]
 			var batch_name := pair_name + ("Batch" if merge_batch_size > 1 else "Chunk") + str(batch_id)
 			if not _batches.has(batch_id):
@@ -544,6 +559,7 @@ func regenerate(sync: bool) -> void:
 
 	# Second pass: dispatch tasks with pre-computed batch IDs.
 	global_chunk_counter = 0
+	var noise_offset := 0.0
 	for pair in path_pairs:
 		var pair_name: String = pair["name"]
 		var pair_path: Path3D = pair["path"]
@@ -580,20 +596,21 @@ func regenerate(sync: bool) -> void:
 		var seg_count_for_heights: int = captured_path_curve.point_count
 		var segment_wall_heights := PackedFloat32Array()
 		segment_wall_heights.resize(seg_count_for_heights)
+		var pair_baked_len := pair_path.curve.get_baked_length()
 		for si in range(seg_count_for_heights):
-			var frac := float(si) / float(maxi(seg_count_for_heights - 1, 1)) + total_segments * 100
-			segment_wall_heights[si] = _sample_wall_height(frac * pair_path.curve.get_baked_length())
+			var t := float(si) / float(maxi(seg_count_for_heights - 1, 1))
+			segment_wall_heights[si] = _sample_wall_height(noise_offset + t * pair_baked_len)
+		noise_offset += pair_baked_len
 
 		var total_chunks := chunks.size()
 		for chunk_idx in range(mini(total_chunks, 1) if OS.get_environment("OCL_DEBUG_FIRST_CHUNK_ONLY") == "1" else total_chunks):
 			var c: ChunkBuilder.Chunk = chunks[chunk_idx] as ChunkBuilder.Chunk
 			var local_idx := chunk_idx
 			var global_idx := global_chunk_counter
-			var batch_id: int = global_idx / maxi(merge_batch_size, 1) if merge_batch_size > 1 else global_idx
+			var batch_id: int = int(float(global_idx) / maxi(merge_batch_size, 1)) if merge_batch_size > 1 else global_idx
 			var is_first := local_idx == 0
 			var is_last := local_idx == total_chunks - 1
 			var chunk_seg_heights: PackedFloat32Array = segment_wall_heights.slice(c.start_segment, c.end_segment + 1)
-			var dispatch_start_us := Time.get_ticks_usec()
 			scheduler.dispatch_task(func():
 				var worker_start := Time.get_ticks_usec()
 				var result: Dictionary = _worker_build_chunk(
@@ -612,9 +629,11 @@ func regenerate(sync: bool) -> void:
 					captured_debug_fuse,
 					chunk_seg_heights,
 					captured_obstacle_pos_freq,
-					captured_obstacle_neg_freq,
 					captured_obstacle_seed + global_idx * 1337,
 					captured_obstacle_debug,
+					captured_obstacle_max_rotation,
+					captured_obstacle_max_offset,
+					captured_obstacle_min_offset,
 					captured_display_sweep_mode,
 					captured_display_shortcut_cutter_sweep_mode,
 					captured_physics_sweep_mode,
@@ -653,7 +672,8 @@ func regenerate(sync: bool) -> void:
 		_progress_total, total_ms, _progress_failed])
 	generation_finished.emit(total_ms, _progress_total, _progress_failed)
 
-	_persist_resources()
+	if Engine.is_editor_hint():
+		_persist_resources()
 	_scheduler = null
 	_is_regenerating = false
 
@@ -679,9 +699,11 @@ static func _worker_build_chunk(
 	pdebug_fuse_junctions: bool = false,
 	segment_wall_heights: PackedFloat32Array = PackedFloat32Array(),
 	pobstacle_pos_freq: float = 0.0,
-	pobstacle_neg_freq: float = 0.0,
-	pobstacle_seed: int = 0,
+	_seed: int = 0,
 	pobstacle_debug: bool = false,
+	pobstacle_max_rotation: float = 1.0,
+	pobstacle_max_offset: Vector2 = Vector2(1.0, 1.0),
+	pobstacle_min_offset: Vector2 = Vector2(0.0, 0.0),
 	cdisplay_sweep_mode: int = 0,
 	cdisplay_shortcut_cutter_sweep_mode: int = 0,
 	cphysics_sweep_mode: int = 0,
@@ -762,7 +784,8 @@ static func _worker_build_chunk(
 			do_main_path, add_start_cap, add_end_cap,
 			chunk_junctions, pdebug_fuse_junctions,
 			segment_wall_heights,
-			pobstacle_pos_freq, pobstacle_neg_freq, pobstacle_seed, pobstacle_debug,
+			pobstacle_pos_freq, _seed, pobstacle_debug,
+			pobstacle_max_rotation, pobstacle_max_offset, pobstacle_min_offset,
 			cdisplay_shortcut_cutter_sweep_mode,
 			cdisplay_validate,
 		)
@@ -793,7 +816,8 @@ static func _worker_build_chunk(
 				do_main_path, add_start_cap, add_end_cap,
 				chunk_junctions, pdebug_fuse_junctions,
 				segment_wall_heights,
-				pobstacle_pos_freq, pobstacle_neg_freq, pobstacle_seed, pobstacle_debug,
+				pobstacle_pos_freq, _seed, pobstacle_debug,
+				pobstacle_max_rotation, pobstacle_max_offset, pobstacle_min_offset,
 				cphysics_shortcut_cutter_sweep_mode,
 				cphysics_validate,
 			)
@@ -883,9 +907,11 @@ static func _build_and_extract(
 	pdebug_fuse_junctions: bool = false,
 	segment_wall_heights: PackedFloat32Array = PackedFloat32Array(),
 	pobstacle_pos_freq: float = 0.0,
-	pobstacle_neg_freq: float = 0.0,
-	pobstacle_seed: int = 0,
+	_seed: int = 0,
 	pobstacle_debug: bool = false,
+	pobstacle_max_rotation: float = 1.0,
+	pobstacle_max_offset: Vector2 = Vector2(1.0, 1.0),
+	pobstacle_min_offset: Vector2 = Vector2(0.0, 0.0),
 	pshortcut_cutter_sweep_mode: int = 0,
 	pvalidate_geometry: bool = true,
 ) -> Array:  # [Array[OclGraphHandle], int used_attempt]
@@ -900,7 +926,8 @@ static func _build_and_extract(
 		do_main_path, add_start_cap, add_end_cap,
 		chunk_junctions, sweep_attempts, out_used,
 		segment_wall_heights,
-		pobstacle_pos_freq, pobstacle_neg_freq, pobstacle_seed, pobstacle_debug,
+		pobstacle_pos_freq, _seed, pobstacle_debug,
+		pobstacle_max_rotation, pobstacle_max_offset, pobstacle_min_offset,
 		pshortcut_cutter_sweep_mode)
 	if graphs.is_empty():
 		if is_display:

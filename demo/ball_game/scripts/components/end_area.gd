@@ -22,8 +22,10 @@ func _sync_from_parent():
 
 func _on_body_entered(body: Node3D) -> void:
 	if body.get_parent_node_3d() == spawner.current_player:
+		spawner.current_player.set_game_active(false)
 		ui_overlay.show_game_won((Time.get_ticks_usec() - spawner.start_usec) / 1000000.0)
 	elif body.name == "Faces":
-		push_warning("Bad maze: faces collide with death area!")
+		#push_warning("Bad maze: faces collide with death area!")
+		pass
 	else:
 		print("Ignoring unknown body entered death area: ", body.name)

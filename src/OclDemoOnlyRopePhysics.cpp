@@ -29,15 +29,25 @@ static FORCE_INLINE float fast_abs(float x) {
 
 static FORCE_INLINE Vector3 slerp_unit(Vector3 a, Vector3 b, float t) {
 	float dot = a.x * b.x + a.y * b.y + a.z * b.z;
-	if (dot > 0.9999f) {
+	if (dot > 0.9999f || dot < -0.9999f) {
+		// Nearly parallel or antiparallel — linear interpolation avoids
+		// division-by-zero in sin(angle).  The shell projection will
+		// re-normalize the result onto the shell afterwards.
 		return Vector3(
 			a.x + (b.x - a.x) * t,
 			a.y + (b.y - a.y) * t,
 			a.z + (b.z - a.z) * t);
 	}
 	float angle = std::acos(std::clamp(dot, -1.0f, 1.0f));
-	float sa = std::sin((1.0f - t) * angle) / std::sin(angle);
-	float sb = std::sin(t * angle) / std::sin(angle);
+	float sin_angle = std::sin(angle);
+	if (sin_angle < 1e-6f) {
+		return Vector3(
+			a.x + (b.x - a.x) * t,
+			a.y + (b.y - a.y) * t,
+			a.z + (b.z - a.z) * t);
+	}
+	float sa = std::sin((1.0f - t) * angle) / sin_angle;
+	float sb = std::sin(t * angle) / sin_angle;
 	return Vector3(
 		a.x * sa + b.x * sb,
 		a.y * sa + b.y * sb,
@@ -575,6 +585,7 @@ void OclDemoOnlyRopePhysics::solve_repulsion(float radius, float stiffness) {
 							float cdz = nodes_[j].pos.z - pi.z;
 							float dist_sq = cdx * cdx + cdy * cdy + cdz * cdz;
 							if (dist_sq < col_rad_sq) {
+								if (dist_sq < 0.000001f) continue;
 								float inv_dist = fast_rsqrt(dist_sq);
 								float overlap = radius - dist_sq * inv_dist;
 								float weight = i_im + nodes_[j].inv_mass;

@@ -7,22 +7,22 @@
 [ext_resource type="Script" uid="uid://cf2riajw6f7rw" path="res://ball_game/scripts/components/death_area.gd" id="3_ykvhj"]
 [ext_resource type="Material" uid="uid://20dtxypvskpi" path="res://ball_game/materials/faces/faces.tres" id="4_trgul"]
 [ext_resource type="Script" uid="uid://c61kl3jeksvf6" path="res://ball_game/scripts/components/ocl_mesh_builder.gd" id="5_u10mr"]
-[ext_resource type="PackedScene" uid="uid://cy38m6vmndbgg" path="res://ball_game/generated/maze_meshes/Batch0.scn" id="5_ya0ma"]
-[ext_resource type="PackedScene" uid="uid://chup2hnu3lueh" path="res://ball_game/generated/maze_meshes/Batch1.scn" id="6_k3pv2"]
-[ext_resource type="PackedScene" uid="uid://d2f1nfsys6fus" path="res://ball_game/generated/maze_meshes/Batch2.scn" id="7_ysiat"]
-[ext_resource type="PackedScene" uid="uid://drgdmfs27y1p5" path="res://ball_game/generated/maze_meshes/Batch3.scn" id="8_rcnkb"]
-[ext_resource type="PackedScene" uid="uid://cladpu4abvdxx" path="res://ball_game/generated/maze_meshes/Batch4.scn" id="9_dagg3"]
-[ext_resource type="PackedScene" uid="uid://ch2xuue43wwtv" path="res://ball_game/generated/maze_meshes/Batch5.scn" id="10_epmkd"]
-[ext_resource type="PackedScene" uid="uid://bi4rilwitxl5e" path="res://ball_game/generated/maze_meshes/Batch6.scn" id="11_ltook"]
-[ext_resource type="PackedScene" uid="uid://dhc3tp2odg03g" path="res://ball_game/generated/maze_meshes/Batch9.scn" id="12_lmbnh"]
-[ext_resource type="PackedScene" uid="uid://cjl01mdgsd5s" path="res://ball_game/generated/maze_meshes/Batch8.scn" id="13_g474h"]
-[ext_resource type="PackedScene" uid="uid://27urod1dkt4f" path="res://ball_game/generated/maze_meshes/Batch7.scn" id="14_jja0b"]
-[ext_resource type="PackedScene" uid="uid://c6grudd2v2jq" path="res://ball_game/generated/maze_meshes/Batch10.scn" id="15_ib53p"]
-[ext_resource type="PackedScene" uid="uid://ce2aw61ah420u" path="res://ball_game/generated/maze_meshes/Batch11.scn" id="16_y6htj"]
-[ext_resource type="PackedScene" uid="uid://cw83q6n6toteq" path="res://ball_game/generated/maze_meshes/Batch12.scn" id="17_8x30o"]
-[ext_resource type="PackedScene" uid="uid://cyem6joj1j2m4" path="res://ball_game/generated/maze_meshes/Batch14.scn" id="18_extaf"]
+[ext_resource type="PackedScene" uid="uid://l1cif4xajr0j" path="res://ball_game/generated/maze_meshes/Batch0.scn" id="5_ya0ma"]
+[ext_resource type="PackedScene" uid="uid://dw2h7oi07nw0s" path="res://ball_game/generated/maze_meshes/Batch1.scn" id="6_k3pv2"]
+[ext_resource type="PackedScene" uid="uid://blja38mj0i65n" path="res://ball_game/generated/maze_meshes/Batch2.scn" id="7_ysiat"]
+[ext_resource type="PackedScene" uid="uid://bistavjcyw8c6" path="res://ball_game/generated/maze_meshes/Batch4.scn" id="8_rcnkb"]
+[ext_resource type="PackedScene" uid="uid://brdk1oat6jnn6" path="res://ball_game/generated/maze_meshes/Batch5.scn" id="9_dagg3"]
+[ext_resource type="PackedScene" uid="uid://4ixtjdwmvgo4" path="res://ball_game/generated/maze_meshes/Batch6.scn" id="10_epmkd"]
+[ext_resource type="PackedScene" uid="uid://w8bb3hhex0be" path="res://ball_game/generated/maze_meshes/Batch3.scn" id="11_ltook"]
+[ext_resource type="PackedScene" uid="uid://dbfslg5xmarjl" path="res://ball_game/generated/maze_meshes/Batch7.scn" id="12_lmbnh"]
+[ext_resource type="PackedScene" uid="uid://dhc3tp2odg03g" path="res://ball_game/generated/maze_meshes/Batch9.scn" id="13_g474h"]
+[ext_resource type="PackedScene" uid="uid://c6grudd2v2jq" path="res://ball_game/generated/maze_meshes/Batch10.scn" id="14_jja0b"]
+[ext_resource type="PackedScene" uid="uid://ce2aw61ah420u" path="res://ball_game/generated/maze_meshes/Batch11.scn" id="15_ib53p"]
+[ext_resource type="PackedScene" uid="uid://cw83q6n6toteq" path="res://ball_game/generated/maze_meshes/Batch12.scn" id="16_y6htj"]
+[ext_resource type="PackedScene" uid="uid://cyem6joj1j2m4" path="res://ball_game/generated/maze_meshes/Batch14.scn" id="17_8x30o"]
+[ext_resource type="PackedScene" uid="uid://cojil4c30sth2" path="res://ball_game/generated/maze_meshes/Batch13.scn" id="18_extaf"]
 [ext_resource type="PackedScene" uid="uid://82gc63fkl5p2" path="res://ball_game/player.tscn" id="19_qvfii"]
-[ext_resource type="PackedScene" uid="uid://cojil4c30sth2" path="res://ball_game/generated/maze_meshes/Batch13.scn" id="19_vcgpe"]
+[ext_resource type="PackedScene" uid="uid://cjl01mdgsd5s" path="res://ball_game/generated/maze_meshes/Batch8.scn" id="19_vcgpe"]
 [ext_resource type="PackedScene" uid="uid://b143oqm4sflqy" path="res://ball_game/generated/maze_meshes/Shortcut0_Batch16.scn" id="20_168ay"]
 [ext_resource type="Script" uid="uid://8asx5wkfbucs" path="res://ball_game/scripts/tools/spawner.gd" id="21_62gnj"]
 [ext_resource type="PackedScene" uid="uid://6tt10ns4lrgg" path="res://ball_game/scene/scene.glb" id="21_ckti2"]
@@ -35,10 +35,10 @@
 [ext_resource type="PackedScene" uid="uid://oui5rgj6quwk" path="res://ball_game/generated/maze_meshes/Batch15.scn" id="25_k76vh"]
 [ext_resource type="PackedScene" uid="uid://cwweh37os03e3" path="res://ball_game/generated/maze_meshes/Shortcut1_Batch23.scn" id="26_8q6tu"]
 [ext_resource type="PackedScene" uid="uid://cqhbohlwajiud" path="res://ball_game/generated/maze_meshes/Shortcut0_Batch21.scn" id="27_3sene"]
-[ext_resource type="PackedScene" uid="uid://ceujcvlkxfyw6" path="res://ball_game/generated/maze_meshes/Shortcut1_Batch24.scn" id="28_vmql4"]
-[ext_resource type="PackedScene" uid="uid://deqw3eptoeyvo" path="res://ball_game/generated/maze_meshes/Shortcut1_Batch25.scn" id="29_uokaq"]
-[ext_resource type="PackedScene" uid="uid://cpgnllsld26ak" path="res://ball_game/generated/maze_meshes/Shortcut0_Batch22.scn" id="30_trgul"]
-[ext_resource type="PackedScene" uid="uid://cb4iedphwi75" path="res://ball_game/generated/maze_meshes/Shortcut1_Batch26.scn" id="31_ocken"]
+[ext_resource type="PackedScene" uid="uid://deqw3eptoeyvo" path="res://ball_game/generated/maze_meshes/Shortcut1_Batch25.scn" id="28_vmql4"]
+[ext_resource type="PackedScene" uid="uid://ceujcvlkxfyw6" path="res://ball_game/generated/maze_meshes/Shortcut1_Batch24.scn" id="29_uokaq"]
+[ext_resource type="PackedScene" uid="uid://cb4iedphwi75" path="res://ball_game/generated/maze_meshes/Shortcut1_Batch26.scn" id="30_trgul"]
+[ext_resource type="PackedScene" uid="uid://cpgnllsld26ak" path="res://ball_game/generated/maze_meshes/Shortcut0_Batch22.scn" id="31_ocken"]
 [ext_resource type="PackedScene" uid="uid://bqycqkhqo1ca5" path="res://ball_game/generated/maze_meshes/Shortcut1_Batch27.scn" id="32_fjfeo"]
 [ext_resource type="PackedScene" uid="uid://isc6t5jgoudk" path="res://ball_game/ui_overlay.tscn" id="42_1sk7j"]
 [ext_resource type="PackedScene" uid="uid://bkasxortxe3gr" path="res://ball_game/ui.tscn" id="86_yj8as"]
@@ -123,7 +123,7 @@ deflection = 0.1
 
 [sub_resource type="FastNoiseLite" id="FastNoiseLite_pdims"]
 frequency = 0.1115
-offset = Vector3(32.0901, 326.7539, -422.33594)
+offset = Vector3(8.955427, -19.896107, 26.011766)
 
 [sub_resource type="NoiseTexture2D" id="NoiseTexture2D_uuw2b"]
 noise = SubResource("FastNoiseLite_pdims")
@@ -193,79 +193,68 @@ curve = SubResource("Curve3D_k3pv2")
 [node name="Meshes" type="Node3D" parent="Maze" unique_id=1900646953]
 script = ExtResource("5_u10mr")
 wall_height_cdf = SubResource("Curve_wall_h")
-sweep_shortcuts = true
-clean_shortcuts = true
-obstacle_positive_frequency = 0.0
-obstacle_negative_frequency = 0.0
-obstacle_debug_mode = true
 display_options = SubResource("OclMeshOptions_s1s6j")
-display_edge_radius = -0.01
-display_vertex_radius = -0.02
 display_faces_material = ExtResource("4_trgul")
 display_edges_material = SubResource("StandardMaterial3D_ykvhj")
 display_vertices_material = SubResource("StandardMaterial3D_1rqa4")
-physics_sweep_mode = 1
-physics_shortcut_cutter_sweep_mode = 1
 physics_options = SubResource("OclMeshOptions_onvmd")
-physics_edge_radius = 0.0
-physics_vertex_radius = 0.0
 resource_save_path = "res://ball_game/generated/maze_meshes"
 
-[node name="Batch0" type="Node3D" parent="Maze/Meshes" unique_id=610046629 instance=ExtResource("5_ya0ma")]
+[node name="Batch0" type="Node3D" parent="Maze/Meshes" unique_id=529859633 instance=ExtResource("5_ya0ma")]
 
-[node name="Batch1" type="Node3D" parent="Maze/Meshes" unique_id=424101732 instance=ExtResource("6_k3pv2")]
+[node name="Batch1" type="Node3D" parent="Maze/Meshes" unique_id=768369663 instance=ExtResource("6_k3pv2")]
 
-[node name="Batch2" type="Node3D" parent="Maze/Meshes" unique_id=600455198 instance=ExtResource("7_ysiat")]
+[node name="Batch2" type="Node3D" parent="Maze/Meshes" unique_id=517582488 instance=ExtResource("7_ysiat")]
 
-[node name="Batch3" type="Node3D" parent="Maze/Meshes" unique_id=1718877258 instance=ExtResource("8_rcnkb")]
+[node name="Batch4" type="Node3D" parent="Maze/Meshes" unique_id=1863372276 instance=ExtResource("8_rcnkb")]
 
-[node name="Batch4" type="Node3D" parent="Maze/Meshes" unique_id=1698101218 instance=ExtResource("9_dagg3")]
+[node name="Batch5" type="Node3D" parent="Maze/Meshes" unique_id=1879744362 instance=ExtResource("9_dagg3")]
 
-[node name="Batch5" type="Node3D" parent="Maze/Meshes" unique_id=198507783 instance=ExtResource("10_epmkd")]
+[node name="Batch6" type="Node3D" parent="Maze/Meshes" unique_id=1546983420 instance=ExtResource("10_epmkd")]
 
-[node name="Batch6" type="Node3D" parent="Maze/Meshes" unique_id=279955834 instance=ExtResource("11_ltook")]
+[node name="Batch3" type="Node3D" parent="Maze/Meshes" unique_id=998211705 instance=ExtResource("11_ltook")]
 
-[node name="Batch9" type="Node3D" parent="Maze/Meshes" unique_id=253139202 instance=ExtResource("12_lmbnh")]
+[node name="Batch7" type="Node3D" parent="Maze/Meshes" unique_id=1469709537 instance=ExtResource("12_lmbnh")]
 
-[node name="Batch8" type="Node3D" parent="Maze/Meshes" unique_id=679509628 instance=ExtResource("13_g474h")]
+[node name="Batch9" type="Node3D" parent="Maze/Meshes" unique_id=523838560 instance=ExtResource("13_g474h")]
 
-[node name="Batch7" type="Node3D" parent="Maze/Meshes" unique_id=1134547669 instance=ExtResource("14_jja0b")]
+[node name="Batch10" type="Node3D" parent="Maze/Meshes" unique_id=1288381237 instance=ExtResource("14_jja0b")]
 
-[node name="Batch10" type="Node3D" parent="Maze/Meshes" unique_id=1874147047 instance=ExtResource("15_ib53p")]
+[node name="Batch11" type="Node3D" parent="Maze/Meshes" unique_id=49006267 instance=ExtResource("15_ib53p")]
 
-[node name="Batch11" type="Node3D" parent="Maze/Meshes" unique_id=1107581087 instance=ExtResource("16_y6htj")]
+[node name="Batch12" type="Node3D" parent="Maze/Meshes" unique_id=787319478 instance=ExtResource("16_y6htj")]
 
-[node name="Batch12" type="Node3D" parent="Maze/Meshes" unique_id=1050103865 instance=ExtResource("17_8x30o")]
+[node name="Batch14" type="Node3D" parent="Maze/Meshes" unique_id=1189787990 instance=ExtResource("17_8x30o")]
 
-[node name="Batch14" type="Node3D" parent="Maze/Meshes" unique_id=730293077 instance=ExtResource("18_extaf")]
+[node name="Batch13" type="Node3D" parent="Maze/Meshes" unique_id=201711443 instance=ExtResource("18_extaf")]
 
-[node name="Batch13" type="Node3D" parent="Maze/Meshes" unique_id=773895737 instance=ExtResource("19_vcgpe")]
+[node name="Batch8" type="Node3D" parent="Maze/Meshes" unique_id=494826354 instance=ExtResource("19_vcgpe")]
 
-[node name="Shortcut0_Batch16" type="Node3D" parent="Maze/Meshes" unique_id=988090439 instance=ExtResource("20_168ay")]
+[node name="Shortcut0_Batch16" type="Node3D" parent="Maze/Meshes" unique_id=871164721 instance=ExtResource("20_168ay")]
 
-[node name="Shortcut0_Batch17" type="Node3D" parent="Maze/Meshes" unique_id=2087700684 instance=ExtResource("21_ynen8")]
+[node name="Shortcut0_Batch17" type="Node3D" parent="Maze/Meshes" unique_id=1097865933 instance=ExtResource("21_ynen8")]
 
-[node name="Shortcut0_Batch18" type="Node3D" parent="Maze/Meshes" unique_id=1835441729 instance=ExtResource("22_4cakl")]
+[node name="Shortcut0_Batch18" type="Node3D" parent="Maze/Meshes" unique_id=1176495988 instance=ExtResource("22_4cakl")]
 
-[node name="Shortcut0_Batch19" type="Node3D" parent="Maze/Meshes" unique_id=1941318603 instance=ExtResource("23_k5mko")]
+[node name="Shortcut0_Batch19" type="Node3D" parent="Maze/Meshes" unique_id=343154206 instance=ExtResource("23_k5mko")]
 
-[node name="Shortcut0_Batch20" type="Node3D" parent="Maze/Meshes" unique_id=324166293 instance=ExtResource("24_lr6wt")]
+[node name="Shortcut0_Batch20" type="Node3D" parent="Maze/Meshes" unique_id=2134305426 instance=ExtResource("24_lr6wt")]
 
-[node name="Batch15" type="Node3D" parent="Maze/Meshes" unique_id=1492595594 instance=ExtResource("25_k76vh")]
+[node name="Batch15" type="Node3D" parent="Maze/Meshes" unique_id=132630816 instance=ExtResource("25_k76vh")]
 
-[node name="Shortcut1_Batch23" type="Node3D" parent="Maze/Meshes" unique_id=581367537 instance=ExtResource("26_8q6tu")]
+[node name="Shortcut1_Batch23" type="Node3D" parent="Maze/Meshes" unique_id=898646456 instance=ExtResource("26_8q6tu")]
 
-[node name="Shortcut0_Batch21" type="Node3D" parent="Maze/Meshes" unique_id=1257055144 instance=ExtResource("27_3sene")]
+[node name="Shortcut0_Batch21" type="Node3D" parent="Maze/Meshes" unique_id=626741528 instance=ExtResource("27_3sene")]
 
-[node name="Shortcut1_Batch24" type="Node3D" parent="Maze/Meshes" unique_id=939168684 instance=ExtResource("28_vmql4")]
+[node name="Shortcut1_Batch25" type="Node3D" parent="Maze/Meshes" unique_id=1234928318 instance=ExtResource("28_vmql4")]
 
-[node name="Shortcut1_Batch25" type="Node3D" parent="Maze/Meshes" unique_id=142280371 instance=ExtResource("29_uokaq")]
+[node name="Shortcut1_Batch24" type="Node3D" parent="Maze/Meshes" unique_id=759354663 instance=ExtResource("29_uokaq")]
 
-[node name="Shortcut0_Batch22" type="Node3D" parent="Maze/Meshes" unique_id=1490584117 instance=ExtResource("30_trgul")]
+[node name="Shortcut1_Batch26" type="Node3D" parent="Maze/Meshes" unique_id=204366895 instance=ExtResource("30_trgul")]
 
-[node name="Shortcut1_Batch26" type="Node3D" parent="Maze/Meshes" unique_id=1323986280 instance=ExtResource("31_ocken")]
+[node name="Shortcut0_Batch22" type="Node3D" parent="Maze/Meshes" unique_id=1933271815 instance=ExtResource("31_ocken")]
 
-[node name="Shortcut1_Batch27" type="Node3D" parent="Maze/Meshes" unique_id=1634220576 instance=ExtResource("32_fjfeo")]
+[node name="Shortcut1_Batch27" type="Node3D" parent="Maze/Meshes" unique_id=1448435591 instance=ExtResource("32_fjfeo")]
 
 [node name="Spawner" type="Node3D" parent="Maze" unique_id=785222550 node_paths=PackedStringArray("ui_overlay", "death_area")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 17.777779)
@@ -316,10 +305,11 @@ visible = false
 script = ExtResource("22_267ba")
 
 [node name="Scene" parent="RotatableScene" unique_id=1111416054 instance=ExtResource("21_ckti2")]
-transform = Transform3D(-18.315, 0, 1.6011483e-06, 0, 18.315, 0, -1.6011483e-06, 0, -18.315, 0.245, -6.56, 0.765)
+transform = Transform3D(-18.5, 0, 2.7934223e-06, 0, 18.5, 0, -2.7934223e-06, 0, -18.5, -0.135, -6.735, -0.645)
 
-[node name="TopDownLight" type="DirectionalLight3D" parent="RotatableScene" unique_id=1810484242]
-transform = Transform3D(1, 0, 0, 0, -4.371139e-08, 1, 0, -1, -4.371139e-08, 0, 0, 0)
+[node name="SidewaysLight" type="DirectionalLight3D" parent="RotatableScene" unique_id=1810484242]
+transform = Transform3D(1, 0, 0, 0, -4.3711385e-08, 0.99999994, 0, -0.99999994, -4.3711385e-08, 0, 0, 0)
+shadow_enabled = true
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=1938453386]
 environment = SubResource("Environment_0bhed")
@@ -335,7 +325,7 @@ editor_only = true
 [node name="AudioManager" type="Node" parent="." unique_id=1234567890]
 script = ExtResource("90_audiomgr")
 
-[node name="AudioWiring" type="Node" parent="." unique_id=1234567891]
+[node name="AudioWiring" type="Node" parent="AudioManager" unique_id=1234567891]
 script = ExtResource("91_audiowir")
 
 [connection signal="body_entered" from="Maze/DeathArea" to="Maze/DeathArea" method="_on_body_entered"]
