@@ -502,8 +502,57 @@ jobs:
           name: ${{ github.event.repository.name }}-${{ env.MODIFIED_REF }}-addon
           path: addon-export
 
+  build-godot-web:
+    needs: read-versions
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: write
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Templates: 4 variants (debug/release x nothreads/threads)
+          - { type: template, threads: no, mode: debug, flags: "--nothreads --mode=debug" }
+          - { type: template, threads: no, mode: release, flags: "--nothreads --mode=release" }
+          - { type: template, threads: yes, mode: debug, flags: "--threads --mode=debug" }
+          - { type: template, threads: yes, mode: release, flags: "--threads --mode=release" }
+          # Editor: 4 variants (mode is ignored for editor builds)
+          - { type: editor, threads: no, mode: debug, flags: "--editor --nothreads --mode=debug" }
+          - { type: editor, threads: no, mode: release, flags: "--editor --nothreads --mode=release" }
+          - { type: editor, threads: yes, mode: debug, flags: "--editor --threads --mode=debug" }
+          - { type: editor, threads: yes, mode: release, flags: "--editor --threads --mode=release" }
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Setup Emscripten
+        uses: mymindstorm/setup-emsdk@v16
+        with:
+          version: ${{ needs.read-versions.outputs.em_version }}
+
+      - name: Install build tools
+        run: pip install scons && sudo apt-get install -y jq
+
+      - name: Build web artifact (exceptions enabled)
+        shell: bash
+        run: |
+          set -e
+          ./tools/build_godot_web_templates.sh \
+            ${{ matrix.flags }} \
+            --version "${{ needs.read-versions.outputs.godot_max_version }}" \
+            web-build
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: web-${{ matrix.type }}-${{ matrix.threads == 'yes' && 'threads' || 'nothreads' }}-${{ matrix.mode }}
+          path: web-build/
+
   export-demo:
-    needs: [read-versions, build]
+    needs: [read-versions, build, build-godot-web]
     strategy:
       fail-fast: false
       matrix:
@@ -572,6 +621,23 @@ jobs:
           use-dotnet: false
           include-templates: true
           cache: false
+
+      - name: Download custom web templates
+        if: contains(matrix.target.triplet, 'wasm32-emscripten')
+        uses: actions/download-artifact@v8
+        with:
+          name: web-template-${{ contains(matrix.target.preset, 'Threads') && 'threads' || 'nothreads' }}-${{ matrix.mode }}
+          path: web-templates
+
+      - name: Install custom web templates
+        if: contains(matrix.target.triplet, 'wasm32-emscripten')
+        shell: bash
+        run: |
+          set -e
+          THREAD_DIR="${{ contains(matrix.target.preset, 'Threads') && 'threads' || 'nothreads' }}"
+          mkdir -p "demo/templates/${THREAD_DIR}"
+          cp "web-templates/${THREAD_DIR}/web_${{ matrix.mode }}.zip" "demo/templates/${THREAD_DIR}/"
+          ls -R demo/templates/
 
       - name: Generate autowrapper bindings
         shell: bash
