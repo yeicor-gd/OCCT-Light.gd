@@ -418,7 +418,7 @@ jobs:
         with:
           name: gdext-${{ matrix.target.vcpkg_triplet }}-${{ matrix.target-type }}-${{ matrix.float-precision }}-${{ matrix.target.threads || '' }}
           path: |
-            demo/addons/*/*
+            demo/addons/*.gd/*
             ${{ github.workspace }}/.fake-path-to-force-artifact-root
 
       - name: Upload ccache artifact (for faster subsequent builds)
@@ -490,7 +490,7 @@ jobs:
         run: |
           set -e
           mkdir -p addon-export
-          cp -r demo/addons addon-export/
+          cp -r demo/addons/*.gd addon-export/
           cp LICENSE addon-export/addons/*.gd
           MODIFIED_REF=$(echo ${{ github.ref_name }} | sed 's/\//-/g')
           echo "MODIFIED_REF=$MODIFIED_REF" >> $GITHUB_ENV

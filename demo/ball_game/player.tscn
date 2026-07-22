@@ -5,7 +5,8 @@
 [ext_resource type="Script" uid="uid://dd8xba3t4b6sx" path="res://ball_game/scripts/player/camera_rig.gd" id="2_yff8i"]
 [ext_resource type="Material" uid="uid://db44qt2qwxtiq" path="res://ball_game/materials/glass.tres" id="2_yji6d"]
 [ext_resource type="Script" uid="uid://cp3fcc5hiqbc" path="res://ball_game/scripts/player/touch_joystick.gd" id="3_touch"]
-[ext_resource type="Script" path="res://ball_game/scripts/player/touch_jump_button.gd" id="4_jumpbtn"]
+[ext_resource type="Script" uid="uid://t78t2r6pmeu8" path="res://ball_game/scripts/player/touch_jump_button.gd" id="4_jumpbtn"]
+[ext_resource type="Script" uid="uid://dh3p0d2dhapw6" path="res://ball_game/scripts/player/touch_restart_button.gd" id="5_restartbtn"]
 
 [sub_resource type="SphereShape3D" id="SphereShape3D_0e071"]
 
@@ -54,7 +55,7 @@ grow_vertical = 2
 mouse_filter = 2
 script = ExtResource("3_touch")
 
-[node name="TouchJumpButton" type="Control" parent="CanvasLayer"]
+[node name="TouchJumpButton" type="Control" parent="CanvasLayer" unique_id=408499367]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
@@ -63,5 +64,15 @@ grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
 script = ExtResource("4_jumpbtn")
+
+[node name="TouchRestartButton" type="Control" parent="CanvasLayer" unique_id=734313181]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("5_restartbtn")
 
 [connection signal="rotation_changed" from="CameraRig" to="." method="_on_camera_rig_rotation_changed"]

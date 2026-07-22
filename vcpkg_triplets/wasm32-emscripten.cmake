@@ -23,9 +23,27 @@ foreach(_arg IN LISTS GDEXT_CMAKE_ARGS)
   endif()
 endforeach()
 
+# Collect extra C/CXX flags. Use a single -DCMAKE_CXX_FLAGS / -DCMAKE_C_FLAGS
+# so that later entries don't silently overwrite earlier ones.
+set(_extra_cxx_flags "")
+set(_extra_c_flags "")
+
 if(_threads_enabled)
-  set(VCPKG_CMAKE_CONFIGURE_OPTIONS ${VCPKG_CMAKE_CONFIGURE_OPTIONS}
-    "-DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS} -matomics -mbulk-memory"  # Required for threads support in wasm32
-    "-DCMAKE_C_FLAGS=${CMAKE_C_FLAGS} -matomics -mbulk-memory"  # Required for threads support in wasm32
-  )
+  set(_extra_cxx_flags "${_extra_cxx_flags} -matomics -mbulk-memory")  # Required for threads support in wasm32
+  set(_extra_c_flags "${_extra_c_flags} -matomics -mbulk-memory")
 endif()
+
+# Keep -fexceptions so OCCT try/catch syntax compiles, but disable C++
+# exception handling at the LLVM backend level.  Any throw becomes an
+# unreachable trap (abort).  This avoids importing __cpp_exception Tag or
+# emscripten_longjmp — neither is available in a SIDE_MODULE linked against
+# Godot's main module (see godotengine/godot#104835).
+# NOTE: This flag only affects vcpkg packages (opencascade, occtl), NOT the
+# gdext package — the gdext portfile overrides CMAKE_CXX_FLAGS to strip it,
+# because godot-cpp's -sSUPPORT_LONGJMP=wasm conflicts with this LLVM flag.
+set(_extra_cxx_flags "${_extra_cxx_flags} -fexceptions -mllvm -enable-emscripten-cxx-exceptions=0")
+
+set(VCPKG_CMAKE_CONFIGURE_OPTIONS ${VCPKG_CMAKE_CONFIGURE_OPTIONS}
+  "-DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS} ${_extra_cxx_flags}"
+  "-DCMAKE_C_FLAGS=${CMAKE_C_FLAGS} ${_extra_c_flags}"
+)

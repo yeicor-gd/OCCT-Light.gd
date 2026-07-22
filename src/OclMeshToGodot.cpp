@@ -439,11 +439,7 @@ static std::pair<double,double> _face_uv_world_scale(const TopoDS_Face& face)
     double vm = 0.5 * (vmin + vmax);
     gp_Pnt P;
     gp_Vec dU, dV;
-    try {
-        surf->D1(um, vm, P, dU, dV);
-    } catch (...) {
-        return {1.0, 1.0};
-    }
+    surf->D1(um, vm, P, dU, dV);
 
     // If the face has a non-identity location, the surface was already obtained
     // with BRep_Tool::Surface which gives the underlying (un-transformed) surface.

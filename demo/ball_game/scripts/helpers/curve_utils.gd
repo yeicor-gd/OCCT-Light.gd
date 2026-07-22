@@ -157,10 +157,18 @@ static func transform_at_index(curve: Curve3D, i: int, aux_curve: Curve3D = null
 ## Optionally uses an auxiliary curve for the up vector, matching
 ## transform_at_index() logic so the camera follow orientation is
 ## consistent with the sweep orientation.
+##
+## When [aux_baked_length] is negative (default), the aux curve is
+## sampled at the same baked length as the spine — this works when
+## both curves have nearly identical arc-length distributions (e.g.
+## main path).  For shortcuts where the spine and aux curves have
+## different arc lengths, pass the correct aux baked length explicitly
+## so that the same *progress* along the path is sampled on both curves.
 static func transform_at_baked(
 	curve: Curve3D, baked_length: float,
 	cubic_interp: bool = true,
 	aux_curve: Curve3D = null,
+	aux_baked_length: float = -1.0,
 ) -> Transform3D:
 	var res := Transform3D.IDENTITY
 	if baked_length + 0.001 >= curve.get_baked_length():
@@ -185,7 +193,7 @@ static func transform_at_baked(
 	if up.length_squared() < 1e-10:
 		up = Vector3.UP
 	if aux_curve != null:
-		var aux_len := baked_length
+		var aux_len := aux_baked_length if aux_baked_length >= 0.0 else baked_length
 		if aux_len + 0.001 < aux_curve.get_baked_length():
 			var aux_pos := aux_curve.sample_baked(aux_len, cubic_interp)
 			var right := aux_pos - from

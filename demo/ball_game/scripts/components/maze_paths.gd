@@ -49,7 +49,7 @@ class_name MazePaths
 @export_group("Shortcuts")
 
 ## Number of shortcuts to generate (0 = none, 1–3 typical).
-@export_range(0, 10, 1) var total_shortcuts: int = 3
+@export_range(0, 10, 1) var total_shortcuts: int = 2
 
 ## CDF curve defining the span (fraction of main path length) for each shortcut.
 ## X-axis = probability [0..1], Y-axis = span value [0..1].
@@ -66,7 +66,7 @@ class_name MazePaths
 
 ## Minimum gap (in main-rope node indices) between any two anchor points.
 ## Prevents shortcuts from clustering at the same location.
-@export_range(1, 30, 1) var min_anchor_gap: int = 3
+@export_range(0, 300, 1) var min_anchor_gap: int = 0
 
 # ── Editor ─────────────────────────────────────────────────────────────────
 

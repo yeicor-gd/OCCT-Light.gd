@@ -62,10 +62,11 @@ func regenerate_all(sync: bool):
 	else: $Meshes.regenerate(sync)
 	var mesh_ms := (Time.get_ticks_usec() - mesh_start) / 1000.0
 
-	# 3. Regenerate markers if present.
-	var markers := get_node_or_null("Markers")
-	if markers and markers.has_method("_build_markers"):
-		markers._build_markers()
+	# 3. Regenerate obstacles.
+	$Obstacles._build_obstacles()
+
+	# 4. Regenerate markers.
+	$Markers._build_markers()
 
 	var total_ms := (Time.get_ticks_usec() - total_start) / 1000.0
 	mesh_generation_finished.emit(total_ms, paths_ms, mesh_ms)
@@ -78,20 +79,28 @@ func clear_and_regenerate() -> void:
 	# Update the seed value in case seed_source changed.
 	seed_value = hash(seed_source)
 
-	# Clear persisted mesh cache so they are rebuilt from scratch (editor only).
+	# Clear persisted cache files so they are rebuilt from scratch (editor only).
 	if Engine.is_editor_hint():
-		var save_path: String = $Meshes.resource_save_path
-		if not save_path.is_empty():
-			var abs_path := ProjectSettings.globalize_path(save_path)
-			if DirAccess.dir_exists_absolute(abs_path):
-				var dir := DirAccess.open(save_path)
-				if dir:
-					dir.list_dir_begin()
-					var fname := dir.get_next()
-					while fname != "":
-						if fname.ends_with(".scn"):
-							dir.remove(fname)
-						fname = dir.get_next()
-					dir.list_dir_end()
+		_clear_persisted_dir($Meshes.resource_save_path)
+		_clear_persisted_dir($Obstacles.resource_save_path)
+		_clear_persisted_dir($Markers.resource_save_path)
 
 	await regenerate_all(false)
+
+
+func _clear_persisted_dir(save_path: String) -> void:
+	if save_path.is_empty():
+		return
+	var abs_path := ProjectSettings.globalize_path(save_path)
+	if not DirAccess.dir_exists_absolute(abs_path):
+		return
+	var dir := DirAccess.open(save_path)
+	if not dir:
+		return
+	dir.list_dir_begin()
+	var fname := dir.get_next()
+	while fname != "":
+		if fname.ends_with(".scn"):
+			dir.remove(fname)
+		fname = dir.get_next()
+	dir.list_dir_end()

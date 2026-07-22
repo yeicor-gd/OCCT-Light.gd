@@ -10,7 +10,7 @@
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_0e071"]
 render_priority = 0
 shader = ExtResource("3_4hjvj")
-shader_parameter/arrow_color = Color(0.15, 1, 0.15, 1)
+shader_parameter/arrow_color = Color(0, 0.49457622, 0.010219602, 1)
 shader_parameter/emission_strength = 2.0
 shader_parameter/speed = 1.0
 shader_parameter/direction = -1.0
@@ -42,5 +42,8 @@ heightmap_deep_parallax = true
 heightmap_min_layers = 8
 heightmap_max_layers = 32
 heightmap_texture = ExtResource("3_gf6cl")
-uv1_scale = Vector3(0.5, 0.5, 0.5)
+heightmap_flip_texture = true
+uv1_scale = Vector3(0.25, 0.25, 0.25)
 uv1_triplanar_sharpness = 78.79336
+z_clip_scale = 0.95
+stencil_flags = 2

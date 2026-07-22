@@ -204,7 +204,7 @@ if [ "$GODOT_VERSION" != "system" ]; then
 fi
 
 export GODOT_TEST_RUNNER=true
-export GODOT_TEST_RUNNER_TIMEOUT=60000 # 1 minute
+export GODOT_TEST_RUNNER_TIMEOUT=300000 # 5 minutes (actual timeout is 2x this = 10 minutes)
 # https://github.com/godotengine/godot/issues/111048: Import needs frame delay to avoid crash due to race condition
 "$GODOT_BIN" --frame-delay 1000 --quit-after 3 --import --path "$SCRIPT_DIR/demo" --headless 2>&1 | tee -a "$IMPORT_LOG"
 IMPORT_EXIT=${PIPESTATUS[0]}

@@ -39,8 +39,7 @@ func respawn():
 	start_usec = Time.get_ticks_usec()
 	# Apply saved control settings (virtual controls, etc.)
 	var settings := get_parent_node_3d().get_parent_node_3d().get_node_or_null("UI/MarginContainer")
-	if settings is GameSettings:
-		settings.apply_to_player(current_player)
+	settings.apply_to_player(current_player)
 
 func _process(delta):
 	var _scale = scene.global_basis.get_scale()

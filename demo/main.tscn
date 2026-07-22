@@ -2,7 +2,7 @@
 
 [ext_resource type="Script" uid="uid://gig31rsvuqq0" path="res://main.gd" id="1_ig7tw"]
 [ext_resource type="PackedScene" uid="uid://dh0oj81pufivs" path="res://tests/tests.tscn" id="2_h2yge"]
-[ext_resource type="PackedScene" uid="uid://cdpxyy5g6myu7" path="res://ball_game/game.tscn" id="3_1bvp3"]
+[ext_resource type="PackedScene" uid="uid://dywg54rx1u6j1" path="res://ball_game/game.tscn" id="3_1bvp3"]
 
 [sub_resource type="LabelSettings" id="LabelSettings_0e071"]
 font_size = 32
@@ -40,12 +40,5 @@ layout_mode = 2
 theme_override_font_sizes/font_size = 24
 text = "BALL GAME"
 
-[node name="FlagBenchmarkButton" type="Button" parent="Panel" unique_id=1187031809]
-layout_mode = 2
-theme_override_font_sizes/font_size = 24
-disabled = true
-text = "FLAG BENCHMARK"
-
 [connection signal="pressed" from="Panel/TestsButton" to="." method="_on_tests_button_pressed"]
 [connection signal="pressed" from="Panel/BallGameButton" to="." method="_on_ball_game_button_pressed"]
-[connection signal="pressed" from="Panel/FlagBenchmarkButton" to="." method="_on_demo_button_pressed"]

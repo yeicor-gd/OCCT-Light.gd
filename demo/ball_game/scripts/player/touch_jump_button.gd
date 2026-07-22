@@ -1,5 +1,5 @@
 ## On-screen virtual jump button for mobile touch input.
-## Draws a wide rectangle (spacebar-style) at the bottom center of the screen.
+## Draws a wide rectangle (spacebar-style) at the bottom-right of the screen.
 ## On touch, injects the "jump" InputEventAction so ball.gd needs no changes.
 
 extends Control
@@ -9,6 +9,7 @@ class_name TouchJumpButton
 @export var button_height: float = 56.0
 @export var button_opacity: float = 0.45
 @export var margin_bottom: float = 30.0
+@export var margin_right: float = 20.0
 
 var _touch_idx: int = -1
 var _pressed: bool = false
@@ -58,7 +59,7 @@ func _hit_test(pos: Vector2) -> bool:
 func _get_rect() -> Rect2:
 	var viewport_size := get_viewport_rect().size
 	var origin := Vector2(
-		(viewport_size.x - button_width) * 0.5,
+		viewport_size.x - margin_right - button_width,
 		viewport_size.y - margin_bottom - button_height
 	)
 	return Rect2(origin, Vector2(button_width, button_height))

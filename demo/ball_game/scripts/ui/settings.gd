@@ -22,6 +22,10 @@ var _base_inner: float = -1.0
 var _base_node_count: int = -1
 var _config: ConfigFile = ConfigFile.new()
 var _paths_ms: float = 0.0
+var _preset_fast_btn: Button = null
+var _preset_normal_btn: Button = null
+var _preset_custom_btn: Button = null
+var _preset_group: ButtonGroup = null
 
 # ── Lifecycle ─────────────────────────────────────────────────────────────────
 
@@ -35,7 +39,7 @@ func _ready() -> void:
 		_base_outer = _gen.maze_outer_radius
 		_base_inner = _gen.maze_inner_radius
 		# Capture baseline node count from rope_physics
-		var paths := _gen.get_node_or_null("Paths")
+		var paths := _gen.get_node("Paths")
 		var rp = paths.get("rope_physics")
 		var nc = rp.get("node_count")
 		_base_node_count = int(nc)
@@ -43,13 +47,14 @@ func _ready() -> void:
 		_gen.paths_generation_started.connect(_on_paths_started)
 		_gen.paths_generation_finished.connect(_on_paths_finished)
 		_gen.mesh_generation_finished.connect(_on_mesh_finished)
-		var meshes := _gen.get_node_or_null("Meshes")
-		if meshes and meshes.has_signal("generation_started"):
+		var meshes := _gen.get_node("Meshes")
+		if meshes.has_signal("generation_started"):
 			meshes.generation_started.connect(_on_generation_started)
 			if meshes.has_signal("chunk_completed"):
 				meshes.chunk_completed.connect(_on_chunk_completed)
 
 	_build_ui()
+	_apply_preset("fast")
 	_auto_configure.call_deferred()
 
 
@@ -135,8 +140,38 @@ func _build_maze_tab(tabs: TabContainer) -> void:
 	# ── Presets ───────────────────────────────────────────────────────────────
 	_label(vb, "Preset")
 	var preset_row := _hrow(vb)
-	_button(preset_row, "Normal", func(): _apply_preset("normal"))
-	_button(preset_row, "Fast",   func(): _apply_preset("fast"))
+	_preset_group = ButtonGroup.new()
+	var preset_pressed_style := StyleBoxFlat.new()
+	preset_pressed_style.bg_color = Color(0.25, 0.55, 0.95)
+	preset_pressed_style.set_corner_radius_all(4)
+	preset_pressed_style.content_margin_left = 8
+	preset_pressed_style.content_margin_right = 8
+
+	_preset_fast_btn = Button.new()
+	_preset_fast_btn.text = "Fast"
+	_preset_fast_btn.toggle_mode = true
+	_preset_fast_btn.button_group = _preset_group
+	_preset_fast_btn.add_theme_stylebox_override("pressed", preset_pressed_style)
+	_preset_fast_btn.pressed.connect(func(): _apply_preset("fast"))
+	preset_row.add_child(_preset_fast_btn)
+
+	_preset_normal_btn = Button.new()
+	_preset_normal_btn.text = "Normal"
+	_preset_normal_btn.toggle_mode = true
+	_preset_normal_btn.button_group = _preset_group
+	_preset_normal_btn.add_theme_stylebox_override("pressed", preset_pressed_style)
+	_preset_normal_btn.pressed.connect(func(): _apply_preset("normal"))
+	preset_row.add_child(_preset_normal_btn)
+
+	_preset_custom_btn = Button.new()
+	_preset_custom_btn.text = "Custom"
+	_preset_custom_btn.toggle_mode = true
+	_preset_custom_btn.button_group = _preset_group
+	_preset_custom_btn.add_theme_stylebox_override("pressed", preset_pressed_style)
+	_preset_custom_btn.pressed.connect(func(): (get_node("Settings") as TabContainer).current_tab = 1)  # Maze (advanced)
+	preset_row.add_child(_preset_custom_btn)
+
+	_preset_fast_btn.button_pressed = true  # Default
 
 	vb.add_child(HSeparator.new())
 
@@ -182,10 +217,13 @@ func _build_advanced_tab(tabs: TabContainer) -> void:
 	vb_root.add_child(_json_edit)
 
 	var btn_row := _hrow(vb_root)
-	_button(btn_row, "Apply JSON", func(): await _apply_json())
+	_button(btn_row, "Apply JSON", func():
+		(get_node("Settings") as TabContainer).current_tab = 0
+		await _apply_json())
 	_button(btn_row, "Copy",       func(): DisplayServer.clipboard_set(_json_edit.text))
 	_button(btn_row, "Paste & Apply",      func():
 		_json_edit.text = DisplayServer.clipboard_get()
+		(get_node("Settings") as TabContainer).current_tab = 0
 		await _apply_json())
 
 	_refresh_json()
@@ -202,6 +240,18 @@ func _build_misc_tab(tabs: TabContainer) -> void:
 	scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	scroll.add_child(vb)
 	tabs.add_child(scroll)
+
+	# ── Native download hint (web only) ───────────────────────────────────
+	if OS.has_feature("web"):
+		var web_hint := Label.new()
+		web_hint.text = "For better performance, download the native version for your platform:"
+		web_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		vb.add_child(web_hint)
+		var link := LinkButton.new()
+		link.text = "https://github.com/yeicor-gd/OCCT-Light.gd/actions"
+		link.uri = "https://github.com/yeicor-gd/OCCT-Light.gd/actions"
+		vb.add_child(link)
+		vb.add_child(HSeparator.new())
 
 	# ── Virtual Controls ──────────────────────────────────────────────────
 	_label(vb, "Virtual Controls")
@@ -254,6 +304,8 @@ func _apply_vc_recursive(node: Node, enabled: bool) -> void:
 		node.set_virtual_enabled(enabled)
 	elif node is TouchJumpButton:
 		node.set_virtual_enabled(enabled)
+	elif node is TouchRestartButton:
+		node.set_virtual_enabled(enabled)
 	for child in node.get_children():
 		_apply_vc_recursive(child, enabled)
 
@@ -273,6 +325,7 @@ func _find_audio_manager() -> AudioManager:
 		if am is AudioManager:
 			return am as AudioManager
 		p = p.get_parent()
+	push_error("GameSettings: AudioManager not found in scene tree")
 	return null
 
 
@@ -313,45 +366,96 @@ func _apply_preset(_name: String) -> void:
 	assert(_gen != null, "GameSettings._apply_preset: MazeGenerator not found")
 	var paths := _gen.get_node("Paths")
 	var meshes := _gen.get_node("Meshes")
+	var obstacles := _gen.get_node("Obstacles")
+	var markers := _gen.get_node("Markers")
 	match _name:
 		"fast":
 			# Fastest generation: no shortcuts, no obstacles, no geometry validation.
-			if paths:
-				paths.set("total_shortcuts", 0)
-				paths.set("camber_amount", 2.0)
-			if meshes:
-				meshes.set("sweep_shortcuts", false)
-				meshes.set("clean_shortcuts", false)
-				meshes.set("obstacle_positive_frequency", 0.0)
-				meshes.set("wall_height_noise_freq", 0.1)
-				meshes.set("display_fancy", false)
-				meshes.set("display_sweep_mode", 1)  # LOFT_RULED
-				meshes.set("display_validate_geometry", false)
-				meshes.set("physics_validate_geometry", false)
-				meshes.set("display_edge_radius", 0.0)
-				meshes.set("display_vertex_radius", 0.0)
-				meshes.set("merge_batch_size", 32)
+			paths.set("total_shortcuts", 0)
+			paths.set("camber_amount", 2.0)
+			meshes.set("sweep_shortcuts", false)
+			meshes.set("clean_shortcuts", false)
+			meshes.set("wall_height_noise_freq", 0.1)
+			meshes.set("display_fancy", false)
+			meshes.set("display_sweep_mode", 1)  # LOFT_RULED
+			meshes.set("display_validate_geometry", false)
+			meshes.set("physics_validate_geometry", false)
+			meshes.set("display_edge_radius", 0.0)
+			meshes.set("display_vertex_radius", 0.0)
+			meshes.set("merge_batch_size", 32)
+			obstacles.set("obstacle_positive_frequency", 0.0)
+			markers.set("marker_edge_radius", 0.0)
+			markers.set("marker_vertex_radius", 0.0)
 		"normal":
 			# Match the editor-saved defaults (the @export values in the scripts).
-			if paths:
-				paths.set("total_shortcuts", 3)
-				paths.set("camber_amount", 4.0)
-			if meshes:
-				meshes.set("sweep_shortcuts", true)
-				meshes.set("clean_shortcuts", true)
-				meshes.set("obstacle_positive_frequency", 0.1)
-				meshes.set("wall_height_noise_freq", 0.05)
-				meshes.set("display_fancy", true)
-				meshes.set("display_sweep_mode", 0)  # SWEEP
-				meshes.set("display_validate_geometry", true)
-				meshes.set("physics_validate_geometry", false)
-				meshes.set("display_edge_radius", -0.01)
-				meshes.set("display_vertex_radius", -0.02)
-				meshes.set("merge_batch_size", 16)
-				meshes.set("obstacle_debug_mode", false)
+			paths.set("total_shortcuts", 3)
+			paths.set("camber_amount", 4.0)
+			meshes.set("sweep_shortcuts", true)
+			meshes.set("clean_shortcuts", true)
+			meshes.set("wall_height_noise_freq", 0.05)
+			meshes.set("display_fancy", true)
+			meshes.set("display_sweep_mode", 0)  # SWEEP
+			meshes.set("display_validate_geometry", true)
+			meshes.set("physics_validate_geometry", false)
+			meshes.set("display_edge_radius", -0.01)
+			meshes.set("display_vertex_radius", -0.02)
+			meshes.set("merge_batch_size", 16)
+			obstacles.set("obstacle_positive_frequency", 0.1)
+			obstacles.set("obstacle_debug_mode", false)
 	_refresh_json()
 	_apply_rope_length_no_regen(len_slider.value)
+	_detect_preset()
 	#_do_regenerate()
+
+
+func _detect_preset() -> void:
+	if not _gen or not _preset_fast_btn:
+		return
+	var paths := _gen.get_node("Paths")
+	var meshes := _gen.get_node("Meshes")
+	var obstacles := _gen.get_node("Obstacles")
+	var markers := _gen.get_node("Markers")
+
+	var matches_fast: bool = (
+		int(paths.get("total_shortcuts")) == 0 and
+		absf(paths.get("camber_amount") - 2.0) < 0.001 and
+		meshes.get("sweep_shortcuts") == false and
+		meshes.get("clean_shortcuts") == false and
+		absf(meshes.get("wall_height_noise_freq") - 0.1) < 0.001 and
+		meshes.get("display_fancy") == false and
+		int(meshes.get("display_sweep_mode")) == 1 and
+		meshes.get("display_validate_geometry") == false and
+		meshes.get("physics_validate_geometry") == false and
+		absf(meshes.get("display_edge_radius") - 0.0) < 0.001 and
+		absf(meshes.get("display_vertex_radius") - 0.0) < 0.001 and
+		int(meshes.get("merge_batch_size")) == 32 and
+		absf(obstacles.get("obstacle_positive_frequency") - 0.0) < 0.001 and
+		absf(markers.get("marker_edge_radius") - 0.0) < 0.001 and
+		absf(markers.get("marker_vertex_radius") - 0.0) < 0.001
+	)
+
+	var matches_normal: bool = (
+		int(paths.get("total_shortcuts")) == 3 and
+		absf(paths.get("camber_amount") - 4.0) < 0.001 and
+		meshes.get("sweep_shortcuts") == true and
+		meshes.get("clean_shortcuts") == true and
+		absf(meshes.get("wall_height_noise_freq") - 0.05) < 0.001 and
+		meshes.get("display_fancy") == true and
+		int(meshes.get("display_sweep_mode")) == 0 and
+		meshes.get("display_validate_geometry") == true and
+		meshes.get("physics_validate_geometry") == false and
+		absf(meshes.get("display_edge_radius") - (-0.01)) < 0.001 and
+		absf(meshes.get("display_vertex_radius") - (-0.02)) < 0.001 and
+		int(meshes.get("merge_batch_size")) == 16 and
+		absf(obstacles.get("obstacle_positive_frequency") - 0.1) < 0.001
+	)
+
+	if matches_fast:
+		_preset_fast_btn.button_pressed = true
+	elif matches_normal:
+		_preset_normal_btn.button_pressed = true
+	else:
+		_preset_custom_btn.button_pressed = true
 
 
 # ── Rope length ───────────────────────────────────────────────────────────────
@@ -464,6 +568,8 @@ func _json_nodes() -> Array[Dictionary]:
 	result.append({"key": "MazeGenerator", "node": _gen})
 	result.append({"key": "Paths",         "node": _gen.get_node("Paths")})
 	result.append({"key": "Meshes",        "node": _gen.get_node("Meshes")})
+	result.append({"key": "Obstacles",     "node": _gen.get_node("Obstacles")})
+	result.append({"key": "Markers",       "node": _gen.get_node("Markers")})
 	return result
 
 
@@ -528,6 +634,7 @@ func _apply_json() -> void:
 		_apply_dict_to_obj(node, props)
 	_refresh_json()
 	await _do_regenerate()
+	_detect_preset()
 
 
 func _apply_dict_to_obj(obj: Object, props: Dictionary) -> void:
@@ -567,6 +674,22 @@ func _auto_configure() -> void:
 	if _json_edit:
 		_refresh_json()
 	await _do_regenerate()
+	_detect_preset()
+
+	# Auto-play: close settings, sync positions, respawn, jump timer forward.
+	_on_close_settings_button_pressed()
+	if _gen:
+		var death_area := _gen.get_node_or_null("DeathArea")
+		if death_area and death_area.has_method("_sync_from_parent"):
+			death_area._sync_from_parent()
+		var end_area := _gen.get_node_or_null("EndArea")
+		if end_area and end_area.has_method("_sync_from_parent"):
+			end_area._sync_from_parent()
+		var spawner := _gen.get_node_or_null("Spawner") as Spawner
+		if spawner:
+			spawner._sync_from_parent()
+			spawner.respawn()
+			spawner.start_usec = Time.get_ticks_usec() - 1000000  # 1 s head-start
 
 
 func _read_auto_config() -> String:
@@ -612,6 +735,9 @@ func apply_to_player(player: Node) -> void:
 	var jump_btn := _find_child_by_class(player, "TouchJumpButton")
 	if jump_btn:
 		jump_btn.set_virtual_enabled(vc_enabled)
+	var restart_btn := _find_child_by_class(player, "TouchRestartButton")
+	if restart_btn:
+		restart_btn.set_virtual_enabled(vc_enabled)
 
 
 func _apply_initial_audio_state() -> void:
@@ -623,7 +749,8 @@ func _apply_initial_audio_state() -> void:
 
 func _find_child_by_class(node: Node, cls: String) -> Node:
 	if (cls == "TouchJoystick" and node is TouchJoystick) or \
-	   (cls == "TouchJumpButton" and node is TouchJumpButton):
+	   (cls == "TouchJumpButton" and node is TouchJumpButton) or \
+	   (cls == "TouchRestartButton" and node is TouchRestartButton):
 		return node
 	for child in node.get_children():
 		var result := _find_child_by_class(child, cls)

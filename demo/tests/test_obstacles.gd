@@ -7,6 +7,7 @@ const POSITIVE_MIN_VOL_RATIO := 0.5
 const POSITIVE_MAX_VOL_RATIO := 0.9
 const NEGATIVE_MIN_VOL_RATIO := 0.1
 const NEGATIVE_MAX_VOL_RATIO := 0.5
+const MIN_TRIANGLE_COUNT := 10
 
 static func _init_runtime() -> int:
 	var s = OclCore.runtime_init()
@@ -144,6 +145,15 @@ static func _get_coarse_mesh_opts() -> OclMeshOptions:
 	opts.set_angle(4.0)
 	return opts
 
+static func _count_mesh_triangles(mesh: ArrayMesh) -> int:
+	if mesh.get_surface_count() == 0:
+		return 0
+	var arrays = mesh.surface_get_arrays(0)
+	var indices = arrays[Mesh.ARRAY_INDEX]
+	if indices is PackedInt32Array:
+		return indices.size() / 3
+	return 0
+
 static func _build_obstacle_and_mesh(script: Script, aabb: AABB, xf: Transform3D) -> Dictionary:
 	var graph := OclGraphHandle.new()
 	if OclTopo.graph_create(graph) != OK:
@@ -157,6 +167,10 @@ static func _build_obstacle_and_mesh(script: Script, aabb: AABB, xf: Transform3D
 	var mesh_result = OclMeshToGodot.mesh_faces(graph, mesh, _get_coarse_mesh_opts())
 	if mesh_result != OK:
 		return {"error": "mesh_faces failed: %d" % mesh_result}
+
+	var tri_count := _count_mesh_triangles(mesh)
+	if tri_count < MIN_TRIANGLE_COUNT:
+		return {"error": "mesh_faces produced only %d triangles (need >=%d)" % [tri_count, MIN_TRIANGLE_COUNT]}
 
 	return {"graph": graph, "root": roots[0], "mesh": mesh}
 
@@ -301,7 +315,49 @@ static func test_mesh_all_obstacles() -> String:
 		return "%d/%d meshes failed:\n%s" % [errors.size(), meshed + errors.size(), "\n".join(errors)]
 	return "OK"
 
-static func test_cut_all_obstacles() -> String:
+static func _check_solid_topology(graph: OclGraphHandle, root_bits: int) -> PackedStringArray:
+	var issues: PackedStringArray = []
+
+	var check_issues := OclTopoCheckIssueArray.new()
+	if OclTopoAlgo.check(graph, check_issues) == OK:
+		for issue_ in check_issues.data:
+			var issue: OclTopoCheckIssue = issue_
+			if issue.severity >= OclTopoAlgo.TOPO_CHECK_ERROR:
+				issues.append("topo_check severity=%d bit=%d node=%d" % [issue.severity, issue.status_bit, issue.node_id])
+
+	var shell_iter := OclNodeIterHandle.new()
+	if OclTopo.topo_shells_of_solid_iter_create(graph, root_bits, shell_iter) == OK:
+		var shell_id := OclNodeId.new()
+		while OclTopo.node_iter_next(shell_iter, shell_id) == OK:
+			var out_closed := OclInt32.new()
+			if OclTopo.topo_shell_is_closed(graph, shell_id.bits, out_closed) == OK:
+				if out_closed.get_value() != 1:
+					issues.append("shell %d is not closed" % shell_id.bits)
+			var face_iter := OclNodeIterHandle.new()
+			if OclTopo.topo_faces_of_shell_iter_create(graph, shell_id.bits, face_iter) == OK:
+				var face_id := OclNodeId.new()
+				while OclTopo.node_iter_next(face_iter, face_id) == OK:
+					var wire_iter := OclNodeIterHandle.new()
+					if OclTopo.topo_wires_of_face_iter_create(graph, face_id.bits, wire_iter) == OK:
+						var wire_id := OclNodeId.new()
+						while OclTopo.node_iter_next(wire_iter, wire_id) == OK:
+							var coedge_iter := OclNodeIterHandle.new()
+							if OclTopo.topo_coedges_of_wire_iter_create(graph, wire_id.bits, coedge_iter) == OK:
+								var coedge_id := OclNodeId.new()
+								while OclTopo.node_iter_next(coedge_iter, coedge_id) == OK:
+									var edge := OclNodeId.new()
+									if OclTopo.topo_coedge_edge_of(graph, coedge_id.bits, edge) == OK:
+										var out_boundary := OclInt32.new()
+										if OclTopo.topo_edge_is_boundary(graph, edge.bits, out_boundary) == OK:
+											if out_boundary.value != 0:
+												issues.append("edge %d is boundary (open seam)" % edge.bits)
+							OclTopo.node_iter_free(coedge_iter)
+				OclTopo.node_iter_free(face_iter)
+		OclTopo.node_iter_free(shell_iter)
+
+	return issues
+
+static func test_solid_topology_all_obstacles() -> String:
 	var init_err := _init_runtime()
 	if init_err != OK:
 		return "runtime_init failed: %d" % init_err
@@ -312,56 +368,32 @@ static func test_cut_all_obstacles() -> String:
 
 	var aabbs := _make_aabbs()
 	var transforms := _make_transforms()
-	var stl_dir := OS.get_environment("OBSTACLE_STL_EXPORT_DIR")
 	var errors := PackedStringArray()
-	var cut := 0
-	var working_negatives := PackedStringArray()
+	var checked := 0
 
 	for obs in obstacles:
 		for aabb in aabbs:
 			for xf_i in range(transforms.size()):
 				var xf: Transform3D = transforms[xf_i]
 				var key := _fmt_key(obs["name"], aabb, xf_i)
-				var result := _build_obstacle_and_cut(obs["script"], aabb, xf)
-				if result.has("skipped"):
-					continue
-				if result.has("error"):
-					errors.append("%s: %s" % [key, result["error"]])
+				var graph := OclGraphHandle.new()
+				if OclTopo.graph_create(graph) != OK:
+					errors.append("%s: graph_create failed" % key)
 					continue
 
-				if stl_dir != "":
-					var mesh := ArrayMesh.new()
-					var mesh_res = OclMeshToGodot.mesh_faces(result["graph"], mesh, _get_coarse_mesh_opts())
-					if mesh_res != OK:
-						errors.append("%s stl_mesh: %d" % [key, mesh_res])
-					else:
-						DirAccess.make_dir_recursive_absolute(stl_dir)
-						var stl_path := "%s/%s_neg.stl" % [stl_dir, key.replace("[", "_").replace("]", "").replace("x", "x")]
-						var stl_err := _export_stl(result["graph"], result["root"], stl_path)
-						if stl_err != "":
-							errors.append("%s stl: %s" % [key, stl_err])
+				var roots := _build_obstacle(obs["script"], graph, aabb, xf)
+				if roots.is_empty():
+					errors.append("%s: build returned no roots" % key)
+					OclTopo.graph_free(graph)
+					continue
 
-				OclTopo.graph_free(result["graph"])
-				cut += 1
-				working_negatives.append(obs["name"])
+				var topo_errors := _check_solid_topology(graph, roots[0])
+				for e in topo_errors:
+					errors.append("%s: %s" % [key, e])
+
+				OclTopo.graph_free(graph)
+				checked += 1
 
 	if errors.size() > 0:
-		return "%d/%d cuts failed:\n%s" % [errors.size(), cut + errors.size(), "\n".join(errors)]
-
-	_write_negative_index(working_negatives)
+		return "%d/%d solids have topology issues:\n%s" % [errors.size(), checked, "\n".join(errors)]
 	return "OK"
-
-static func _write_negative_index(names: PackedStringArray) -> void:
-	var unique: Dictionary = {}
-	for n in names:
-		unique[n] = true
-	var sorted_names := Array(unique.keys())
-	sorted_names.sort()
-
-	var path := "user://negative_obstacle_index.txt"
-	var file := FileAccess.open(path, FileAccess.WRITE)
-	if file == null:
-		return
-	for n in sorted_names:
-		file.store_line(n)
-	file.close()

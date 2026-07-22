@@ -13,11 +13,34 @@ else()
     message(FATAL_ERROR "GDEXT_CMAKE_ARGS environment variable OR ${SOURCE_PATH}/__GDEXT_CMAKE_ARGS file not set.")
 endif()
 separate_arguments(GDEXT_CMAKE_ARGS UNIX_COMMAND "${GDEXT_CMAKE_ARGS}")
-vcpkg_configure_cmake(
-    SOURCE_PATH "${SOURCE_PATH}"
-    OPTIONS ${GDEXT_CMAKE_ARGS}
-    MAYBE_UNUSED_VARIABLES GODOTCPP_PRECISION GODOTCPP_THREADS
-)
+
+# On Emscripten the triplet adds -mllvm -enable-emscripten-cxx-exceptions=0 to
+# CMAKE_CXX_FLAGS for OCCT/OCCTL, but godot-cpp (built as a subdirectory of
+# this package) adds -sSUPPORT_LONGJMP=wasm which conflicts with that LLVM
+# flag.  Override CMAKE_CXX_FLAGS here so only the godot-cpp-compatible flags
+# remain.  (The GDExtension MODULE target sets its own -fno-exceptions in
+# the root CMakeLists.txt.)
+if(VCPKG_TARGET_TRIPLET MATCHES "emscripten")
+    set(_gdext_cxx_flags "-fno-exceptions")
+    foreach(_arg IN LISTS GDEXT_CMAKE_ARGS)
+        if(_arg MATCHES "^-DGODOTCPP_THREADS[:=](on|ON|1|true|TRUE)$")
+            string(APPEND _gdext_cxx_flags " -matomics -mbulk-memory")
+            break()
+        endif()
+    endforeach()
+    vcpkg_configure_cmake(
+        SOURCE_PATH "${SOURCE_PATH}"
+        OPTIONS ${GDEXT_CMAKE_ARGS}
+            "-DCMAKE_CXX_FLAGS=${_gdext_cxx_flags}"
+        MAYBE_UNUSED_VARIABLES GODOTCPP_PRECISION GODOTCPP_THREADS
+    )
+else()
+    vcpkg_configure_cmake(
+        SOURCE_PATH "${SOURCE_PATH}"
+        OPTIONS ${GDEXT_CMAKE_ARGS}
+        MAYBE_UNUSED_VARIABLES GODOTCPP_PRECISION GODOTCPP_THREADS
+    )
+endif()
 
 vcpkg_build_cmake(TARGET install)
 

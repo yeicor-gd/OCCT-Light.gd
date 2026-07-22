@@ -82,21 +82,6 @@ enum SweepMode {
 ## Debug: fuse cutter solids instead of cutting so they remain visible.
 @export var debug_fuse_junctions: bool = false
 
-@export_group("Obstacles (slow)")
-
-## Frequency of positive obstacles along the track (obstacles per segment unit).
-@export_range(0.0, 0.5, 0.01) var obstacle_positive_frequency: float = 0.1
-## Seed offset for obstacle randomisation.
-@export var obstacle_seed_offset: int = 0
-## Debug mode: always adds boxes instead of obstacle shapes, for visualising placement.
-@export var obstacle_debug_mode: bool = false
-## Debug: max rotation multiplier [0-1] applied to obstacle placement (0 = axis-aligned, 1 = full).
-@export_range(0.0, 1.0, 0.01) var obstacle_debug_max_rotation: float = 1.0
-## Debug: max offset multiplier [0-1] applied to obstacle placement.
-@export var obstacle_debug_max_offset: Vector2 = Vector2(1.0, 1.0)
-## Debug: min offset multiplier [0-1] applied to force minimum displacement.
-@export var obstacle_debug_min_offset: Vector2 = Vector2(0.0, 0.0)
-
 @export_group("Chunking")
 
 ## Number of segments to merge into one OCCT graph (1 is more stable and the most parallelizable but may have some synchronization and GPU overhead due to extra planar walls and more objects / draw calls).
@@ -124,6 +109,10 @@ enum SweepMode {
 @export var display_edge_radius: float = -0.01
 ## Display vertices as spheres (== 0 = disabled, <0 = fixed size).
 @export var display_vertex_radius: float = -0.02
+## Number of longitudinal rings for edge cylinders.
+@export_range(1, 16, 1) var edge_rings: int = 4
+## Number of latitudinal rings for vertex spheres.
+@export_range(1, 16, 1) var vertex_rings: int = 4
 ## Material for faces
 @export var display_faces_material: Material
 ## Material for edges
@@ -165,7 +154,7 @@ enum SweepMode {
 @export_group("Persistence")
 
 ## Base path for saving generated resources. Empty = memory-only.
-@export var resource_save_path := "res://demo/generated/maze_meshes"
+@export var resource_save_path := "res://ball_game/generated/maze_meshes"
 
 @export_group("Actions")
 
@@ -226,10 +215,12 @@ func _find_generator() -> MazeGenerator:
 		if p is MazeGenerator:
 			return p as MazeGenerator
 		p = p.get_parent()
+	push_error("OclMeshBuilder: MazeGenerator ancestor not found in parent chain")
 	return null
 
 func _ensure_config() -> void:
 	_maze_generator = _find_generator()
+	assert(_maze_generator != null, "OclMeshBuilder: cannot proceed without MazeGenerator")
 	_profile_cfg = ProfileBuilder.Config.new(
 		_maze_generator.ball_radius,
 		_maze_generator.ball_to_path_min_ratio,
@@ -306,18 +297,17 @@ func _collect_path_pairs() -> Array[Dictionary]:
 	var pairs: Array[Dictionary] = []
 
 	var gen := _find_generator()
-	if not gen:
-		return pairs
+	assert(gen != null, "OclMeshBuilder: MazeGenerator ancestor not found")
 
-	var paths: Node3D = gen.get_node_or_null("Paths") as Node3D
-	if not paths:
-		return pairs
+	var paths: Node3D = gen.get_node("Paths") as Node3D
+	assert(paths != null, "OclMeshBuilder: MazeGenerator/Paths node not found")
 
 	# --- Primary (main) path pair ---
-	var path: Path3D = paths.get_node_or_null("MainPath") as Path3D
-	var aux_path: Path3D = paths.get_node_or_null("MainPathBinormal") as Path3D
-	if path and aux_path:
-		pairs.append({ "name": "", "path": path, "aux": aux_path, "junctions": [] })
+	var path: Path3D = paths.get_node("MainPath") as Path3D
+	var aux_path: Path3D = paths.get_node("MainPathBinormal") as Path3D
+	assert(path != null, "OclMeshBuilder: Paths/MainPath node not found")
+	assert(aux_path != null, "OclMeshBuilder: Paths/MainPathBinormal node not found")
+	pairs.append({ "name": "", "path": path, "aux": aux_path, "junctions": [] })
 
 	# --- Shortcut pairs ---
 	if sweep_shortcuts:
@@ -515,13 +505,6 @@ func regenerate(sync: bool) -> void:
 	var captured_display_validate: bool = display_validate_geometry
 	var captured_physics_validate: bool = physics_validate_geometry
 
-	var captured_obstacle_pos_freq: float = obstacle_positive_frequency
-	var captured_obstacle_seed: int = obstacle_seed_offset
-	var captured_obstacle_debug: bool = obstacle_debug_mode
-	var captured_obstacle_max_rotation: float = obstacle_debug_max_rotation
-	var captured_obstacle_max_offset: Vector2 = obstacle_debug_max_offset
-	var captured_obstacle_min_offset: Vector2 = obstacle_debug_min_offset
-
 	var scheduler := TaskScheduler.new(sync)
 	scheduler.max_concurrent = max_concurrent
 	_scheduler = scheduler
@@ -628,12 +611,6 @@ func regenerate(sync: bool) -> void:
 					captured_pair_junctions if captured_clean_shortcuts else [],
 					captured_debug_fuse,
 					chunk_seg_heights,
-					captured_obstacle_pos_freq,
-					captured_obstacle_seed + global_idx * 1337,
-					captured_obstacle_debug,
-					captured_obstacle_max_rotation,
-					captured_obstacle_max_offset,
-					captured_obstacle_min_offset,
 					captured_display_sweep_mode,
 					captured_display_shortcut_cutter_sweep_mode,
 					captured_physics_sweep_mode,
@@ -698,12 +675,6 @@ static func _worker_build_chunk(
 	pair_junctions_to_clean: Array = [],
 	pdebug_fuse_junctions: bool = false,
 	segment_wall_heights: PackedFloat32Array = PackedFloat32Array(),
-	pobstacle_pos_freq: float = 0.0,
-	_seed: int = 0,
-	pobstacle_debug: bool = false,
-	pobstacle_max_rotation: float = 1.0,
-	pobstacle_max_offset: Vector2 = Vector2(1.0, 1.0),
-	pobstacle_min_offset: Vector2 = Vector2(0.0, 0.0),
 	cdisplay_sweep_mode: int = 0,
 	cdisplay_shortcut_cutter_sweep_mode: int = 0,
 	cphysics_sweep_mode: int = 0,
@@ -784,8 +755,6 @@ static func _worker_build_chunk(
 			do_main_path, add_start_cap, add_end_cap,
 			chunk_junctions, pdebug_fuse_junctions,
 			segment_wall_heights,
-			pobstacle_pos_freq, _seed, pobstacle_debug,
-			pobstacle_max_rotation, pobstacle_max_offset, pobstacle_min_offset,
 			cdisplay_shortcut_cutter_sweep_mode,
 			cdisplay_validate,
 		)
@@ -816,8 +785,6 @@ static func _worker_build_chunk(
 				do_main_path, add_start_cap, add_end_cap,
 				chunk_junctions, pdebug_fuse_junctions,
 				segment_wall_heights,
-				pobstacle_pos_freq, _seed, pobstacle_debug,
-				pobstacle_max_rotation, pobstacle_max_offset, pobstacle_min_offset,
 				cphysics_shortcut_cutter_sweep_mode,
 				cphysics_validate,
 			)
@@ -906,12 +873,6 @@ static func _build_and_extract(
 	chunk_junctions: Array,
 	pdebug_fuse_junctions: bool = false,
 	segment_wall_heights: PackedFloat32Array = PackedFloat32Array(),
-	pobstacle_pos_freq: float = 0.0,
-	_seed: int = 0,
-	pobstacle_debug: bool = false,
-	pobstacle_max_rotation: float = 1.0,
-	pobstacle_max_offset: Vector2 = Vector2(1.0, 1.0),
-	pobstacle_min_offset: Vector2 = Vector2(0.0, 0.0),
 	pshortcut_cutter_sweep_mode: int = 0,
 	pvalidate_geometry: bool = true,
 ) -> Array:  # [Array[OclGraphHandle], int used_attempt]
@@ -926,8 +887,6 @@ static func _build_and_extract(
 		do_main_path, add_start_cap, add_end_cap,
 		chunk_junctions, sweep_attempts, out_used,
 		segment_wall_heights,
-		pobstacle_pos_freq, _seed, pobstacle_debug,
-		pobstacle_max_rotation, pobstacle_max_offset, pobstacle_min_offset,
 		pshortcut_cutter_sweep_mode)
 	if graphs.is_empty():
 		if is_display:
@@ -1219,11 +1178,10 @@ func _apply_batch(results: Array[Dictionary], batch_name: String) -> void:
 		if has_edges_display:
 			var mm := MultiMesh.new()
 			mm.transform_format = MultiMesh.TRANSFORM_3D
-			var slices := _slices_from_angle(display_options.angle)
 			var cyl := CylinderMesh.new()
 			cyl.height = 1.0
-			cyl.radial_segments = slices
-			cyl.rings = 1
+			cyl.radial_segments = edge_rings
+			cyl.rings = edge_rings
 			cyl.cap_top = false
 			cyl.cap_bottom = false
 			cyl.surface_set_material(0, display_edges_material)
@@ -1274,11 +1232,10 @@ func _apply_batch(results: Array[Dictionary], batch_name: String) -> void:
 		if has_vertices_display:
 			var mm := MultiMesh.new()
 			mm.transform_format = MultiMesh.TRANSFORM_3D
-			var slices := _slices_from_angle(display_options.angle)
 			var sph := SphereMesh.new()
 			sph.radius = 1.0
-			sph.radial_segments = slices
-			sph.rings = maxi(int(slices / 2.0), 2)
+			sph.radial_segments = edge_rings
+			sph.rings = vertex_rings
 			sph.surface_set_material(0, display_vertices_material)
 			mm.mesh = sph
 			var n := int(all_v_transforms.size() / 16.0)
@@ -1434,11 +1391,10 @@ func _apply_chunk(result: Dictionary) -> void:
 			if existing_mm == null or not existing_mm.get_mesh().is_valid():
 				var mm := MultiMesh.new()
 				mm.transform_format = MultiMesh.TRANSFORM_3D
-				var slices := _slices_from_angle(display_options.angle)
 				var cyl := CylinderMesh.new()
 				cyl.height = 1.0
-				cyl.radial_segments = slices
-				cyl.rings = 1
+				cyl.radial_segments = edge_rings
+				cyl.rings = edge_rings
 				cyl.cap_top = false
 				cyl.cap_bottom = false
 				mm.mesh = cyl
@@ -1500,11 +1456,10 @@ func _apply_chunk(result: Dictionary) -> void:
 			if existing_mm == null or not existing_mm.get_mesh().is_valid():
 				var mm := MultiMesh.new()
 				mm.transform_format = MultiMesh.TRANSFORM_3D
-				var slices := _slices_from_angle(display_options.angle)
 				var sph := SphereMesh.new()
 				sph.radius = 1.0
-				sph.radial_segments = slices
-				sph.rings = maxi(int(slices / 2.0), 2)
+				sph.radial_segments = vertex_rings
+				sph.rings = vertex_rings
 				mm.mesh = sph
 				mmi.multimesh = mm
 				existing_mm = mm

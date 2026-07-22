@@ -2,7 +2,6 @@ extends BoxContainer
 
 @export var tests_scene: PackedScene
 @export var ball_game_scene: PackedScene
-@export var flag_benchmark_scene: PackedScene
 
 func _ready():
 	var env_test_runner := OS.get_environment("GODOT_TEST_RUNNER") == "true"
@@ -11,8 +10,6 @@ func _ready():
 	if OS.get_environment("GDEXT_AUTO_TESTS") == "true" or should_auto_test:
 		_on_tests_button_pressed()
 	elif OS.get_environment("GDEXT_AUTO_BALL_GAME") == "true":
-		_on_ball_game_button_pressed()
-	elif OS.get_environment("GDEXT_AUTO_FLAG_BENCHMARK") == "true":
 		_on_ball_game_button_pressed()
 
 func _on_tests_button_pressed() -> void:
@@ -26,9 +23,3 @@ func _on_ball_game_button_pressed() -> void:
 		get_tree().change_scene_to_packed.call_deferred(ball_game_scene)
 	else:
 		push_error("Ball game scene not set")
-
-func _on_flag_benchmark_button_pressed() -> void:
-	if flag_benchmark_scene != null:
-		get_tree().change_scene_to_packed.call_deferred(flag_benchmark_scene)
-	else:
-		push_error("Flag benchmark scene not set")

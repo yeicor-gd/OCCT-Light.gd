@@ -130,6 +130,15 @@ static func make_wire(graph: OclGraphHandle, oriented_edges: Array[OclOrientedNo
 	assert(status == OclCore.OK, "Got status %s - %s" % [OclCore.status_to_string(status), var_to_str(OclCore.error_last())])
 	return wire
 
+## Create a wire from an array of oriented edges.
+static func make_wire_forward(graph: OclGraphHandle, edges: Array[OclNodeId]) -> OclNodeId:
+	var tmp: Array[OclOrientedNode] = []
+	tmp.assign(edges.map(func(e: OclNodeId): 
+		var oriented := OclOrientedNode.new()
+		oriented.id = e.bits
+		return oriented))
+	return make_wire(graph, tmp)
+
 
 ## Build a wire along a single Bezier segment of a Curve3D at the given index.
 static func build_segment_wire(graph: OclGraphHandle, curve3d: Curve3D, idx: int) -> OclNodeId:
