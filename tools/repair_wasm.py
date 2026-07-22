@@ -6,13 +6,30 @@ import subprocess
 import sys
 
 
+def _find_wasm_opt():
+    """Find wasm-opt, preferring the Emscripten SDK version over system."""
+    emsdk = os.environ.get("EMSDK")
+    if emsdk:
+        candidate = os.path.join(emsdk, "upstream", "emscripten", "wasm-opt")
+        if os.path.isfile(candidate):
+            return candidate
+        candidate = os.path.join(emsdk, "upstream", "bin", "wasm-opt")
+        if os.path.isfile(candidate):
+            return candidate
+    return "wasm-opt"
+
+
+WASM_OPT = _find_wasm_opt()
+
+
 def get_error_offset(wasm_file):
     try:
         subprocess.run(
             [
-                "wasm-opt",
+                WASM_OPT,
                 "--no-validation",
                 "--enable-exception-handling",
+                "--enable-bulk-memory",
                 "-O0",
                 wasm_file,
                 "-o",
@@ -86,9 +103,10 @@ def repair_and_optimize_wasm(input_path, output_path):
 
     subprocess.run(
         [
-            "wasm-opt",
+            WASM_OPT,
             "--no-validation",
             "--enable-exception-handling",
+            "--enable-bulk-memory",
             "--post-emscripten",
         ]
         + wasm_opt_args

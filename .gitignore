@@ -5,6 +5,7 @@
 
 # Build artifacts.
 /build/
+/demo/templates/
 
 # IDEs
 /.idea/

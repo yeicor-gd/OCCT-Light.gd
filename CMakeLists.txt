@@ -114,22 +114,8 @@ file(GLOB_RECURSE SOURCES
 # Ensure autowrapper directories exist (even if empty, for glob to work)
 file(MAKE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/autowrapper")
 if(CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
-  # Strip -fexceptions and -mllvm -enable-emscripten-cxx-exceptions=0 from
-  # CMAKE_CXX_FLAGS.  These flags leak from the vcpkg triplet (needed for
-  # OCCT compilation), but at link time -fexceptions enables SJLJ exception
-  # handling which imports emscripten_longjmp — unavailable in a side module.
-  # Our GDExtension sources are compiled with -fno-exceptions via
-  # target_compile_options, so stripping them here is safe.
-  string(REPLACE "-fexceptions" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
-  string(REPLACE "-mllvm -enable-emscripten-cxx-exceptions=0" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
   add_library(${PROJECT_NAME} MODULE ${SOURCES} ${DOC_GEN_FILE})
   target_link_options(${PROJECT_NAME} PRIVATE "-sSIDE_MODULE=1")
-  # No exception handling: GDExtension sources use no try/catch and OCCT
-  # static libs were compiled with -mllvm -enable-emscripten-cxx-exceptions=0
-  # (throws become unreachable traps).  No __cpp_exception Tag or
-  # emscripten_longjmp import is needed.
-  target_compile_options(${PROJECT_NAME} PRIVATE -fno-exceptions)
-  target_link_options(${PROJECT_NAME} PRIVATE -fno-exceptions -sDISABLE_EXCEPTION_CATCHING=1 -sSUPPORT_LONGJMP=0)
 else()
   add_library(${PROJECT_NAME} SHARED ${SOURCES} ${DOC_GEN_FILE})
 endif()

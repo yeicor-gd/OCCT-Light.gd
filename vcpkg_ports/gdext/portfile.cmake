@@ -18,10 +18,10 @@ separate_arguments(GDEXT_CMAKE_ARGS UNIX_COMMAND "${GDEXT_CMAKE_ARGS}")
 # CMAKE_CXX_FLAGS for OCCT/OCCTL, but godot-cpp (built as a subdirectory of
 # this package) adds -sSUPPORT_LONGJMP=wasm which conflicts with that LLVM
 # flag.  Override CMAKE_CXX_FLAGS here so only the godot-cpp-compatible flags
-# remain.  (The GDExtension MODULE target sets its own -fno-exceptions in
-# the root CMakeLists.txt.)
+# remain.  Use -fexceptions (not -fno-exceptions): the GDExtension autowrapper
+# generates try/catch blocks catching Standard_Failure.
 if(VCPKG_TARGET_TRIPLET MATCHES "emscripten")
-    set(_gdext_cxx_flags "-fno-exceptions")
+    set(_gdext_cxx_flags "-fexceptions")
     foreach(_arg IN LISTS GDEXT_CMAKE_ARGS)
         if(_arg MATCHES "^-DGODOTCPP_THREADS[:=](on|ON|1|true|TRUE)$")
             string(APPEND _gdext_cxx_flags " -matomics -mbulk-memory")
