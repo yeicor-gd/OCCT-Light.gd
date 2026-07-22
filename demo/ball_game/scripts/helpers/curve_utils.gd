@@ -206,6 +206,40 @@ static func transform_at_baked(
 	return res
 
 
+## Map a spine baked length to the corresponding auxiliary baked length
+## using the 1:1 control point correspondence between both curves.
+##
+## For each control point, its baked offset on both curves is found, then
+## the spine baked length is linearly interpolated within the matching
+## segment to produce the auxiliary baked length.
+static func aux_baked_for_spine(
+		spine: Curve3D, aux: Curve3D, spine_bl: float,
+) -> float:
+	var n := spine.point_count
+	if n < 2 or aux == null or aux.point_count != n:
+		return spine_bl
+
+	# Baked offset of each control point on both curves.
+	var spine_off := PackedFloat32Array()
+	var aux_off := PackedFloat32Array()
+	spine_off.resize(n)
+	aux_off.resize(n)
+	for i in range(n):
+		spine_off[i] = spine.get_closest_offset(spine.get_point_position(i))
+		aux_off[i] = aux.get_closest_offset(aux.get_point_position(i))
+
+	# Find which segment spine_bl falls in.
+	for i in range(n - 1):
+		if spine_bl <= spine_off[i + 1] or i == n - 2:
+			var seg := float(spine_off[i + 1] - spine_off[i])
+			if abs(seg) < 1e-6:
+				return float(aux_off[i])
+			var t := clampf((spine_bl - float(spine_off[i])) / seg, 0.0, 1.0)
+			return float(aux_off[i]) + t * float(aux_off[i + 1] - aux_off[i])
+
+	return float(aux_off[n - 1])
+
+
 ## Build an auxiliary (offset) curve from positions and tilts directly.
 ##
 ## Each input point produces exactly one output point (1:1 mapping).
@@ -309,9 +343,7 @@ static func build_auxiliary_curve_from_points(
 	res.set_point_in(n - 1, -segs[n - 2] / sharpness)
 
 	for i in range(1, n - 1):
-		var mean_len := (segs[i - 1].length() + segs[i].length()) * 0.5
-		var t := (segs[i - 1].normalized() + segs[i].normalized()).normalized()
-		var handle := t * mean_len / sharpness
+		var handle := (offset_positions[i + 1] - offset_positions[i - 1]) / sharpness
 		res.set_point_out(i, handle)
 		res.set_point_in(i, -handle)
 
@@ -394,9 +426,7 @@ static func _recompute_curve_handles(curve: Curve3D, sharpness: float) -> void:
 	curve.set_point_in(n - 1, -segs[n - 2] / sharpness)
 
 	for i in range(1, n - 1):
-		var mean_len := (segs[i - 1].length() + segs[i].length()) * 0.5
-		var dir := (segs[i - 1].normalized() + segs[i].normalized()).normalized()
-		var handle := dir * mean_len / sharpness
+		var handle := (curve.get_point_position(i + 1) - curve.get_point_position(i - 1)) / sharpness
 		curve.set_point_out(i, handle)
 		curve.set_point_in(i, -handle)
 

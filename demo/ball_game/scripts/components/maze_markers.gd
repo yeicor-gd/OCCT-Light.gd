@@ -82,8 +82,7 @@ func _build_markers():
 		container.owner = get_tree().edited_scene_root if is_inside_tree() else null
 
 	# Main path markers at regular intervals (skip 0% and 100%).
-	var aux_total_len: float = aux_curve.get_baked_length() if aux_curve else 0.0
-	_place_interval_markers(container, curve, aux_curve, aux_total_len, total_len, 0.0, 100.0)
+	_place_interval_markers(container, curve, aux_curve, 0.0, total_len, 0.0, 100.0)
 
 	# Shortcut path markers — labeled with main-path percentages.
 	var rope_physics: OclDemoOnlyRopePhysics = paths.get("rope_physics")
@@ -111,8 +110,7 @@ func _build_markers():
 			# strictly between the anchor endpoints, positioned along the
 			# shortcut curve.
 			var sc_total_len := sc_curve.get_baked_length()
-			var sc_aux_total_len := sc_aux_curve.get_baked_length() if sc_aux_curve else 0.0
-			_place_interval_markers(container, sc_curve, sc_aux_curve, sc_aux_total_len, sc_total_len, start_pct, end_pct)
+			_place_interval_markers(container, sc_curve, sc_aux_curve, 0.0, sc_total_len, start_pct, end_pct)
 
 	print("[MazeMarkers] Built markers every %.0f%% in %.2f ms" % [interval_pct, (Time.get_ticks_usec() - start_time) / 1000.0])
 
@@ -121,19 +119,19 @@ func _build_markers():
 
 
 ## Place markers at every multiple of [interval_pct] in (pct_min, pct_max).
-## [total_len] is the baked length of [curve] (spine).  [aux_total_len]
-## is the baked length of the auxiliary curve — used to sample the aux
-## at the same progress as the spine so the binormal stays correct.
+## [total_len] is the baked length of [curve] (spine).
+## The auxiliary curve is sampled via 1:1 control point correspondence
+## so the binormal stays correct regardless of arc-length differences.
 func _place_interval_markers(parent: Node3D, curve: Curve3D, aux_curve: Curve3D,
-		aux_total_len: float, total_len: float,
+		_total_len: float, total_len: float,
 		pct_min: float, pct_max: float) -> void:
 	var pct := ceilf(pct_min / interval_pct) * interval_pct
 	if pct <= pct_min + 0.01:
 		pct += interval_pct
 	while pct < pct_max - 0.01:
-		var frac := pct / 100.0
+		var frac := (pct - pct_min) / (pct_max - pct_min)
 		var bl := total_len * frac
-		var aux_bl := aux_total_len * frac if aux_curve else 0.0
+		var aux_bl := CurveUtils.aux_baked_for_spine(curve, aux_curve, bl) if aux_curve else 0.0
 		var xf := CurveUtils.transform_at_baked(curve, bl, true, aux_curve, aux_bl)
 		_build_marker(parent, xf, "%.0f%%" % pct)
 		pct += interval_pct

@@ -76,8 +76,16 @@ func _on_share_pressed() -> void:
 	if maze.has_node("Obstacles"):
 		config["Obstacles"] = _gather_node_exports(maze.get_node("Obstacles"))
 
-	var json_str := JSON.stringify(config)
-	var url := "https://yeicor-gd.github.io/OCCT-Light.gd/gdext-tests.html#" + json_str
+	var base_url := "https://yeicor-gd.github.io/OCCT-Light.gd/gdext-tests.html"
+	var settings := get_tree().root.find_child("GameSettings", true, false)
+	var url: String
+	if settings and settings.is_default_config():
+		url = base_url + "#ball_game_config="
+	else:
+		var json_str := JSON.stringify(config)
+		var compressed := json_str.to_utf8_buffer()
+		compressed = compressed.compress(FileAccess.COMPRESSION_GZIP)
+		url = base_url + "#ball_game_config=" + _base64url_encode(compressed)
 
 	var time_text := message.text
 	var challenge := "Can you beat my time of %s in this maze?\n%s" % [time_text, url]
@@ -120,4 +128,32 @@ func _serialize_resource(res: Resource) -> Dictionary:
 			continue
 		else:
 			result[_name] = val
+	return result
+
+
+const _B64URL := "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+
+func _base64url_encode(data: PackedByteArray) -> String:
+	var result := ""
+	var i := 0
+	var n := data.size()
+	while i + 2 < n:
+		var b0 := data[i]
+		var b1 := data[i + 1]
+		var b2 := data[i + 2]
+		result += _B64URL[b0 >> 2]
+		result += _B64URL[((b0 & 3) << 4) | (b1 >> 4)]
+		result += _B64URL[((b1 & 15) << 2) | (b2 >> 6)]
+		result += _B64URL[b2 & 63]
+		i += 3
+	if i < n:
+		var b0 := data[i]
+		if i + 1 < n:
+			var b1 := data[i + 1]
+			result += _B64URL[b0 >> 2]
+			result += _B64URL[((b0 & 3) << 4) | (b1 >> 4)]
+			result += _B64URL[(b1 & 15) << 2]
+		else:
+			result += _B64URL[b0 >> 2]
+			result += _B64URL[(b0 & 3) << 4]
 	return result

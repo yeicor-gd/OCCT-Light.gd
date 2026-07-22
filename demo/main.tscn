@@ -33,7 +33,8 @@ label_settings = SubResource("LabelSettings_0e071")
 [node name="TestsButton" type="Button" parent="Panel" unique_id=947654445]
 layout_mode = 2
 theme_override_font_sizes/font_size = 24
-text = "TESTS (RUN SYNCHRONOUSLY)"
+text = "TESTS
+"
 
 [node name="BallGameButton" type="Button" parent="Panel" unique_id=635901278]
 layout_mode = 2

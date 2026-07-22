@@ -14,14 +14,15 @@ else()
 endif()
 separate_arguments(GDEXT_CMAKE_ARGS UNIX_COMMAND "${GDEXT_CMAKE_ARGS}")
 
-# On Emscripten the triplet adds -mllvm -enable-emscripten-cxx-exceptions=0 to
-# CMAKE_CXX_FLAGS for OCCT/OCCTL, but godot-cpp (built as a subdirectory of
-# this package) adds -sSUPPORT_LONGJMP=wasm which conflicts with that LLVM
-# flag.  Override CMAKE_CXX_FLAGS here so only the godot-cpp-compatible flags
-# remain.  Use -fexceptions (not -fno-exceptions): the GDExtension autowrapper
-# generates try/catch blocks catching Standard_Failure.
+# On Emscripten, use -fexceptions so try/catch syntax compiles (the
+# autowrapper catches Standard_Failure), but disable C++ exception handling
+# at the LLVM backend level with -mllvm -enable-emscripten-cxx-exceptions=0.
+# This prevents the SIDE_MODULE from importing emscripten_longjmp, which
+# Godot's main module does not export (see godotengine/godot#104835).
+# -sSUPPORT_LONGJMP=wasm is stripped from godot-cpp in CMakeLists.txt so
+# there is no conflict with this LLVM flag.
 if(VCPKG_TARGET_TRIPLET MATCHES "emscripten")
-    set(_gdext_cxx_flags "-fexceptions")
+    set(_gdext_cxx_flags "-fexceptions -mllvm -enable-emscripten-cxx-exceptions=0")
     foreach(_arg IN LISTS GDEXT_CMAKE_ARGS)
         if(_arg MATCHES "^-DGODOTCPP_THREADS[:=](on|ON|1|true|TRUE)$")
             string(APPEND _gdext_cxx_flags " -matomics -mbulk-memory")

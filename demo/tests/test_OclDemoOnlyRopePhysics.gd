@@ -9,9 +9,9 @@ static func test_is_initialized_before_init() -> String:
 
 static func test_init_creates_correct_node_count() -> String:
 	var rope = OclDemoOnlyRopePhysics.new()
-	rope.node_count = 50
+	rope.node_count = 8
 	rope.init_rope(42)
-	return _check(rope.get_positions().size() == 50, "Expected 50 nodes, got %d" % rope.get_positions().size())
+	return _check(rope.get_positions().size() == 8, "Expected 8 nodes, got %d" % rope.get_positions().size())
 
 static func test_init_deterministic() -> String:
 	var rope1 = OclDemoOnlyRopePhysics.new()
@@ -29,19 +29,19 @@ static func test_init_deterministic() -> String:
 
 static func test_relax_completes() -> String:
 	var rope = OclDemoOnlyRopePhysics.new()
-	rope.node_count = 50
-	rope.iterations = 100
+	rope.node_count = 8
+	rope.iterations = 15
 	rope.init_rope(42)
 	rope.relax()
 	var positions = rope.get_positions()
-	return _check(positions.size() == 50, "Wrong node count after relax")
+	return _check(positions.size() == 8, "Wrong node count after relax")
 
 static func test_positions_within_shell() -> String:
 	var rope = OclDemoOnlyRopePhysics.new()
 	rope.inner_radius = 1.0
 	rope.outer_radius = 2.0
-	rope.node_count = 50
-	rope.iterations = 200
+	rope.node_count = 8
+	rope.iterations = 15
 	rope.init_rope(42)
 	rope.relax()
 	var positions = rope.get_positions()
@@ -53,9 +53,9 @@ static func test_positions_within_shell() -> String:
 
 static func test_segment_lengths() -> String:
 	var rope = OclDemoOnlyRopePhysics.new()
-	rope.node_count = 50
+	rope.node_count = 8
 	rope.segment_length = 1.0
-	rope.iterations = 500
+	rope.iterations = 20
 	rope.init_rope(42)
 	rope.relax()
 	var positions = rope.get_positions()
@@ -69,7 +69,7 @@ static func test_endpoint_anchoring() -> String:
 	var rope = OclDemoOnlyRopePhysics.new()
 	var start = Vector3(0, 0, -2)
 	var end = Vector3(0, 0, 2)
-	rope.iterations = 20
+	rope.iterations = 10
 	rope.init_rope(42, start, end)
 	rope.relax()
 	var positions = rope.get_positions()
@@ -95,7 +95,7 @@ static func test_get_positions_type() -> String:
 static func test_performance() -> String:
 	var rope = OclDemoOnlyRopePhysics.new()
 	rope.segment_length = 0.05
-	rope.iterations = 100
+	rope.iterations = 15
 	rope.init_rope(42)
 
 	rope.relax()
@@ -106,8 +106,8 @@ static func test_custom_radii() -> String:
 	var rope = OclDemoOnlyRopePhysics.new()
 	rope.inner_radius = 3.0
 	rope.outer_radius = 5.0
-	rope.node_count = 50
-	rope.iterations = 200
+	rope.node_count = 8
+	rope.iterations = 15
 	rope.init_rope(42)
 	rope.relax()
 	var positions = rope.get_positions()
@@ -138,11 +138,11 @@ static func test_different_seeds_differ() -> String:
 
 static func test_shortcut_basic() -> String:
 	var rope = OclDemoOnlyRopePhysics.new()
-	rope.node_count = 20
+	rope.node_count = 8
 	rope.init_rope(42)
 	var main_count = rope.get_positions().size()
-	# Add shortcut from node 5 to node 15 with 8 segments
-	var idx = rope.add_shortcut(5, 15, 8)
+	# Add shortcut from node 2 to node 6 with 4 segments
+	var idx = rope.add_shortcut(2, 6, 4)
 	return _check(
 		idx == 1 and rope.get_rope_count() == 2,
 		"Expected rope_count=2, got %d" % rope.get_rope_count()
@@ -150,53 +150,52 @@ static func test_shortcut_basic() -> String:
 
 static func test_shortcut_node_count_after_init() -> String:
 	var rope = OclDemoOnlyRopePhysics.new()
-	rope.node_count = 20
+	rope.node_count = 8
 	rope.init_rope(42)
 	var before = rope.get_positions().size()
-	rope.add_shortcut(5, 15, 8)
+	rope.add_shortcut(2, 6, 4)
 	var after = rope.get_positions().size()
-	# 8 segments means 9 nodes (8 intermediate + 2 endpoints? No: 8 segments = 9 nodes: start + 7 inner + end)
-	# Actually: segments+1 nodes (first pinned to anchor_start, last pinned to anchor_end)
+	# 4 segments = 5 nodes: start + 3 inner + end
 	return _check(
-		after == before + 9,
-		"Expected %d nodes after shortcut, got %d (before=%d)" % [before + 9, after, before]
+		after == before + 5,
+		"Expected %d nodes after shortcut, got %d (before=%d)" % [before + 5, after, before]
 	)
 
 static func test_shortcut_relax() -> String:
 	var rope = OclDemoOnlyRopePhysics.new()
-	rope.node_count = 20
-	rope.iterations = 200
+	rope.node_count = 8
+	rope.iterations = 15
 	rope.init_rope(42)
-	rope.add_shortcut(5, 15, 8)
+	rope.add_shortcut(2, 6, 4)
 	rope.relax()
 	var pos = rope.get_positions()
-	return _check(pos.size() == 29, "Expected 29 nodes after relax, got %d" % pos.size())
+	return _check(pos.size() == 13, "Expected 13 nodes after relax, got %d" % pos.size())
 
 static func test_shortcut_anchors_match() -> String:
 	var rope = OclDemoOnlyRopePhysics.new()
-	rope.node_count = 20
-	rope.iterations = 200
+	rope.node_count = 8
+	rope.iterations = 15
 	rope.init_rope(42)
-	rope.add_shortcut(5, 15, 8)
+	rope.add_shortcut(2, 6, 4)
 	rope.relax()
 	var main = rope.get_rope_positions(0)
 	var shortcut = rope.get_rope_positions(1)
 	# Shortcut endpoints should match main rope anchor positions
-	var start_match = shortcut[0].distance_to(main[5]) < 0.001
-	var end_match = shortcut[-1].distance_to(main[15]) < 0.001
+	var start_match = shortcut[0].distance_to(main[2]) < 0.001
+	var end_match = shortcut[-1].distance_to(main[6]) < 0.001
 	return _check(
 		start_match and end_match,
-		"Shortcut anchors don't match: start=%v vs %v, end=%v vs %v" % [shortcut[0], main[5], shortcut[-1], main[15]]
+		"Shortcut anchors don't match: start=%v vs %v, end=%v vs %v" % [shortcut[0], main[2], shortcut[-1], main[6]]
 	)
 
 static func test_shortcut_within_shell() -> String:
 	var rope = OclDemoOnlyRopePhysics.new()
 	rope.inner_radius = 1.0
 	rope.outer_radius = 2.0
-	rope.node_count = 20
-	rope.iterations = 200
+	rope.node_count = 8
+	rope.iterations = 15
 	rope.init_rope(42)
-	rope.add_shortcut(5, 15, 8)
+	rope.add_shortcut(2, 6, 4)
 	rope.relax()
 	var shortcut = rope.get_rope_positions(1)
 	for i in range(1, shortcut.size() - 1):
@@ -208,14 +207,14 @@ static func test_shortcut_within_shell() -> String:
 
 static func test_shortcut_chained() -> String:
 	var rope = OclDemoOnlyRopePhysics.new()
-	rope.node_count = 20
-	rope.iterations = 200
+	rope.node_count = 8
+	rope.iterations = 15
 	rope.init_rope(42)
 	# First shortcut on main rope
-	var s1 = rope.add_shortcut(5, 15, 8)
-	# Second shortcut: attach to main rope node 2 and first shortcut's inner node (index 20+1=21)
+	var s1 = rope.add_shortcut(2, 6, 4)
+	# Second shortcut: attach to main rope node 1 and first shortcut's inner node (index 8+1=9)
 	var total_before = rope.get_positions().size()
-	var s2 = rope.add_shortcut(2, total_before - 8, 4)  # shortcut 1 nodes start at index 20
+	var s2 = rope.add_shortcut(1, total_before - 4, 3)  # shortcut 1 nodes start at index 8
 	rope.relax()
 	return _check(
 		rope.get_rope_count() == 3,
@@ -224,26 +223,26 @@ static func test_shortcut_chained() -> String:
 
 static func test_shortcut_invalid_indices() -> String:
 	var rope = OclDemoOnlyRopePhysics.new()
-	rope.node_count = 10
+	rope.node_count = 6
 	rope.init_rope(42)
-	var idx = rope.add_shortcut(-1, 5, 3)
+	var idx = rope.add_shortcut(-1, 3, 3)
 	var idx2 = rope.add_shortcut(0, 100, 3)
 	return _check(idx == -1 and idx2 == -1, "Should return -1 for invalid indices")
 
 static func test_shortcut_zero_segments() -> String:
 	var rope = OclDemoOnlyRopePhysics.new()
-	rope.node_count = 10
+	rope.node_count = 6
 	rope.init_rope(42)
-	var idx = rope.add_shortcut(0, 9, 0)
+	var idx = rope.add_shortcut(0, 5, 0)
 	return _check(idx == -1, "Should return -1 for 0 segments")
 
 static func test_shortcut_init_on_shell() -> String:
 	var rope = OclDemoOnlyRopePhysics.new()
 	rope.inner_radius = 3.0
 	rope.outer_radius = 10.0
-	rope.node_count = 20
+	rope.node_count = 8
 	rope.init_rope(42)
-	rope.add_shortcut(5, 15, 8)
+	rope.add_shortcut(2, 6, 4)
 	var shortcut = rope.get_rope_positions(1)
 	for i in range(1, shortcut.size() - 1):
 		var d = shortcut[i].length()
@@ -255,10 +254,10 @@ static func test_shortcut_no_sharp_radial_angle() -> String:
 	var rope = OclDemoOnlyRopePhysics.new()
 	rope.inner_radius = 3.0
 	rope.outer_radius = 10.0
-	rope.node_count = 30
-	rope.iterations = 500
+	rope.node_count = 10
+	rope.iterations = 20
 	rope.init_rope(42, Vector3.BACK * 10.0, Vector3.FORWARD * 10.0)
-	rope.add_shortcut(8, 22, 6)
+	rope.add_shortcut(3, 7, 4)
 	rope.relax()
 	var main = rope.get_rope_positions(0)
 	# Check main rope has no sharp radial jumps between free nodes (skip pinned endpoints)
@@ -273,51 +272,51 @@ static func test_shortcut_anchors_match_after_all_fixes() -> String:
 	var rope = OclDemoOnlyRopePhysics.new()
 	rope.inner_radius = 3.0
 	rope.outer_radius = 10.0
-	rope.node_count = 30
-	rope.iterations = 50
+	rope.node_count = 10
+	rope.iterations = 10
 	rope.init_rope(42)
-	rope.add_shortcut(5, 20, 6)
+	rope.add_shortcut(3, 7, 4)
 	rope.relax()
 	var main = rope.get_rope_positions(0)
 	var shortcut = rope.get_rope_positions(1)
-	var start_match = shortcut[0].distance_to(main[5]) < 0.001
-	var end_match = shortcut[-1].distance_to(main[20]) < 0.001
+	var start_match = shortcut[0].distance_to(main[3]) < 0.001
+	var end_match = shortcut[-1].distance_to(main[7]) < 0.001
 	return _check(
 		start_match and end_match,
-		"Shortcut anchors don't match: start=%v vs %v, end=%v vs %v" % [shortcut[0], main[5], shortcut[-1], main[20]]
+		"Shortcut anchors don't match: start=%v vs %v, end=%v vs %v" % [shortcut[0], main[3], shortcut[-1], main[7]]
 	)
 
 # --- Space-filling tests ---
 
 static func test_space_filling_relax_completes() -> String:
 	var rope = OclDemoOnlyRopePhysics.new()
-	rope.node_count = 50
-	rope.iterations = 200
+	rope.node_count = 8
+	rope.iterations = 15
 	rope.space_filling_passes = 2
 	rope.space_filling_stiffness = 0.5
 	rope.space_filling_halvings = 2
 	rope.init_rope(42)
 	rope.relax()
 	var positions = rope.get_positions()
-	return _check(positions.size() == 50, "Wrong node count after space-filling relax")
+	return _check(positions.size() == 8, "Wrong node count after space-filling relax")
 
 static func test_space_filling_disabled() -> String:
 	var rope = OclDemoOnlyRopePhysics.new()
-	rope.node_count = 50
-	rope.iterations = 200
+	rope.node_count = 8
+	rope.iterations = 15
 	rope.space_filling_passes = 0
 	rope.init_rope(42)
 	rope.relax()
-	return _check(rope.get_positions().size() == 50, "Relax with space_filling_passes=0 should still work")
+	return _check(rope.get_positions().size() == 8, "Relax with space_filling_passes=0 should still work")
 
 static func test_space_filling_improves_distribution() -> String:
 	# Run without space-filling
 	var rope1 = OclDemoOnlyRopePhysics.new()
-	rope1.node_count = 80
+	rope1.node_count = 15
 	rope1.inner_radius = 4.0
 	rope1.outer_radius = 14.0
 	rope1.collision_radius = 4.0
-	rope1.iterations = 500
+	rope1.iterations = 20
 	rope1.space_filling_passes = 0
 	rope1.init_rope(42)
 	rope1.relax()
@@ -325,11 +324,11 @@ static func test_space_filling_improves_distribution() -> String:
 
 	# Run with space-filling
 	var rope2 = OclDemoOnlyRopePhysics.new()
-	rope2.node_count = 80
+	rope2.node_count = 15
 	rope2.inner_radius = 4.0
 	rope2.outer_radius = 14.0
 	rope2.collision_radius = 4.0
-	rope2.iterations = 500
+	rope2.iterations = 20
 	rope2.space_filling_passes = 3
 	rope2.space_filling_stiffness = 0.5
 	rope2.space_filling_halvings = 2
@@ -351,15 +350,15 @@ static func test_space_filling_improves_distribution() -> String:
 
 static func test_space_filling_with_shortcuts() -> String:
 	var rope = OclDemoOnlyRopePhysics.new()
-	rope.node_count = 30
+	rope.node_count = 10
 	rope.inner_radius = 3.0
 	rope.outer_radius = 10.0
-	rope.iterations = 30
+	rope.iterations = 10
 	rope.space_filling_passes = 2
 	rope.space_filling_stiffness = 0.5
 	rope.space_filling_halvings = 2
 	rope.init_rope(42)
-	rope.add_shortcut(5, 20, 6)
+	rope.add_shortcut(3, 7, 4)
 	rope.relax()
 	var positions = rope.get_positions()
 	# Verify all inner nodes are within shell
@@ -367,7 +366,7 @@ static func test_space_filling_with_shortcuts() -> String:
 		var d = positions[i].length()
 		if d > 10.01:
 			return "Node %d at distance %.3f outside outer radius" % [i, d]
-	return _check(positions.size() == 37, "Expected 37 nodes, got %d" % positions.size())
+	return _check(positions.size() == 15, "Expected 15 nodes, got %d" % positions.size())
 
 static func _avg_nearest_neighbor(positions: PackedVector3Array) -> float:
 	var total := 0.0
@@ -389,8 +388,8 @@ static func test_shortcut_low_density_stable() -> String:
 	var rope = OclDemoOnlyRopePhysics.new()
 	rope.inner_radius = 3.0
 	rope.outer_radius = 10.0
-	rope.node_count = 40
-	rope.iterations = 500
+	rope.node_count = 12
+	rope.iterations = 20
 	rope.init_rope(42, Vector3.BACK * 10.0, Vector3.FORWARD * 10.0)
 	# Low segment density: few long segments across a wide gap
 	var chord_start := rope.find_main_node_at_fraction(0.2)

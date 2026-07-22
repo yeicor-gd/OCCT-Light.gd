@@ -19,6 +19,9 @@ var tests_complete := false
 var bootstrap_error := false
 var test_filter: String = ""
 
+var _worker_thread: Thread
+var _pending_logs: Array[String] = []
+
 static var ctx := TestContext.new()
 
 
@@ -77,9 +80,28 @@ func _ready() -> void:
 		_quit_tests_now(1)
 		return
 
-	for file in test_files:
-		_run_suite(file)
+	if is_headless:
+		_run_all_suites(test_files)
+		_finish()
+	else:
+		# Run suites on a background thread so the UI stays responsive.
+		_worker_thread = Thread.new()
+		_worker_thread.start(_run_all_suites_threaded.bind(test_files))
 
+
+func _run_all_suites_threaded(test_files: Array[String]) -> void:
+	_run_all_suites(test_files)
+	call_deferred("_on_suites_complete")
+
+
+func _on_suites_complete() -> void:
+	if _worker_thread:
+		_worker_thread.wait_to_finish()
+		_worker_thread = null
+	_finish()
+
+
+func _finish() -> void:
 	indent_level -= 1
 	log_info("==============================")
 
@@ -90,6 +112,11 @@ func _ready() -> void:
 
 	tests_complete = true
 	_quit_tests_now(1 if total_failed > 0 else 0)
+
+
+func _run_all_suites(test_files: Array[String]) -> void:
+	for file in test_files:
+		_run_suite(file)
 
 
 func _try_regenerate_test_index() -> void:
@@ -349,17 +376,18 @@ func _log(message: String, color: String) -> void:
 	var indent := "  ".repeat(indent_level)
 	var formatted := "[color=%s]%s%s[/color]" % [color, indent, message]
 
+	# print_rich is thread-safe.
 	print_rich(formatted)
 
+	# UI updates must happen on the main thread.
 	if not is_headless and log_label:
-		log_label.text += ("\n" if log_label.text != "" else "") + formatted
-		call_deferred("_scroll_log_to_bottom")
+		call_deferred("_apply_log", formatted)
 
 
-func _scroll_log_to_bottom() -> void:
-	if is_headless or not log_label:
+func _apply_log(formatted: String) -> void:
+	if not log_label:
 		return
-
+	log_label.text += ("\n" if log_label.text != "" else "") + formatted
 	var sc := log_label.get_parent()
 	if sc is ScrollContainer:
 		sc.scroll_vertical = int(sc.get_v_scroll_bar().max_value)

@@ -4,6 +4,7 @@
 [ext_resource type="Script" uid="uid://dgwcgvvyv5fho" path="res://ball_game/ui.gd" id="1_px6uo"]
 [ext_resource type="Script" uid="uid://dk0hlmnqk26f6" path="res://ball_game/scripts/ui/settings.gd" id="2_tj45x"]
 [ext_resource type="Script" uid="uid://cii67x66u8hj1" path="res://ball_game/scripts/ui/timer_hud.gd" id="3_timerhud"]
+[ext_resource type="Theme" uid="uid://cy883hmrqemiy" path="res://ball_game/theme/theme_dark.tres" id="4_theme"]
 
 [node name="UI" type="Control" unique_id=1115976194]
 layout_mode = 3
@@ -12,6 +13,7 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
+theme = ExtResource("4_theme")
 script = ExtResource("1_px6uo")
 
 [node name="HBoxContainer" type="HBoxContainer" parent="." unique_id=635364492]
@@ -52,7 +54,6 @@ script = ExtResource("2_tj45x")
 layout_mode = 2
 offset_transform_position = Vector2(10, 10)
 offset_transform_visual_only = false
-theme_override_constants/tab_separation = 4
 current_tab = 0
 
 [node name="Maze" type="ScrollContainer" parent="MarginContainer/Settings" unique_id=1601358385]
@@ -88,6 +89,7 @@ text = "TODO: Controls settings
 "
 
 [node name="CloseSettingsButton" type="Button" parent="MarginContainer" unique_id=826703488]
+custom_minimum_size = Vector2(28, 28)
 layout_mode = 2
 size_flags_horizontal = 8
 size_flags_vertical = 0
@@ -110,6 +112,33 @@ theme_override_font_sizes/font_size = 20
 text = "0:00.000"
 horizontal_alignment = 2
 script = ExtResource("3_timerhud")
+
+[node name="GenerationOverlay" type="MarginContainer" parent="." unique_id=1129610746]
+visible = false
+layout_mode = 0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 0
+theme_override_constants/margin_left = 40
+theme_override_constants/margin_top = 8
+theme_override_constants/margin_right = 40
+theme_override_constants/margin_bottom = 12
+
+[node name="VBox" type="VBoxContainer" parent="GenerationOverlay" unique_id=62420335]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="ProgressLabel" type="Label" parent="GenerationOverlay/VBox" unique_id=1756988627]
+layout_mode = 2
+horizontal_alignment = 1
+
+[node name="ProgressBar" type="ProgressBar" parent="GenerationOverlay/VBox" unique_id=764119729]
+custom_minimum_size = Vector2(300, 8)
+layout_mode = 2
+value = 50.0
+show_percentage = false
 
 [connection signal="pressed" from="HBoxContainer/SettingsButton" to="MarginContainer" method="_on_settings_button_pressed"]
 [connection signal="pressed" from="MarginContainer/CloseSettingsButton" to="MarginContainer" method="_on_close_settings_button_pressed"]

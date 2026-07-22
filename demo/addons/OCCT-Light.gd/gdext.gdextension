@@ -46,11 +46,6 @@ macos.universal.debug.double = "libgdext.macos.debug.template_debug.double.unive
 macos.universal.release.single = "libgdext.macos.release.template_release.universal.dylib"
 macos.universal.release.double = "libgdext.macos.release.template_release.double.universal.dylib"
 
-web.wasm32.debug.nothreads.single = "libgdext.web.debug.template_debug.wasm32.nothreads.so"
-web.wasm32.debug.nothreads.double = "libgdext.web.debug.template_debug.double.wasm32.nothreads.so"
-web.wasm32.release.nothreads.single = "libgdext.web.release.template_release.wasm32.nothreads.so"
-web.wasm32.release.nothreads.double = "libgdext.web.release.template_release.double.wasm32.nothreads.so"
-
 web.wasm32.debug.threads.single = "libgdext.web.debug.template_debug.wasm32.so"
 web.wasm32.debug.threads.double = "libgdext.web.debug.template_debug.double.wasm32.so"
 web.wasm32.release.threads.single = "libgdext.web.release.template_release.wasm32.so"

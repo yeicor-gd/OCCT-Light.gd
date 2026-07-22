@@ -115,7 +115,15 @@ file(GLOB_RECURSE SOURCES
 file(MAKE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/autowrapper")
 if(CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
   add_library(${PROJECT_NAME} MODULE ${SOURCES} ${DOC_GEN_FILE})
-  target_link_options(${PROJECT_NAME} PRIVATE "-sSIDE_MODULE=1")
+  # SIDE_MODULE=2 bundles system libraries (libc++, compiler-rt) into the
+  # extension so it doesn't need to import them from the main module.
+  # SIDE_MODULE=1 fails at runtime with "undefined symbol" for C++ stdlib
+  # symbols (e.g. std::__2::__hash_memory) because the main module's PIC
+  # libc++ may not contain them.
+  target_link_options(${PROJECT_NAME} PRIVATE
+    "-sSIDE_MODULE=2"
+    "-sEXPORTED_FUNCTIONS=_gdext_library_init"
+  )
 else()
   add_library(${PROJECT_NAME} SHARED ${SOURCES} ${DOC_GEN_FILE})
 endif()
@@ -126,8 +134,10 @@ endif()
 # Link godot-cpp and OCCT-Light (OCCTL::* targets transitively bring in
 # the OCCT runtime libraries and include directories via FindOCCT.cmake).
 target_link_libraries(${PROJECT_NAME} PRIVATE godot-cpp OCCTL::core OCCTL::geom OCCTL::topo OCCTL::prim OCCTL::text OCCTL::bool OCCTL::mesh OCCTL::heal OCCTL::io_brep OCCTL::io_step OCCTL::io_iges OCCTL::io_stl OCCTL::io_obj OCCTL::io_gltf OCCTL::io_vrml OCCTL::io_ply OCCTL::de)
-target_include_directories(${PROJECT_NAME} SYSTEM PRIVATE godot-cpp/include)
-target_include_directories(${PROJECT_NAME} PRIVATE src/autowrapper src ${CMAKE_CURRENT_SOURCE_DIR}/OCCT-Light/src/compat/occt81)
+target_include_directories(${PROJECT_NAME} PRIVATE src ${CMAKE_CURRENT_SOURCE_DIR}/OCCT-Light/src/compat/occt81)
+target_include_directories(${PROJECT_NAME} SYSTEM PRIVATE src/autowrapper)
+get_target_property(GODOTCPP_INCLUDES godot-cpp INTERFACE_INCLUDE_DIRECTORIES)
+target_include_directories(${PROJECT_NAME} SYSTEM PRIVATE ${GODOTCPP_INCLUDES})
 
 # OCCT-Light headers are installed under the occtl/ subdirectory of the
 # OCCTL include tree (e.g. <prefix>/include/occtl/occtl_core.h).

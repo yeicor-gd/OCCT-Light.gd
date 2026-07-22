@@ -48,6 +48,10 @@ func regenerate_all(sync: bool):
 
 	var total_start := Time.get_ticks_usec()
 
+	# 0. Clear stale obstacles and markers immediately.
+	_clear_children($Obstacles)
+	_clear_children($Markers)
+
 	# 1. Regenerate all paths (main, binormal, shortcuts).
 	paths_generation_started.emit()
 	var paths_start := Time.get_ticks_usec()
@@ -104,3 +108,9 @@ func _clear_persisted_dir(save_path: String) -> void:
 			dir.remove(fname)
 		fname = dir.get_next()
 	dir.list_dir_end()
+
+
+func _clear_children(node: Node) -> void:
+	for child in node.get_children():
+		node.remove_child(child)
+		child.free()

@@ -13,15 +13,13 @@
 # No Godot source patches are applied.  We pass the Emscripten exception flag
 # via scons `linkflags` instead.
 #
-# By default, builds all 4 combinations: debug/release x threads/nothreads.
+# By default, builds all 2 combinations: debug/release (threads only).
 # Use flags to restrict to specific variants.
 #
 # Usage:
 #   ./tools/build_godot_web_templates.sh [OPTIONS] [OUTPUT_DIR]
 #
 # Options:
-#   --threads       Build only threads=yes variant (default: both)
-#   --nothreads     Build only threads=no variant (default: both)
 #   --mode=debug    Build only debug variant (default: both)
 #   --mode=release  Build only release variant (default: both)
 #   --editor        Build the editor instead of export templates
@@ -41,9 +39,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-# Defaults: build all variants
-BUILD_THREADS="yes"
-BUILD_NOTHREADS="yes"
+# Defaults: build debug+release
 BUILD_DEBUG="yes"
 BUILD_RELEASE="yes"
 BUILD_EDITOR=0
@@ -51,24 +47,11 @@ CLEAN=0
 OUTPUT_DIR="${PROJECT_DIR}/demo/templates"
 GODOT_VERSION=""  # Empty = auto-detect
 
-# Emscripten exception support: pass -sDISABLE_EXCEPTION_CATCHING=0
-# via scons linkflags.  Godot's SConstruct reads `linkflags` from env and
-# appends to LINKFLAGS.  This makes exceptions work without patching Godot.
-EM_LINKFLAGS="-sDISABLE_EXCEPTION_CATCHING=0"
+EM_LINKFLAGS=""
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --threads)
-            BUILD_THREADS="yes"
-            BUILD_NOTHREADS="no"
-            shift
-            ;;
-        --nothreads)
-            BUILD_THREADS="no"
-            BUILD_NOTHREADS="yes"
-            shift
-            ;;
         --mode=debug)
             BUILD_DEBUG="yes"
             BUILD_RELEASE="no"
@@ -95,11 +78,9 @@ while [[ $# -gt 0 ]]; do
             echo "Usage: $0 [OPTIONS] [OUTPUT_DIR]"
             echo ""
             echo "Build custom Godot web export templates with C++ exceptions enabled."
-            echo "By default, builds all 4 combinations: debug/release x threads/nothreads."
+            echo "Threads-only (nothreads is not supported due to OCCT thread dependencies)."
             echo ""
             echo "Options:"
-            echo "  --threads       Build only threads=yes variant"
-            echo "  --nothreads     Build only threads=no variant"
             echo "  --mode=debug    Build only debug variant"
             echo "  --mode=release  Build only release variant"
             echo "  --editor        Build the editor instead of export templates"
@@ -232,25 +213,32 @@ setup_godot_source() {
     echo "Godot source ready at: $godot_dir"
 }
 
-# Build a single variant
+# Build a single variant (threads only)
 build_one_variant() {
     local target="$1"   # template_debug, template_release, or editor
-    local threads="$2"  # yes or no
 
     local godot_dir="${PROJECT_DIR}/build/godot-${GODOT_VERSION}"
 
-    local label="${target} (threads=${threads})"
-    echo "--- Building ${label} ---"
+    echo "--- Building ${target} (threads=yes) ---"
 
     cd "$godot_dir"
-    scons -j"$(nproc)" \
-        platform=web \
-        target="${target}" \
-        disable_exceptions=no \
-        dlink_enabled=yes \
-        threads="${threads}" \
-        production=yes \
-        linkflags="${EM_LINKFLAGS}"
+    local scons_args=(
+        -j"$(nproc)"
+        platform=web
+        target="${target}"
+        dlink_enabled=yes
+        threads=yes
+        production=yes
+        disable_exceptions=no
+    )
+    if [[ -n "${EM_LINKFLAGS}" ]]; then
+        scons_args+=(linkflags="${EM_LINKFLAGS}")
+    fi
+    # Force all standard libraries (libc++, libc++abi, etc.) into the main
+    # module so that side modules (GDExtensions) can import their symbols at
+    # runtime. Without this, symbols like std::__2::__hash_memory are missing.
+    # See: https://emscripten.org/docs/compiling/Dynamic-Linking.html#system-libraries
+    EMCC_FORCE_STDLIBS=1 scons "${scons_args[@]}"
 
     cd "$PROJECT_DIR"
 }
@@ -258,31 +246,22 @@ build_one_variant() {
 # Install a template zip to the output dir
 install_template_zip() {
     local target="$1"   # template_debug or template_release
-    local threads="$2"  # yes or no
 
     local godot_dir="${PROJECT_DIR}/build/godot-${GODOT_VERSION}"
 
-    local zip_file=""
-    if [ "$threads" = "yes" ]; then
-        zip_file="${godot_dir}/bin/godot.web.${target}.wasm32.dlink.zip"
-        [ ! -f "$zip_file" ] && zip_file="${godot_dir}/bin/godot.web.${target}.wasm32.pthreads.dlink.zip"
-        [ ! -f "$zip_file" ] && zip_file="${godot_dir}/bin/godot.web.${target}.wasm32.pthreads.zip"
-    else
-        zip_file="${godot_dir}/bin/godot.web.${target}.wasm32.nothreads.dlink.zip"
-        [ ! -f "$zip_file" ] && zip_file="${godot_dir}/bin/godot.web.${target}.wasm32.nothreads.zip"
-    fi
+    local zip_file="${godot_dir}/bin/godot.web.${target}.wasm32.dlink.zip"
+    [ ! -f "$zip_file" ] && zip_file="${godot_dir}/bin/godot.web.${target}.wasm32.pthreads.dlink.zip"
+    [ ! -f "$zip_file" ] && zip_file="${godot_dir}/bin/godot.web.${target}.wasm32.pthreads.zip"
     if [ ! -f "$zip_file" ]; then
-        echo "Error: Could not find built zip for ${target} (threads=${threads})" >&2
+        echo "Error: Could not find built zip for ${target} (threads=yes)" >&2
         ls "${godot_dir}/bin/"*.zip 2>/dev/null || true
         exit 1
     fi
 
     local mode_name
     [ "$target" = "template_debug" ] && mode_name="debug" || mode_name="release"
-    local thread_name
-    [ "$threads" = "yes" ] && thread_name="threads" || thread_name="nothreads"
 
-    local dest_dir="${OUTPUT_DIR}/${thread_name}"
+    local dest_dir="${OUTPUT_DIR}/threads"
     mkdir -p "$dest_dir"
     cp "$zip_file" "${dest_dir}/web_${mode_name}.zip"
     echo "Installed: ${dest_dir}/web_${mode_name}.zip"
@@ -290,24 +269,17 @@ install_template_zip() {
 
 # Install editor binary to the output dir
 install_editor_binary() {
-    local threads="$1"  # yes or no
-
     local godot_dir="${PROJECT_DIR}/build/godot-${GODOT_VERSION}"
-    local suffix="wasm32"
-    [ "$threads" = "yes" ] && suffix="wasm32.pthreads"
 
-    local zip_file="${godot_dir}/bin/godot.web.editor.${suffix}.dlink.zip"
-    [ ! -f "$zip_file" ] && zip_file="${godot_dir}/bin/godot.web.editor.${suffix}.zip"
+    local zip_file="${godot_dir}/bin/godot.web.editor.wasm32.pthreads.dlink.zip"
+    [ ! -f "$zip_file" ] && zip_file="${godot_dir}/bin/godot.web.editor.wasm32.pthreads.zip"
     if [ ! -f "$zip_file" ]; then
-        echo "Error: Could not find built editor zip (threads=${threads})" >&2
+        echo "Error: Could not find built editor zip (threads=yes)" >&2
         ls "${godot_dir}/bin/"*.zip 2>/dev/null || true
         exit 1
     fi
 
-    local thread_name
-    [ "$threads" = "yes" ] && thread_name="threads" || thread_name="nothreads"
-
-    local dest_dir="${OUTPUT_DIR}/editor/${thread_name}"
+    local dest_dir="${OUTPUT_DIR}/editor/threads"
     mkdir -p "$dest_dir"
     cp "$zip_file" "${dest_dir}/web_editor.zip"
     echo "Installed: ${dest_dir}/web_editor.zip"
@@ -326,35 +298,27 @@ build_web() {
     [ "$BUILD_DEBUG" = "yes" ] && targets+=("template_debug")
     [ "$BUILD_RELEASE" = "yes" ] && targets+=("template_release")
 
-    local thread_modes=()
-    [ "$BUILD_NOTHREADS" = "yes" ] && thread_modes+=("no")
-    [ "$BUILD_THREADS" = "yes" ] && thread_modes+=("yes")
-
     if [ $BUILD_EDITOR -eq 1 ]; then
         echo ""
         echo "=== Building Godot Web editor ==="
         echo "  Version: ${GODOT_VERSION}"
         echo "  Exceptions: enabled (disable_exceptions=no)"
-        echo "  Threads: ${BUILD_THREADS}/${BUILD_NOTHREADS}"
+        echo "  Threads: yes"
         echo ""
 
-        for threads in "${thread_modes[@]}"; do
-            build_one_variant "editor" "$threads"
-            install_editor_binary "$threads"
-        done
+        build_one_variant "editor"
+        install_editor_binary
     else
         echo ""
         echo "=== Building Godot Web export templates ==="
         echo "  Version: ${GODOT_VERSION}"
         echo "  Exceptions: enabled (disable_exceptions=no)"
-        echo "  Variants: debug=${BUILD_DEBUG} release=${BUILD_RELEASE} threads=${BUILD_THREADS} nothreads=${BUILD_NOTHREADS}"
+        echo "  Variants: debug=${BUILD_DEBUG} release=${BUILD_RELEASE} threads=yes"
         echo ""
 
         for target in "${targets[@]}"; do
-            for threads in "${thread_modes[@]}"; do
-                build_one_variant "$target" "$threads"
-                install_template_zip "$target" "$threads"
-            done
+            build_one_variant "$target"
+            install_template_zip "$target"
         done
     fi
 
@@ -387,10 +351,8 @@ main() {
     echo ""
     echo "Done! Output installed to: ${OUTPUT_DIR}"
     if [ $BUILD_EDITOR -eq 1 ]; then
-        echo "  editor/nothreads/web_editor.zip"
         echo "  editor/threads/web_editor.zip"
     else
-        echo "  nothreads/web_debug.zip, nothreads/web_release.zip"
         echo "  threads/web_debug.zip, threads/web_release.zip"
     fi
 }

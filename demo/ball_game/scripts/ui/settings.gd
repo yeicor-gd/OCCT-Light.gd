@@ -27,6 +27,15 @@ var _preset_normal_btn: Button = null
 var _preset_custom_btn: Button = null
 var _preset_group: ButtonGroup = null
 
+# ── Generation overlay ───────────────────────────────────────────────────────
+var _gen_overlay: MarginContainer = null
+var _gen_label: Label = null
+var _gen_bar: ProgressBar = null
+var _gen_orbit_time: float = 0.0
+var _gen_orbit_active: bool = false
+var _gen_orbit_center: Vector3 = Vector3.ZERO
+var _gen_orbit_radius: float = 0.0
+
 # ── Lifecycle ─────────────────────────────────────────────────────────────────
 
 func _ready() -> void:
@@ -55,6 +64,13 @@ func _ready() -> void:
 
 	_build_ui()
 	_apply_preset("fast")
+
+	# Find generation overlay nodes (added in ui.tscn)
+	_gen_overlay = get_node_or_null("../GenerationOverlay") as MarginContainer
+	if _gen_overlay:
+		_gen_label = _gen_overlay.get_node("VBox/ProgressLabel") as Label
+		_gen_bar = _gen_overlay.get_node("VBox/ProgressBar") as ProgressBar
+
 	_auto_configure.call_deferred()
 
 
@@ -141,17 +157,11 @@ func _build_maze_tab(tabs: TabContainer) -> void:
 	_label(vb, "Preset")
 	var preset_row := _hrow(vb)
 	_preset_group = ButtonGroup.new()
-	var preset_pressed_style := StyleBoxFlat.new()
-	preset_pressed_style.bg_color = Color(0.25, 0.55, 0.95)
-	preset_pressed_style.set_corner_radius_all(4)
-	preset_pressed_style.content_margin_left = 8
-	preset_pressed_style.content_margin_right = 8
 
 	_preset_fast_btn = Button.new()
 	_preset_fast_btn.text = "Fast"
 	_preset_fast_btn.toggle_mode = true
 	_preset_fast_btn.button_group = _preset_group
-	_preset_fast_btn.add_theme_stylebox_override("pressed", preset_pressed_style)
 	_preset_fast_btn.pressed.connect(func(): _apply_preset("fast"))
 	preset_row.add_child(_preset_fast_btn)
 
@@ -159,7 +169,6 @@ func _build_maze_tab(tabs: TabContainer) -> void:
 	_preset_normal_btn.text = "Normal"
 	_preset_normal_btn.toggle_mode = true
 	_preset_normal_btn.button_group = _preset_group
-	_preset_normal_btn.add_theme_stylebox_override("pressed", preset_pressed_style)
 	_preset_normal_btn.pressed.connect(func(): _apply_preset("normal"))
 	preset_row.add_child(_preset_normal_btn)
 
@@ -167,7 +176,6 @@ func _build_maze_tab(tabs: TabContainer) -> void:
 	_preset_custom_btn.text = "Custom"
 	_preset_custom_btn.toggle_mode = true
 	_preset_custom_btn.button_group = _preset_group
-	_preset_custom_btn.add_theme_stylebox_override("pressed", preset_pressed_style)
 	_preset_custom_btn.pressed.connect(func(): (get_node("Settings") as TabContainer).current_tab = 1)  # Maze (advanced)
 	preset_row.add_child(_preset_custom_btn)
 
@@ -458,6 +466,32 @@ func _detect_preset() -> void:
 		_preset_custom_btn.button_pressed = true
 
 
+func is_default_config() -> bool:
+	if not _gen:
+		return false
+	var paths := _gen.get_node("Paths")
+	var meshes := _gen.get_node("Meshes")
+	var obstacles := _gen.get_node("Obstacles")
+	var markers := _gen.get_node("Markers")
+	return (
+		int(paths.get("total_shortcuts")) == 0 and
+		absf(paths.get("camber_amount") - 2.0) < 0.001 and
+		meshes.get("sweep_shortcuts") == false and
+		meshes.get("clean_shortcuts") == false and
+		absf(meshes.get("wall_height_noise_freq") - 0.1) < 0.001 and
+		meshes.get("display_fancy") == false and
+		int(meshes.get("display_sweep_mode")) == 1 and
+		meshes.get("display_validate_geometry") == false and
+		meshes.get("physics_validate_geometry") == false and
+		absf(meshes.get("display_edge_radius") - 0.0) < 0.001 and
+		absf(meshes.get("display_vertex_radius") - 0.0) < 0.001 and
+		int(meshes.get("merge_batch_size")) == 32 and
+		absf(obstacles.get("obstacle_positive_frequency") - 0.0) < 0.001 and
+		absf(markers.get("marker_edge_radius") - 0.0) < 0.001 and
+		absf(markers.get("marker_vertex_radius") - 0.0) < 0.001
+	)
+
+
 # ── Rope length ───────────────────────────────────────────────────────────────
 
 func _apply_rope_length_no_regen(pct: float) -> void:
@@ -518,43 +552,195 @@ func _apply_rope_length_no_regen(pct: float) -> void:
 
 # ── Regenerate ────────────────────────────────────────────────────────────────
 
-func _do_regenerate() -> void:
+func _do_regenerate(orbit: bool = true) -> void:
 	assert(_gen != null, "GameSettings: cannot regenerate \u2014 MazeGenerator not found")
-	if _progress_label:
-		_progress_label.text = "Generating paths\u2026"
-		_progress_label.visible = true
 	_paths_ms = 0.0
+	_total_chunks = 0
+	_done_chunks = 0
+
+	if orbit:
+		_start_gen_overlay("Generating paths\u2026", -1.0)
+		_start_camera_orbit()
+	else:
+		if _progress_label:
+			_progress_label.text = "Generating paths\u2026"
+			_progress_label.visible = true
+
 	await _gen.regenerate_all(false)
+
+	if orbit:
+		_finish_camera_orbit()
+		_show_gen_overlay_done()
+		await get_tree().create_timer(0.6).timeout
+		_hide_gen_overlay()
+
+
+func _start_gen_overlay(text: String, percent: float) -> void:
+	if not _gen_overlay:
+		return
+	# Hide settings panel while generating.
+	visible = false
+	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	get_tree().paused = false
+	_gen_overlay.visible = true
+	if _gen_label:
+		_gen_label.text = text
+	if _gen_bar:
+		if percent < 0.0:
+			_gen_bar.indeterminate = true
+			_gen_bar.value = 50.0
+		else:
+			_gen_bar.indeterminate = false
+			_gen_bar.value = percent
+
+
+func _update_gen_overlay(text: String, percent: float) -> void:
+	if not _gen_overlay or not _gen_overlay.visible:
+		return
+	if _gen_label:
+		_gen_label.text = text
+	if _gen_bar:
+		if percent < 0.0:
+			if not _gen_bar.indeterminate:
+				_gen_bar.indeterminate = true
+				_gen_bar.value = 50.0
+		else:
+			_gen_bar.indeterminate = false
+			_gen_bar.value = percent
+
+
+func _show_gen_overlay_done() -> void:
+	_update_gen_overlay(
+		"Done in %.1fs (paths: %.1fs, geometry: %.1fs)" % [
+			(_paths_ms + _last_mesh_ms) / 1000.0,
+			_paths_ms / 1000.0,
+			_last_mesh_ms / 1000.0],
+		100.0)
+
+
+func _hide_gen_overlay() -> void:
+	if _gen_overlay:
+		_gen_overlay.visible = false
+
+
+# ── Camera orbit during generation ────────────────────────────────────────────
+
+func _start_camera_orbit() -> void:
+	var world := _gen.get_parent_node_3d()
+	if not world:
+		return
+
+	# Hide the decorative rotatable scene; keep Maze visible.
+	var rot_scene := world.get_node_or_null("RotatableScene") as Node3D
+	if rot_scene:
+		rot_scene.visible = false
+
+	# Hide player during orbit.
+	var player := world.get_node_or_null("Player") as Node3D
+	if player:
+		player.visible = false
+
+	# Position camera for orbit.
+	var cam_rig := _find_camera_rig()
+	if not cam_rig:
+		return
+	cam_rig.orbit_mode = true
+
+	_gen_orbit_center = Vector3.ZERO
+	_gen_orbit_radius = _gen.maze_outer_radius * 1.8
+	_gen_orbit_time = 0.0
+	_gen_orbit_active = true
+
+	# Start from back, looking at origin.
+	cam_rig.global_position = _gen_orbit_center + Vector3(0, 0, _gen_orbit_radius)
+	cam_rig.look_at(_gen_orbit_center, Vector3.UP)
+
+
+func _finish_camera_orbit() -> void:
+	_gen_orbit_active = false
+
+	var world := _gen.get_parent_node_3d()
+	if world:
+		var player := world.get_node_or_null("Player") as Node3D
+		if player:
+			player.visible = true
+		var rot_scene := world.get_node_or_null("RotatableScene") as Node3D
+		if rot_scene:
+			rot_scene.visible = false
+
+	var cam_rig := _find_camera_rig()
+	if cam_rig:
+		cam_rig.orbit_mode = false
+
+
+func _find_camera_rig() -> CameraRig:
+	var world := _gen.get_parent_node_3d()
+	if not world:
+		return null
+	var player := world.get_node_or_null("Player") as Node3D
+	if not player:
+		return null
+	return player.get_node_or_null("CameraRig") as CameraRig
+
+
+func _process(delta: float) -> void:
+	if not _gen_orbit_active:
+		return
+	_gen_orbit_time += delta * 0.4
+
+	var cam_rig := _find_camera_rig()
+	if not cam_rig:
+		return
+
+	# Smooth orbit: sweep 120 degrees around the sphere.
+	var angle := _gen_orbit_time
+	var pos := _gen_orbit_center + Vector3(
+		sin(angle) * _gen_orbit_radius,
+		_gen_orbit_radius * 0.3,
+		cos(angle) * _gen_orbit_radius
+	)
+	cam_rig.global_position = cam_rig.global_position.lerp(pos, 5.0 * delta)
+	cam_rig.look_at(_gen_orbit_center, Vector3.UP)
 
 
 # ── Progress callbacks ────────────────────────────────────────────────────────
 
 var _total_chunks := 0
 var _done_chunks := 0
+var _last_mesh_ms := 0.0
 
 func _on_paths_started() -> void:
+	_update_gen_overlay("Generating paths\u2026", -1.0)
 	if _progress_label:
 		_progress_label.text = "Generating paths\u2026"
 		_progress_label.visible = true
 
 func _on_paths_finished(elapsed_ms: float) -> void:
 	_paths_ms = elapsed_ms
+	_update_gen_overlay("Building geometry\u2026", -1.0)
 	if _progress_label:
 		_progress_label.text = "Building geometry\u2026"
 
 func _on_generation_started(total: int) -> void:
 	_total_chunks = total
 	_done_chunks = 0
+	_update_gen_overlay("Building geometry\u2026 0 / %d chunks" % total, 0.0)
 	if _progress_label:
 		_progress_label.text = "Building geometry\u2026 0 / %d chunks" % total
 		_progress_label.visible = true
 
 func _on_chunk_completed(_idx: int, _name: String, _ms: float) -> void:
 	_done_chunks += 1
+	if _total_chunks > 0:
+		var pct := float(_done_chunks) / float(_total_chunks) * 100.0
+		_update_gen_overlay(
+			"Building geometry\u2026 %d / %d chunks" % [_done_chunks, _total_chunks],
+			pct)
 	if _progress_label and _total_chunks > 0:
 		_progress_label.text = "Building geometry\u2026 %d / %d chunks" % [_done_chunks, _total_chunks]
 
 func _on_mesh_finished(total_ms: float, paths_ms: float, mesh_ms: float) -> void:
+	_last_mesh_ms = mesh_ms
 	if _progress_label:
 		_progress_label.text = "Done in %.1fs (paths: %.1fs, geometry: %.1fs)" % [
 			total_ms / 1000.0, paths_ms / 1000.0, mesh_ms / 1000.0]
@@ -633,7 +819,7 @@ func _apply_json() -> void:
 		var props: Dictionary = parsed[key]
 		_apply_dict_to_obj(node, props)
 	_refresh_json()
-	await _do_regenerate()
+	await _do_regenerate(true)
 	_detect_preset()
 
 
@@ -653,31 +839,40 @@ func _apply_dict_to_obj(obj: Object, props: Dictionary) -> void:
 
 func _auto_configure() -> void:
 	var json_text := _read_auto_config()
-	if json_text.is_empty():
+	# "" = no hash at all → normal startup, no auto-play.
+	# "null" = hash present but empty value → use default map, skip regen.
+	# "<json>" = hash present with config → apply config, regenerate.
+	if json_text == "":
 		return
-	var parsed = JSON.parse_string(json_text)
-	if not parsed is Dictionary:
-		push_warning("GameSettings: MAZE_CONFIG is not a valid JSON object")
-		return
-	var node_map := {}
-	for entry in _json_nodes():
-		node_map[entry["key"]] = entry["node"]
-	for key in parsed:
-		if not node_map.has(key):
-			continue
-		var node: Node = node_map[key]
-		var props: Dictionary = parsed[key]
-		_apply_dict_to_obj(node, props)
-	visible = true
-	mouse_filter = Control.MOUSE_FILTER_STOP
-	get_tree().paused = true
-	if _json_edit:
-		_refresh_json()
-	await _do_regenerate()
-	_detect_preset()
 
-	# Auto-play: close settings, sync positions, respawn, jump timer forward.
-	_on_close_settings_button_pressed()
+	var has_config := json_text != "null" and not json_text.is_empty()
+
+	if has_config:
+		var parsed = JSON.parse_string(json_text)
+		if not parsed is Dictionary:
+			push_warning("GameSettings: MAZE_CONFIG is not a valid JSON object")
+			return
+		var node_map := {}
+		for entry in _json_nodes():
+			node_map[entry["key"]] = entry["node"]
+		for key in parsed:
+			if not node_map.has(key):
+				continue
+			var node: Node = node_map[key]
+			var props: Dictionary = parsed[key]
+			_apply_dict_to_obj(node, props)
+		if _json_edit:
+			_refresh_json()
+		_detect_preset()
+		# Regenerate with full overlay + camera orbit.
+		await _do_regenerate(true)
+	else:
+		# Empty hash → default map, just show overlay briefly + respawn.
+		_start_gen_overlay("Preparing\u2026", 100.0)
+		await get_tree().create_timer(0.4).timeout
+		_hide_gen_overlay()
+
+	# Auto-play: sync positions, respawn, jump timer forward.
 	if _gen:
 		var death_area := _gen.get_node_or_null("DeathArea")
 		if death_area and death_area.has_method("_sync_from_parent"):
@@ -697,27 +892,50 @@ func _read_auto_config() -> String:
 	if not env_val.is_empty():
 		return env_val
 	if OS.has_feature("web"):
-		var js_val: String = str(JavaScriptBridge.eval("window.location.hash.substring(1)", true))
-		if not js_val.is_empty():
-			return _parse_hash_config(js_val)
-		var params: String = str(JavaScriptBridge.eval(
-			"new URLSearchParams(window.location.search).get('config') || ''", true))
-		if not params.is_empty():
-			return params
+		var js_hash: String = str(JavaScriptBridge.eval("window.location.hash.substring(1)", true))
+		if not js_hash.is_empty():
+			return _parse_hash_config(js_hash)
 	return ""
 
 
 func _parse_hash_config(_hash: String) -> String:
-	if _hash.begins_with("{"):
-		return _hash
-	var result := {}
-	for pair in _hash.split("&", false):
-		var kv := pair.split("=", 2)
-		if kv.size() == 2:
-			result[kv[0]] = kv[1]
-	if result.is_empty():
+	if _hash.begins_with("ball_game_config="):
+		var payload := _hash.substr(17)  # len("ball_game_config=")
+		if payload.is_empty():
+			return "null"  # Signal: hash present, use defaults.
+		return _decompress_config(payload)
+	return ""
+
+
+func _decompress_config(b64: String) -> String:
+	var data := _base64url_decode(b64)
+	if data.is_empty():
 		return ""
-	return JSON.stringify(result)
+	var decompressed := data.decompress(65536, FileAccess.COMPRESSION_GZIP)
+	if decompressed.is_empty():
+		push_warning("GameSettings: failed to decompress config")
+		return ""
+	return decompressed.get_string_from_utf8()
+
+
+const _B64URL_CHARS := "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+
+func _base64url_decode(encoded: String) -> PackedByteArray:
+	var lookup := {}
+	for i in range(_B64URL_CHARS.length()):
+		lookup[_B64URL_CHARS[i]] = i
+	var result := PackedByteArray()
+	var bits := 0
+	var buf := 0
+	for c in encoded:
+		if not lookup.has(c):
+			continue
+		buf = (buf << 6) | lookup[c]
+		bits += 6
+		if bits >= 8:
+			bits -= 8
+			result.append((buf >> bits) & 0xFF)
+	return result
 
 
 # ── Config persistence ────────────────────────────────────────────────────────

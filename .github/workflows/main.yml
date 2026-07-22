@@ -134,7 +134,6 @@ jobs:
             { vcpkg_triplet: x86-windows-static, os: windows-2025-vs2026 }, # MSVC instead of mingw
             { vcpkg_triplet: arm64-windows-static, os: windows-2025-vs2026 }, # MSVC instead of mingw
             { vcpkg_triplet: universal-osx, os: macos-15 },
-            { vcpkg_triplet: wasm32-emscripten, os: ubuntu-24.04, threads: off },
             { vcpkg_triplet: wasm32-emscripten, os: ubuntu-24.04, threads: on },
             { vcpkg_triplet: x64-android, os: ubuntu-24.04 },
             { vcpkg_triplet: x86-android, os: ubuntu-24.04 },
@@ -512,16 +511,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Templates: 4 variants (debug/release x nothreads/threads)
-          - { type: template, threads: no, mode: debug, flags: "--nothreads --mode=debug" }
-          - { type: template, threads: no, mode: release, flags: "--nothreads --mode=release" }
-          - { type: template, threads: yes, mode: debug, flags: "--threads --mode=debug" }
-          - { type: template, threads: yes, mode: release, flags: "--threads --mode=release" }
-          # Editor: 4 variants (mode is ignored for editor builds)
-          - { type: editor, threads: no, mode: debug, flags: "--editor --nothreads --mode=debug" }
-          - { type: editor, threads: no, mode: release, flags: "--editor --nothreads --mode=release" }
-          - { type: editor, threads: yes, mode: debug, flags: "--editor --threads --mode=debug" }
-          - { type: editor, threads: yes, mode: release, flags: "--editor --threads --mode=release" }
+          # Templates: 2 variants (debug/release, threads only)
+          - { type: template, mode: debug, flags: "--mode=debug" }
+          - { type: template, mode: release, flags: "--mode=release" }
+          # Editor: 2 variants (debug/release)
+          - { type: editor, mode: debug, flags: "--editor --mode=debug" }
+          - { type: editor, mode: release, flags: "--editor --mode=release" }
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -548,7 +543,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: web-${{ matrix.type }}-${{ matrix.threads == 'yes' && 'threads' || 'nothreads' }}-${{ matrix.mode }}
+          name: web-${{ matrix.type }}-threads-${{ matrix.mode }}
           path: web-build/
 
   export-demo:
@@ -566,7 +561,6 @@ jobs:
             { triplet: x86-mingw-static, preset: "Windows Desktop x86", os: windows-2025-vs2026 },
             { triplet: arm64-mingw-static, preset: "Windows Desktop arm64", os: windows-2025-vs2026 },
             { triplet: universal-osx, preset: "macOS", os: macos-15 },
-            { triplet: wasm32-emscripten, preset: "Web", os: ubuntu-24.04 },
             { triplet: wasm32-emscripten, preset: "Web Threads", os: ubuntu-24.04 },
             { triplet: arm64-android, preset: "Android arm64-v8a", os: ubuntu-24.04 },
             { triplet: arm-neon-android, preset: "Android armeabi-v7a", os: ubuntu-24.04 },
@@ -626,7 +620,7 @@ jobs:
         if: contains(matrix.target.triplet, 'wasm32-emscripten')
         uses: actions/download-artifact@v8
         with:
-          name: web-template-${{ contains(matrix.target.preset, 'Threads') && 'threads' || 'nothreads' }}-${{ matrix.mode }}
+          name: web-template-threads-${{ matrix.mode }}
           path: web-templates
 
       - name: Install custom web templates
@@ -634,9 +628,8 @@ jobs:
         shell: bash
         run: |
           set -e
-          THREAD_DIR="${{ contains(matrix.target.preset, 'Threads') && 'threads' || 'nothreads' }}"
-          mkdir -p "demo/templates/${THREAD_DIR}"
-          cp "web-templates/${THREAD_DIR}/web_${{ matrix.mode }}.zip" "demo/templates/${THREAD_DIR}/"
+          mkdir -p demo/templates/threads
+          cp "web-templates/threads/web_${{ matrix.mode }}.zip" "demo/templates/threads/"
           ls -R demo/templates/
 
       - name: Generate autowrapper bindings
@@ -681,7 +674,7 @@ jobs:
       - name: Download web demo artifact
         uses: actions/download-artifact@v8
         with:
-          name: demo-web-release
+          name: demo-web-threads-release
           path: web
 
       - name: Upload pages artifact

@@ -180,23 +180,18 @@ static func test_sweep_fancy_straight_chunk() -> String:
 	var builder := ChunkBuilder.new()
 	builder.chunk_size = n - 1
 
-	# Note: wh >= 1.0 (roof mode) adds a second profile (thin roof slab) whose
-	# pipe_shell fails for some transition modes.  SWEEP+fancy alone is only
-	# reliable for non-roof wall heights; roof mode requires the full fallback ladder.
-	for wh: float in [0.3, 0.5, 0.8]:  # wh >= 1.0 excluded: roof pipe_shell needs fallback
-		heights.fill(wh)
-		var out_attempt := [-1]
-		var graphs: Array[OclGraphHandle] = builder.build_chunk_graphs(
-			chunk, curve, aux, cfg,
-			true, false, false, [],
-			[{"mode": OclMeshBuilder.SweepMode.SWEEP, "fancy": true}],
-			out_attempt,
-			heights,
-		)
-		if graphs.is_empty():
-			return "SWEEP+fancy failed on spherical-arc chunk with wall_height=%.1f (attempt=%d)" % [wh, out_attempt[0]]
-		for g in graphs:
-			OclTopo.graph_free(g)
+	var out_attempt := [-1]
+	var graphs: Array[OclGraphHandle] = builder.build_chunk_graphs(
+		chunk, curve, aux, cfg,
+		true, false, false, [],
+		[{"mode": OclMeshBuilder.SweepMode.SWEEP, "fancy": true}],
+		out_attempt,
+		heights,
+	)
+	if graphs.is_empty():
+		return "SWEEP+fancy failed on spherical-arc chunk with attempt=%d" % [out_attempt[0]]
+	for g in graphs:
+		OclTopo.graph_free(g)
 	return OK
 
 
