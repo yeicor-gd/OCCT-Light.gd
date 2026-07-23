@@ -215,7 +215,9 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
   find_program(PYTHON3_EXECUTABLE python3 REQUIRED)
   add_custom_command(
     TARGET ${PROJECT_NAME} POST_BUILD
-    COMMAND ${PYTHON3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/repair_wasm.py
+    COMMAND ${CMAKE_COMMAND} -E env
+            "DEBUG=$<IF:$<CONFIG:Debug>,1,>"
+            ${PYTHON3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/repair_wasm.py
             $<TARGET_FILE_DIR:${PROJECT_NAME}> $<TARGET_FILE_DIR:${PROJECT_NAME}>
     COMMENT "Repairing and optimizing WASM binary..."
     VERBATIM
