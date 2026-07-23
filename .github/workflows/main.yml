@@ -23,6 +23,7 @@ jobs:
       godot_min_version_tag: ${{ steps.godot.outputs.godot_min_version_tag }}
       godot_versions: ${{ steps.godot.outputs.godot_versions }}
       godot_max_version: ${{ steps.godot.outputs.godot_max_version }}
+      rebuild_hash: ${{ steps.godot.outputs.rebuild_hash }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -71,6 +72,16 @@ jobs:
           echo "godot_min_version_tag=$COMPAT_MIN-stable" >> $GITHUB_OUTPUT
           echo "godot_versions=$GODOT_VERSIONS_JSON" >> $GITHUB_OUTPUT
           echo "godot_max_version=$GODOT_MAX_VERSION" >> $GITHUB_OUTPUT
+
+          # Hash of inputs that affect the web build (templates + editor).
+          REBUILD_HASH=$(cat \
+            demo/addons/*/gdext.gdextension \
+            CMakeLists.txt \
+            src/*.cpp src/*.h \
+            tools/repair_wasm.py \
+            tools/build_godot_web_templates.sh \
+            2>/dev/null | sha256sum | cut -d' ' -f1 | head -c 12)
+          echo "rebuild_hash=$REBUILD_HASH" >> $GITHUB_OUTPUT
 
   prepare-api:
     needs: read-versions
@@ -542,12 +553,24 @@ jobs:
       - name: Install build tools
         run: pip install scons && sudo apt-get install -y jq
 
+      - name: Compute versioned artifact name
+        id: artifact
+        shell: bash
+        run: |
+          # Full name used for cache lookups — includes version + rebuild hash
+          # to prevent stale caches across Godot version bumps or source changes.
+          CACHE_NAME="web-${{ matrix.type }}-threads-${{ matrix.mode }}-${{ needs.read-versions.outputs.godot_max_version }}-${{ needs.read-versions.outputs.rebuild_hash }}"
+          # Current-run name used by downstream jobs (short, no version).
+          RUN_NAME="web-${{ matrix.type }}-threads-${{ matrix.mode }}"
+          echo "cache=${CACHE_NAME}" >> $GITHUB_OUTPUT
+          echo "run=${RUN_NAME}" >> $GITHUB_OUTPUT
+
       - name: Download cached build artifact
         id: cache
         shell: bash
         run: |
           set +e
-          CACHE_ARTIFACT="web-${{ matrix.type }}-threads-${{ matrix.mode }}"
+          CACHE_ARTIFACT="${{ steps.artifact.outputs.cache }}"
           echo "Attempting to download cache artifact: ${CACHE_ARTIFACT}"
           ./.github/scripts/download-cached-artifact.sh \
             --same-branch-first \
@@ -568,10 +591,10 @@ jobs:
             web-build
 
       - name: Upload artifact
-        if: steps.cache.outputs.cache-hit != 'true'
+        if: always() && steps.cache.conclusion == 'success'
         uses: actions/upload-artifact@v7
         with:
-          name: web-${{ matrix.type }}-threads-${{ matrix.mode }}
+          name: ${{ steps.artifact.outputs.run }}
           path: web-build/
 
   export-demo:
