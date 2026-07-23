@@ -271,7 +271,8 @@ install_template_zip() {
 install_editor_binary() {
     local godot_dir="${PROJECT_DIR}/build/godot-${GODOT_VERSION}"
 
-    local zip_file="${godot_dir}/bin/godot.web.editor.wasm32.pthreads.dlink.zip"
+    local zip_file="${godot_dir}/bin/godot.web.editor.wasm32.dlink.zip"
+    [ ! -f "$zip_file" ] && zip_file="${godot_dir}/bin/godot.web.editor.wasm32.pthreads.dlink.zip"
     [ ! -f "$zip_file" ] && zip_file="${godot_dir}/bin/godot.web.editor.wasm32.pthreads.zip"
     if [ ! -f "$zip_file" ]; then
         echo "Error: Could not find built editor zip (threads=yes)" >&2
