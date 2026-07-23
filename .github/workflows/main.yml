@@ -542,7 +542,23 @@ jobs:
       - name: Install build tools
         run: pip install scons && sudo apt-get install -y jq
 
+      - name: Download cached build artifact
+        id: cache
+        shell: bash
+        run: |
+          set +e
+          CACHE_ARTIFACT="web-${{ matrix.type }}-threads-${{ matrix.mode }}"
+          echo "Attempting to download cache artifact: ${CACHE_ARTIFACT}"
+          ./.github/scripts/download-cached-artifact.sh \
+            --same-branch-first \
+            --delete-older \
+            "${CACHE_ARTIFACT}" "web-build"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+
       - name: Build web artifact (exceptions enabled)
+        if: steps.cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
           set -e
@@ -552,6 +568,7 @@ jobs:
             web-build
 
       - name: Upload artifact
+        if: steps.cache.outputs.cache-hit != 'true'
         uses: actions/upload-artifact@v7
         with:
           name: web-${{ matrix.type }}-threads-${{ matrix.mode }}
