@@ -682,11 +682,55 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          submodules: false
+
       - name: Download web demo artifact
         uses: actions/download-artifact@v8
         with:
           name: demo-web-threads-release
           path: web
+
+      - name: Download and extract web editor
+        shell: bash
+        run: |
+          set -e
+          mkdir -p web/editor
+          gh run download "${{ github.run_id }}" \
+            --name web-editor-threads-release \
+            --dir editor-dl
+          cd editor-dl
+          unzip -q editor/threads/web_editor.zip -d "${{ github.workspace }}/web/editor"
+          rm -rf editor-dl
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+
+      - name: Patch editor HTML with project preload
+        shell: bash
+        run: |
+          set -e
+          HTML="web/editor/godot.editor.html"
+
+          # Accept optional projectPath parameter
+          sed -i 's/function startEditor(zip) {/function startEditor(zip, projectPath) {/' "$HTML"
+
+          # Use --editor --path when projectPath is given
+          sed -i "s|const args = \['--project-manager', '--single-window'\];|const args = projectPath ? ['--editor', '--path', projectPath, '--single-window'] : ['--project-manager', '--single-window'];|" "$HTML"
+
+          # Only use persistentDrops in project-manager mode
+          sed -i "s|'persistentDrops': true|'persistentDrops': !projectPath|" "$HTML"
+
+          # Inject preload script before </body>
+          sed -i '/<\/body>/,$d' "$HTML"
+          sed -i '/<\/html>/d' "$HTML"
+          # Replace repo/branch placeholders
+          sed "s|__GITHUB_REPOSITORY__|${{ github.repository }}|g; s|__GITHUB_BRANCH__|main|g" \
+            tools/web_editor_preload.html >> "$HTML"
+          echo '</body>' >> "$HTML"
+          echo '</html>' >> "$HTML"
 
       - name: Upload pages artifact
         uses: actions/upload-pages-artifact@v4
