@@ -6,7 +6,7 @@
 ## Tabs:
 ##   0 Maze (basic)    — seed, presets, rope-length slider, regenerate button + progress
 ##   1 Maze (advanced) — full JSON editor for all exported properties of Maze + children
-##   2 Miscellaneous   — virtual controls toggle, audio mute, key bindings reference
+##   Footer            — virtual controls toggle, audio mute, key bindings reference
 
 extends MarginContainer
 class_name GameSettings
@@ -99,7 +99,7 @@ func _build_ui() -> void:
 
 	_build_maze_tab(tabs)
 	_build_advanced_tab(tabs)
-	_build_misc_tab(tabs)
+	_build_footer()
 
 
 func _hrow(parent: Control) -> HBoxContainer:
@@ -237,64 +237,44 @@ func _build_advanced_tab(tabs: TabContainer) -> void:
 	_refresh_json()
 
 
-# ── Miscellaneous tab ─────────────────────────────────────────────────────────
+# ── Footer (misc controls visible on all tabs) ──────────────────────────────
 
-func _build_misc_tab(tabs: TabContainer) -> void:
-	var vb := VBoxContainer.new()
-	vb.name = "Miscellaneous"
-	vb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var scroll := ScrollContainer.new()
-	scroll.name = "Miscellaneous"
-	scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	scroll.add_child(vb)
-	tabs.add_child(scroll)
+func _build_footer() -> void:
+	var parent := get_node_or_null("Settings") as TabContainer
+	if not parent:
+		return
+	var footer := VBoxContainer.new()
+	footer.name = "Footer"
+	footer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	parent.add_child(footer)
 
-	# ── Native download hint (web only) ───────────────────────────────────
-	if OS.has_feature("web"):
-		var web_hint := Label.new()
-		web_hint.text = "For better performance, download the native version for your platform:"
-		web_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		vb.add_child(web_hint)
-		var link := LinkButton.new()
-		link.text = "https://github.com/yeicor-gd/OCCT-Light.gd/actions"
-		link.uri = "https://github.com/yeicor-gd/OCCT-Light.gd/actions"
-		vb.add_child(link)
-		vb.add_child(HSeparator.new())
+	footer.add_child(HSeparator.new())
 
-	# ── Virtual Controls ──────────────────────────────────────────────────
-	_label(vb, "Virtual Controls")
-	var vc_row := _hrow(vb)
-	var vc_info := Label.new()
-	vc_info.text = "Show on-screen joystick & jump button"
-	vc_info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	vc_row.add_child(vc_info)
+	var row := HBoxContainer.new()
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	footer.add_child(row)
+
+	var vc_label := Label.new()
+	vc_label.text = "Virtual Controls"
+	row.add_child(vc_label)
 	var vc_toggle := CheckButton.new()
 	vc_toggle.button_pressed = _config.get_value("controls", "virtual_controls",
 		OS.has_feature("mobile") or OS.has_feature("android") or OS.has_feature("ios"))
 	vc_toggle.toggled.connect(_on_virtual_controls_toggled)
-	vc_row.add_child(vc_toggle)
+	row.add_child(vc_toggle)
 
-	vb.add_child(HSeparator.new())
-
-	# ── Audio Mute ────────────────────────────────────────────────────────
-	_label(vb, "Audio")
-	var am_row := _hrow(vb)
-	var am_info := Label.new()
-	am_info.text = "Mute all audio"
-	am_info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	am_row.add_child(am_info)
+	var am_label := Label.new()
+	am_label.text = "Mute Audio"
+	row.add_child(am_label)
 	var am_toggle := CheckButton.new()
 	am_toggle.button_pressed = _config.get_value("controls", "mute_audio", false)
 	am_toggle.toggled.connect(_on_mute_audio_toggled)
-	am_row.add_child(am_toggle)
+	row.add_child(am_toggle)
 
-	vb.add_child(HSeparator.new())
-
-	# ── Key Bindings Reference ────────────────────────────────────────────
-	var ref_label := Label.new()
-	ref_label.text = "Keyboard/Gamepad:\n  WASD / Arrows \u2014 Move\n  Space \u2014 Jump\n  R \u2014 Respawn\n  IJKL \u2014 Camera\n\nTouch:\n  Left half \u2014 Joystick (move)\n  Right half \u2014 Drag (camera)"
-	ref_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	vb.add_child(ref_label)
+	var bindings := Label.new()
+	bindings.text = "WASD:Move | Space:Jump | R:Respawn | IJKL:Camera"
+	bindings.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(bindings)
 
 
 func _on_virtual_controls_toggled(pressed: bool) -> void:

@@ -77,6 +77,10 @@ func _on_share_pressed() -> void:
 		config["Obstacles"] = _gather_node_exports(maze.get_node("Obstacles"))
 
 	var base_url := "https://yeicor-gd.github.io/OCCT-Light.gd/gdext-tests.html"
+	if OS.has_feature("web") and not OS.has_feature("desktop"):
+		var current_url: String = str(JavaScriptBridge.eval("window.location.href.split('#')[0]", true))
+		if not current_url.is_empty() and current_url.begins_with("http"):
+			base_url = current_url
 	var settings := get_tree().root.find_child("GameSettings", true, false)
 	var url: String
 	if settings and settings.is_default_config():
