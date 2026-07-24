@@ -542,7 +542,7 @@ jobs:
           version: ${{ needs.read-versions.outputs.em_version }}
 
       - name: Install build tools
-        run: pip install scons && sudo apt-get install -y jq
+        run: pip install scons && sudo apt-get install -y jq zip
 
       - name: Compute versioned artifact name
         id: artifact
@@ -582,7 +582,7 @@ jobs:
             web-build
 
       - name: Upload artifact
-        if: always() && steps.cache.conclusion == 'success'
+        if: steps.cache.conclusion == 'success'
         uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.artifact.outputs.run }}
@@ -739,21 +739,24 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
 
+      - name: Download JSZip for preload script
+        run: curl -sL "https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js" -o web/editor/jszip.min.js
+
       - name: Create preload.zip from demo/
         shell: bash
         run: |
           set -e
           cd "${{ github.workspace }}"
-          # Exclude non-web platform binaries (keep web .so, exclude linux/android/windows/macos/ios)
+          # Exclude platform binaries (served as static files), import cache, build artifacts
           zip -qr web/editor/preload.zip demo/ \
             -x 'demo/exports/*' 'demo/templates/*' \
+            'demo/.godot/*' \
             'demo/__pycache__/*' 'demo/**/__pycache__/*' \
-            'demo/addons/*/libgdext.linux.*' \
-            'demo/addons/*/libgdext.windows.*' \
-            'demo/addons/*/libgdext.macos.*' \
-            'demo/addons/*/libgdext.android.*' \
-            'demo/addons/*/libgdext.ios.*'
+            'demo/addons/*/libgdext.*'
           ls -lh web/editor/preload.zip
+
+      - name: Copy GDExtension .so as static file
+        run: cp demo/addons/OCCT-Light.gd/libgdext.web.debug.template_debug.wasm32.so web/editor/
 
       - name: Patch editor HTML with project preload
         run: tools/patch_editor_html.sh web/editor/godot.editor.html tools/web_editor_preload.html

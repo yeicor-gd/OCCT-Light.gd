@@ -283,67 +283,137 @@ patch_template_js() {
 
     local js_file="${_tmp_dir}/${js_name}"
     local sentinel='case"__cpp_exception":'
-    if grep -q "$sentinel" "$js_file"; then
-        echo "  godot.js already patched, skipping"
-        rm -rf "$_tmp_dir"
-        return 0
-    fi
 
-    python3 - "$js_file" << 'PYEOF'
+    local py_rc=0
+    python3 -u - "$js_file" << 'PYEOF' || py_rc=$?
 import sys
 
 path = sys.argv[1]
 with open(path) as f:
     content = f.read()
 
+failed = False
+
 # Patch 1: proxyHandler – serve the __cpp_exception WebAssembly.Tag
 old1 = 'case"__memory_base":return memoryBase;case"__table_base":return tableBase}'
 new1 = 'case"__memory_base":return memoryBase;case"__table_base":return tableBase;case"__cpp_exception":if(!globalThis.__cpp_exception_tag)globalThis.__cpp_exception_tag=new WebAssembly.Tag({parameters:["i32"]});return globalThis.__cpp_exception_tag}'
 if old1 not in content:
-    print("Warning: proxyHandler pattern not found", file=sys.stderr)
-    sys.exit(1)
-if new1 in content:
-    print("  Patch 1 (tag) already applied")
+    print("Warning: proxyHandler pattern not found", flush=True)
+    failed = True
+elif new1 in content:
+    print("  Patch 1 (tag) already applied", flush=True)
 else:
     content = content.replace(old1, new1, 1)
-    print("  Applied patch 1 (__cpp_exception tag)")
+    print("  Applied patch 1 (__cpp_exception tag)", flush=True)
 
 # Patch 2: resolveGlobalSymbol – fall through to wasmExports
 old2 = 'var resolveGlobalSymbol=(symName,direct=false)=>{var sym;if(isSymbolDefined(symName)){sym=wasmImports[symName]}return{sym,name:symName}};'
 new2 = 'var resolveGlobalSymbol=(symName,direct=false)=>{var sym;if(isSymbolDefined(symName)){sym=wasmImports[symName]}else if(typeof wasmExports!=="undefined"){var e=wasmExports[symName];if(typeof e==="function")sym=e;else if(e&&typeof e.value!=="undefined")sym=+e.value}return{sym,name:symName}};'
 if old2 not in content:
-    print("Warning: resolveGlobalSymbol pattern not found", file=sys.stderr)
-    sys.exit(1)
-if new2 in content:
-    print("  Patch 2 (resolveGlobalSymbol) already applied")
+    print("Warning: resolveGlobalSymbol pattern not found", flush=True)
+    failed = True
+elif new2 in content:
+    print("  Patch 2 (resolveGlobalSymbol) already applied", flush=True)
 else:
     content = content.replace(old2, new2, 1)
-    print("  Applied patch 2 (resolveGlobalSymbol)")
+    print("  Applied patch 2 (resolveGlobalSymbol)", flush=True)
+
+# Patch 3: findLibraryFS – add JS fallback to search Emscripten FS
+old3 = 'return withStackSave(()=>{var bufSize=2*255+2;var buf=stackAlloc(bufSize);var rpathC=stringToUTF8OnStack(rpathResolved.join(":"));var libNameC=stringToUTF8OnStack(libName);var resLibNameC=__emscripten_find_dylib(buf,rpathC,libNameC,bufSize);return resLibNameC?UTF8ToString(resLibNameC):undefined})};'
+new3 = 'var _flr=withStackSave(()=>{var bufSize=2*255+2;var buf=stackAlloc(bufSize);var rpathC=stringToUTF8OnStack(rpathResolved.join(":"));var libNameC=stringToUTF8OnStack(libName);var resLibNameC=__emscripten_find_dylib(buf,rpathC,libNameC,bufSize);return resLibNameC?UTF8ToString(resLibNameC):undefined});if(_flr)return _flr;try{_fl=FS.cwd();FS.lookupPath(_fl+"/"+libName);return _fl+"/"+libName}catch(e){}try{FS.lookupPath("/"+libName);return "/"+libName}catch(e){}return undefined};'
+if old3 not in content:
+    print("Warning: findLibraryFS pattern not found", flush=True)
+    failed = True
+elif new3 in content:
+    print("  Patch 3 (findLibraryFS fallback) already applied", flush=True)
+else:
+    content = content.replace(old3, new3, 1)
+    print("  Applied patch 3 (findLibraryFS fallback)", flush=True)
+
+# Patch 4: loadLibData – check global __preloadedWasmModules registry
+old4 = 'function loadLibData(){var sharedMod=sharedModules[libName];'
+new4 = 'function loadLibData(){var sharedMod=(typeof __preloadedWasmModules!=="undefined"&&__preloadedWasmModules[libName])||sharedModules[libName];'
+if old4 not in content:
+    print("Warning: loadLibData pattern not found", flush=True)
+    failed = True
+elif new4 in content:
+    print("  Patch 4 (preloadedWasmModules) already applied", flush=True)
+else:
+    content = content.replace(old4, new4, 1)
+    print("  Applied patch 4 (preloadedWasmModules)", flush=True)
+
+# Patch 5: loadWebAssemblyModule async path – use WebAssembly.instantiate for Module inputs
+old5 = 'if(flags.loadAsync){return(async()=>{var instance;if(binary instanceof WebAssembly.Module){instance=new WebAssembly.Instance(binary,info)}else{({module:binary,instance}=await WebAssembly.instantiate(binary,info))}return postInstantiation(binary,instance)})()}'
+new5 = 'if(flags.loadAsync){return(async()=>{var instance;({module:binary,instance}=await WebAssembly.instantiate(binary,info));return postInstantiation(binary,instance)})()}'
+if old5 not in content:
+    print("Warning: loadWebAssemblyModule async pattern not found", flush=True)
+    failed = True
+elif new5 in content:
+    print("  Patch 5 (async instantiate) already applied", flush=True)
+else:
+    content = content.replace(old5, new5, 1)
+    print("  Applied patch 5 (async instantiate)", flush=True)
 
 with open(path, 'w') as f:
     f.write(content)
+
+if failed:
+    sys.exit(1)
 PYEOF
 
-    if [ $? -ne 0 ]; then
-        echo "  Warning: failed to patch godot.js" >&2
-        rm -rf "$_tmp_dir"
-        return 1
-    fi
-    if ! grep -q "$sentinel" "$js_file"; then
-        echo "  Warning: failed to patch godot.js (tag pattern not found)" >&2
-        rm -rf "$_tmp_dir"
-        return 1
-    fi
-    if ! grep -q 'wasmExports\[symName\]' "$js_file"; then
-        echo "  Warning: failed to patch godot.js (resolveGlobalSymbol pattern not found)" >&2
+    if [ $py_rc -ne 0 ]; then
+        echo "  Error: Python patching script failed (exit code $py_rc)" >&2
         rm -rf "$_tmp_dir"
         return 1
     fi
 
-    # Re-pack into the zip
-    (cd "$_tmp_dir" && zip -qf "$zip_path" godot.js)
+    # Verify all patches were applied
+    local verify_failed=0
+    if ! grep -q "$sentinel" "$js_file"; then
+        echo "  Warning: tag pattern not found after patching" >&2
+        verify_failed=1
+    fi
+    if ! grep -q 'wasmExports\[symName\]' "$js_file"; then
+        echo "  Warning: resolveGlobalSymbol pattern not found after patching" >&2
+        verify_failed=1
+    fi
+    if ! grep -q '_flr=' "$js_file"; then
+        echo "  Warning: findLibraryFS fallback not found after patching" >&2
+        verify_failed=1
+    fi
+    if ! grep -q '__preloadedWasmModules' "$js_file"; then
+        echo "  Warning: preloadedWasmModules not found after patching" >&2
+        verify_failed=1
+    fi
+    if [ $verify_failed -ne 0 ]; then
+        rm -rf "$_tmp_dir"
+        return 1
+    fi
+
+    # Re-pack into the zip using Python (zip command may not be installed)
+    local zip_rc=0
+    python3 -u - "$zip_path" "$_tmp_dir/$js_name" "$js_name" << 'PYEOF' || zip_rc=$?
+import sys, zipfile, os
+
+zip_path, patched_file, arcname = sys.argv[1], sys.argv[2], sys.argv[3]
+with open(patched_file, 'rb') as f:
+    data = f.read()
+tmp = zip_path + '.tmp'
+with zipfile.ZipFile(zip_path, 'r') as zin:
+    with zipfile.ZipFile(tmp, 'w', compression=zin.compression) as zout:
+        for item in zin.infolist():
+            if item.filename == arcname:
+                zout.writestr(item, data)
+            else:
+                zout.writestr(item, zin.read(item.filename))
+os.replace(tmp, zip_path)
+PYEOF
     rm -rf "$_tmp_dir"
-    echo "  Patched godot.js in $(basename "$zip_path") (tag + resolveGlobalSymbol)"
+    if [ $zip_rc -ne 0 ]; then
+        echo "  Error: zip repack failed (exit code $zip_rc)" >&2
+        return 1
+    fi
+    echo "  Patched godot.js in $(basename "$zip_path") (tag + resolveGlobalSymbol + findLibraryFS + preloadedWasm + asyncInstantiate)"
 }
 
 # Install a template zip to the output dir
