@@ -23,7 +23,6 @@ jobs:
       godot_min_version_tag: ${{ steps.godot.outputs.godot_min_version_tag }}
       godot_versions: ${{ steps.godot.outputs.godot_versions }}
       godot_max_version: ${{ steps.godot.outputs.godot_max_version }}
-      rebuild_hash: ${{ steps.godot.outputs.rebuild_hash }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -72,16 +71,6 @@ jobs:
           echo "godot_min_version_tag=$COMPAT_MIN-stable" >> $GITHUB_OUTPUT
           echo "godot_versions=$GODOT_VERSIONS_JSON" >> $GITHUB_OUTPUT
           echo "godot_max_version=$GODOT_MAX_VERSION" >> $GITHUB_OUTPUT
-
-          # Hash of inputs that affect the web build (templates + editor).
-          REBUILD_HASH=$(cat \
-            demo/addons/*/gdext.gdextension \
-            CMakeLists.txt \
-            src/*.cpp src/*.h \
-            tools/repair_wasm.py \
-            tools/build_godot_web_templates.sh \
-            2>/dev/null | sha256sum | cut -d' ' -f1 | head -c 12)
-          echo "rebuild_hash=$REBUILD_HASH" >> $GITHUB_OUTPUT
 
   prepare-api:
     needs: read-versions
@@ -561,7 +550,7 @@ jobs:
         run: |
           # Full name used for cache lookups — includes version + rebuild hash
           # to prevent stale caches across Godot version bumps or source changes.
-          CACHE_NAME="web-${{ matrix.type }}-threads-${{ matrix.mode }}-${{ needs.read-versions.outputs.godot_max_version }}-${{ needs.read-versions.outputs.rebuild_hash }}"
+          CACHE_NAME="web-${{ matrix.type }}-threads-${{ matrix.mode }}-${{ needs.read-versions.outputs.godot_max_version }}"
           # Current-run name used by downstream jobs (short, no version).
           RUN_NAME="web-${{ matrix.type }}-threads-${{ matrix.mode }}"
           echo "cache=${CACHE_NAME}" >> $GITHUB_OUTPUT
@@ -750,29 +739,24 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
 
-      - name: Patch editor HTML with project preload
+      - name: Create preload.zip from demo/
         shell: bash
         run: |
           set -e
-          HTML="web/editor/godot.editor.html"
+          cd "${{ github.workspace }}"
+          # Exclude non-web platform binaries (keep web .so, exclude linux/android/windows/macos/ios)
+          zip -qr web/editor/preload.zip demo/ \
+            -x 'demo/exports/*' 'demo/templates/*' \
+            'demo/__pycache__/*' 'demo/**/__pycache__/*' \
+            'demo/addons/*/libgdext.linux.*' \
+            'demo/addons/*/libgdext.windows.*' \
+            'demo/addons/*/libgdext.macos.*' \
+            'demo/addons/*/libgdext.android.*' \
+            'demo/addons/*/libgdext.ios.*'
+          ls -lh web/editor/preload.zip
 
-          # Accept optional projectPath parameter
-          sed -i 's/function startEditor(zip) {/function startEditor(zip, projectPath) {/' "$HTML"
-
-          # Use --editor --path when projectPath is given
-          sed -i "s|const args = \['--project-manager', '--single-window'\];|const args = projectPath ? ['--editor', '--path', projectPath, '--single-window'] : ['--project-manager', '--single-window'];|" "$HTML"
-
-          # Only use persistentDrops in project-manager mode
-          sed -i "s|'persistentDrops': true|'persistentDrops': !projectPath|" "$HTML"
-
-          # Inject preload script before </body>
-          sed -i '/<\/body>/,$d' "$HTML"
-          sed -i '/<\/html>/d' "$HTML"
-          # Replace repo/branch placeholders
-          sed "s|__GITHUB_REPOSITORY__|${{ github.repository }}|g; s|__GITHUB_BRANCH__|main|g" \
-            tools/web_editor_preload.html >> "$HTML"
-          echo '</body>' >> "$HTML"
-          echo '</html>' >> "$HTML"
+      - name: Patch editor HTML with project preload
+        run: tools/patch_editor_html.sh web/editor/godot.editor.html tools/web_editor_preload.html
 
       - name: Upload pages artifact
         uses: actions/upload-pages-artifact@v4

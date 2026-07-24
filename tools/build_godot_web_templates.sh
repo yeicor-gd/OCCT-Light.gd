@@ -59,9 +59,10 @@ GODOT_VERSION=""  # Empty = auto-detect
 #
 # The side module defines __wasm_setjmp/__wasm_longjmp locally (see
 # src/setjmp_longjmp_shim.c), so no setjmp/longjmp symbols need to be
-# exported from the main module.  We export _setjmp/_longjmp anyway for
-# backward compatibility with any JS code that may reference them.
-EM_LINKFLAGS="-fwasm-exceptions -sEXPORTED_FUNCTIONS=_setjmp,_longjmp -sEXPORTED_RUNTIME_METHODS=setjmp,longjmp"
+# exported from the main module.  With -fwasm-exceptions the compiler uses
+# wasm-native setjmp/longjmp primitives, so _setjmp/_longjmp may not exist
+# in the binary at all — exporting them triggers an undefined-symbol error.
+EM_LINKFLAGS="-fwasm-exceptions -sEXPORTED_RUNTIME_METHODS=setjmp,longjmp"
 export EMCC_CFLAGS="${EMCC_CFLAGS:-} -fwasm-exceptions"
 export EMCC_CXXFLAGS="${EMCC_CXXFLAGS:-} -fwasm-exceptions"
 export EM_LINKFLAGS
@@ -275,9 +276,12 @@ patch_template_js() {
     local _tmp_dir
     _tmp_dir=$(mktemp -d)
 
-    unzip -oq "$zip_path" godot.js -d "$_tmp_dir"
+    # Editor zips use godot.editor.js, template zips use godot.js
+    local js_name="godot.js"
+    unzip -l "$zip_path" | grep -q 'godot\.editor\.js' && js_name="godot.editor.js"
+    unzip -oq "$zip_path" "$js_name" -d "$_tmp_dir"
 
-    local js_file="${_tmp_dir}/godot.js"
+    local js_file="${_tmp_dir}/${js_name}"
     local sentinel='case"__cpp_exception":'
     if grep -q "$sentinel" "$js_file"; then
         echo "  godot.js already patched, skipping"
