@@ -9,17 +9,38 @@ enum GameState { IDLE, WON, LOST }
 @onready var hint: Label = $CenterContainer/Panel/MarginContainer/VBoxContainer/Hint
 
 var _state: GameState = GameState.IDLE
-var _share_button: Button = null
+var _time_secs: float = 0.0
+var _social_row: HBoxContainer = null
+var _copy_config_btn: Button = null
+var generating := false
 
 
 func _ready() -> void:
 	hide_overlay()
-	_share_button = Button.new()
-	_share_button.text = "Share Challenge"
-	_share_button.visible = false
 	var vbox := $CenterContainer/Panel/MarginContainer/VBoxContainer
-	vbox.add_child(_share_button)
-	_share_button.pressed.connect(_on_share_pressed)
+
+	_social_row = HBoxContainer.new()
+	_social_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	_social_row.visible = false
+	vbox.add_child(_social_row)
+
+	var socials := [
+		["🐦", "X", _share_x],
+		["📘", "Facebook", _share_facebook],
+		["💼", "LinkedIn", _share_linkedin],
+		["🔴", "Reddit", _share_reddit],
+	]
+	for entry in socials:
+		var btn := Button.new()
+		btn.text = "%s %s" % [entry[0], entry[1]]
+		btn.pressed.connect(entry[2])
+		_social_row.add_child(btn)
+
+	_copy_config_btn = Button.new()
+	_copy_config_btn.text = "📋 Copy Config (Advanced)"
+	_copy_config_btn.visible = false
+	_copy_config_btn.pressed.connect(_on_copy_config_pressed)
+	vbox.add_child(_copy_config_btn)
 
 func _get_reset_name():
 	var reset_name := "Reset"
@@ -33,23 +54,25 @@ func _show_common():
 	panel.show()
 
 func show_game_over():
-	if _state != GameState.IDLE:
+	if generating or _state != GameState.IDLE:
 		return
 	_state = GameState.LOST
 	title.text = "You lost!"
 	message.visible = false
-	_share_button.visible = false
+	_social_row.visible = false
+	_copy_config_btn.visible = false
 	_show_common()
 
 func show_game_won(time_secs: float):
-	if _state != GameState.IDLE:
+	if generating or _state != GameState.IDLE:
 		return
 	_state = GameState.WON
+	_time_secs = time_secs
 	title.text = "You won! 🏆"
 	message.visible = true
 	message.text = "Time: %.3f seconds" % time_secs
-	_share_button.visible = true
-	_share_button.text = "Share Challenge"
+	_social_row.visible = true
+	_copy_config_btn.visible = true
 	_show_common()
 
 func reset_state():
@@ -58,15 +81,16 @@ func reset_state():
 
 func hide_overlay():
 	panel.hide()
-	if _share_button:
-		_share_button.visible = false
+	if _social_row:
+		_social_row.visible = false
+	if _copy_config_btn:
+		_copy_config_btn.visible = false
 
 
-func _on_share_pressed() -> void:
+func _get_maze_config() -> Dictionary:
 	var maze := get_tree().root.find_child("Maze", true, false)
 	if not maze or not (maze is MazeGenerator):
-		return
-
+		return {}
 	var config := {}
 	config["MazeGenerator"] = _gather_node_exports(maze)
 	if maze.has_node("Paths"):
@@ -75,28 +99,61 @@ func _on_share_pressed() -> void:
 		config["Meshes"] = _gather_node_exports(maze.get_node("Meshes"))
 	if maze.has_node("Obstacles"):
 		config["Obstacles"] = _gather_node_exports(maze.get_node("Obstacles"))
+	return config
 
+
+func _get_share_url() -> String:
+	var config := _get_maze_config()
 	var base_url := "https://yeicor-gd.github.io/OCCT-Light.gd/gdext-tests.html"
 	if OS.has_feature("web") and not OS.has_feature("desktop"):
 		var current_url: String = str(JavaScriptBridge.eval("window.location.href.split('#')[0]", true))
 		if not current_url.is_empty() and current_url.begins_with("http"):
 			base_url = current_url
 	var settings := get_tree().root.find_child("GameSettings", true, false)
-	var url: String
 	if settings and settings.is_default_config():
-		url = base_url + "#ball_game_config="
-	else:
-		var json_str := JSON.stringify(config)
-		var compressed := json_str.to_utf8_buffer()
-		compressed = compressed.compress(FileAccess.COMPRESSION_GZIP)
-		url = base_url + "#ball_game_config=" + _base64url_encode(compressed)
+		return base_url + "#ball_game_config=default"
+	var json_str := JSON.stringify(config)
+	var compressed := json_str.to_utf8_buffer()
+	compressed = compressed.compress(FileAccess.COMPRESSION_GZIP)
+	return base_url + "#ball_game_config=" + _base64url_encode(compressed)
 
-	var time_text := message.text
-	var challenge := "Can you beat my time of %s in this maze?\n%s" % [time_text, url]
-	DisplayServer.clipboard_set(challenge)
-	_share_button.text = "Copied!"
+
+func _get_challenge_text() -> String:
+	return "Can you beat my time of %.3f seconds in this maze?" % _time_secs
+
+
+func _share_x() -> void:
+	var url := _get_share_url()
+	var text := _get_challenge_text() + "\n" + url
+	OS.shell_open("https://x.com/intent/post?text=" + text.uri_encode())
+
+
+func _share_facebook() -> void:
+	var url := _get_share_url()
+	var quote := _get_challenge_text()
+	OS.shell_open("https://www.facebook.com/sharer/sharer.php?u=" + url.uri_encode() + "&quote=" + quote.uri_encode())
+
+
+func _share_linkedin() -> void:
+	var url := _get_share_url()
+	OS.shell_open("https://www.linkedin.com/sharing/share-offsite/?url=" + url.uri_encode())
+
+
+func _share_reddit() -> void:
+	var url := _get_share_url()
+	var _title := _get_challenge_text()
+	OS.shell_open("https://reddit.com/submit?url=" + url.uri_encode() + "&title=" + _title.uri_encode())
+
+
+func _on_copy_config_pressed() -> void:
+	var config := _get_maze_config()
+	if config.is_empty():
+		return
+	var json_str := JSON.stringify(config, "\t")
+	DisplayServer.clipboard_set(json_str)
+	_copy_config_btn.text = "✅ Copied!"
 	await get_tree().create_timer(2.0).timeout
-	_share_button.text = "Share Challenge"
+	_copy_config_btn.text = "📋 Copy Config (Advanced)"
 
 
 func _gather_node_exports(node: Node) -> Dictionary:

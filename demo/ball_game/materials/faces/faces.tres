@@ -28,6 +28,7 @@ shader_parameter/align_end = 0.7
 [resource]
 render_priority = -1
 next_pass = SubResource("ShaderMaterial_0e071")
+albedo_color = Color(1.4369954, 1.4369954, 1.4369954, 1)
 albedo_texture = ExtResource("1_yvrm5")
 metallic = 0.27
 metallic_specular = 0.42

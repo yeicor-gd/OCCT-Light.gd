@@ -15,6 +15,7 @@ grow_horizontal = 2
 grow_vertical = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
+vertical = true
 script = ExtResource("1_ig7tw")
 tests_scene = ExtResource("2_h2yge")
 ball_game_scene = ExtResource("3_1bvp3")
@@ -39,7 +40,7 @@ text = "TESTS
 [node name="BallGameButton" type="Button" parent="Panel" unique_id=635901278]
 layout_mode = 2
 theme_override_font_sizes/font_size = 24
-text = "BALL GAME"
+text = "BALL GAME 🔊"
 
 [connection signal="pressed" from="Panel/TestsButton" to="." method="_on_tests_button_pressed"]
 [connection signal="pressed" from="Panel/BallGameButton" to="." method="_on_ball_game_button_pressed"]

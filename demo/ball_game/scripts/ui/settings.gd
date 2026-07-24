@@ -6,7 +6,7 @@
 ## Tabs:
 ##   0 Maze (basic)    — seed, presets, rope-length slider, regenerate button + progress
 ##   1 Maze (advanced) — full JSON editor for all exported properties of Maze + children
-##   Footer            — virtual controls toggle, audio mute, key bindings reference
+##   Controls          — virtual controls toggle, audio mute, key bindings reference
 
 extends MarginContainer
 class_name GameSettings
@@ -95,7 +95,7 @@ func _build_ui() -> void:
 	assert(tabs != null, "GameSettings: expected a TabContainer child named 'Settings'")
 
 	for i in range(tabs.get_tab_count() - 1, -1, -1):
-		tabs.get_child(i).queue_free()
+		tabs.get_child(i).free()
 
 	_build_maze_tab(tabs)
 	_build_advanced_tab(tabs)
@@ -237,44 +237,101 @@ func _build_advanced_tab(tabs: TabContainer) -> void:
 	_refresh_json()
 
 
-# ── Footer (misc controls visible on all tabs) ──────────────────────────────
+# ── Controls (settings and bindings visible on all tabs) ──────────────────────
 
 func _build_footer() -> void:
 	var parent := get_node_or_null("Settings") as TabContainer
 	if not parent:
 		return
 	var footer := VBoxContainer.new()
-	footer.name = "Footer"
+	footer.name = "Controls"
 	footer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	parent.add_child(footer)
 
 	footer.add_child(HSeparator.new())
 
-	var row := HBoxContainer.new()
-	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	footer.add_child(row)
+	# ── Settings toggles ──────────────────────────────────────────────────────
+	var row0 := HBoxContainer.new()
+	row0.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	footer.add_child(row0)
 
 	var vc_label := Label.new()
 	vc_label.text = "Virtual Controls"
-	row.add_child(vc_label)
+	row0.add_child(vc_label)
 	var vc_toggle := CheckButton.new()
 	vc_toggle.button_pressed = _config.get_value("controls", "virtual_controls",
 		OS.has_feature("mobile") or OS.has_feature("android") or OS.has_feature("ios"))
 	vc_toggle.toggled.connect(_on_virtual_controls_toggled)
-	row.add_child(vc_toggle)
+	row0.add_child(vc_toggle)
+
+	var row1 := HBoxContainer.new()
+	row1.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	footer.add_child(row1)
 
 	var am_label := Label.new()
 	am_label.text = "Mute Audio"
-	row.add_child(am_label)
+	row1.add_child(am_label)
 	var am_toggle := CheckButton.new()
 	am_toggle.button_pressed = _config.get_value("controls", "mute_audio", false)
 	am_toggle.toggled.connect(_on_mute_audio_toggled)
-	row.add_child(am_toggle)
+	row1.add_child(am_toggle)
 
-	var bindings := Label.new()
-	bindings.text = "WASD:Move | Space:Jump | R:Respawn | IJKL:Camera"
-	bindings.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	row.add_child(bindings)
+	footer.add_child(HSeparator.new())
+
+	# ── Controls reference ────────────────────────────────────────────────────
+	var font := ThemeDB.fallback_font
+	var header_size := 14
+	var binding_size := 12
+
+	# -- Keyboard & Mouse --
+	_add_section_header(footer, "Keyboard & Mouse", font, header_size)
+	_add_binding_row(footer, "Move", "WASD / Arrow Keys", font, binding_size)
+	_add_binding_row(footer, "Jump", "Space", font, binding_size)
+	_add_binding_row(footer, "Camera", "IJKL / Right-Click Drag", font, binding_size)
+	_add_binding_row(footer, "Reset", "R", font, binding_size)
+
+	footer.add_child(HSeparator.new())
+
+	# -- Gamepad --
+	_add_section_header(footer, "Gamepad", font, header_size)
+	_add_binding_row(footer, "Move", "Left Stick", font, binding_size)
+	_add_binding_row(footer, "Jump", "A", font, binding_size)
+	_add_binding_row(footer, "Camera", "Right Stick", font, binding_size)
+	_add_binding_row(footer, "Reset", "Y", font, binding_size)
+
+	footer.add_child(HSeparator.new())
+
+	# -- Virtual Touch --
+	_add_section_header(footer, "Virtual Touch", font, header_size)
+	_add_binding_row(footer, "Move", "Left Joystick", font, binding_size)
+	_add_binding_row(footer, "Jump", "Jump Button", font, binding_size)
+	_add_binding_row(footer, "Camera", "Right Joystick", font, binding_size)
+	_add_binding_row(footer, "Reset", "Reset Button", font, binding_size)
+
+
+func _add_section_header(parent: Control, text: String, font: Font, font_size: int) -> void:
+	var label := Label.new()
+	label.text = text
+	label.add_theme_font_size_override("font_size", font_size)
+	parent.add_child(label)
+
+
+func _add_binding_row(parent: Control, action: String, binding: String, font: Font, font_size: int) -> void:
+	var row := HBoxContainer.new()
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	parent.add_child(row)
+
+	var action_label := Label.new()
+	action_label.text = action
+	action_label.custom_minimum_size.x = 60.0
+	action_label.add_theme_font_size_override("font_size", font_size)
+	row.add_child(action_label)
+
+	var binding_label := Label.new()
+	binding_label.text = binding
+	binding_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	binding_label.add_theme_font_size_override("font_size", font_size)
+	row.add_child(binding_label)
 
 
 func _on_virtual_controls_toggled(pressed: bool) -> void:
@@ -538,6 +595,10 @@ func _do_regenerate(orbit: bool = true) -> void:
 	_total_chunks = 0
 	_done_chunks = 0
 
+	var overlay := _gen.get_parent_node_3d().get_node_or_null("UI/UIOverlay") as UIOverlay
+	if overlay:
+		overlay.generating = true
+
 	if orbit:
 		_start_gen_overlay("Generating paths\u2026", -1.0)
 		_start_camera_orbit()
@@ -554,6 +615,10 @@ func _do_regenerate(orbit: bool = true) -> void:
 		await get_tree().create_timer(0.6).timeout
 		_hide_gen_overlay()
 
+	if overlay:
+		overlay.generating = false
+	get_tree().paused = false
+
 
 func _start_gen_overlay(text: String, percent: float) -> void:
 	if not _gen_overlay:
@@ -561,7 +626,6 @@ func _start_gen_overlay(text: String, percent: float) -> void:
 	# Hide settings panel while generating.
 	visible = false
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
-	get_tree().paused = false
 	_gen_overlay.visible = true
 	if _gen_label:
 		_gen_label.text = text
@@ -821,13 +885,19 @@ func _auto_configure() -> void:
 	var json_text := _read_auto_config()
 	# "" = no hash at all → normal startup, no auto-play.
 	# "null" = hash present but empty value → use default map, skip regen.
+	# "__default__" = default maze, skip regen entirely for performance.
 	# "<json>" = hash present with config → apply config, regenerate.
 	if json_text == "":
 		return
 
-	var has_config := json_text != "null" and not json_text.is_empty()
-
-	if has_config:
+	if json_text == "__default__":
+		# Default maze: nothing to apply, go straight to auto-play.
+		pass
+	elif json_text == "null":
+		_start_gen_overlay("Preparing\u2026", 100.0)
+		await get_tree().create_timer(0.4).timeout
+		_hide_gen_overlay()
+	else:
 		var parsed = JSON.parse_string(json_text)
 		if not parsed is Dictionary:
 			push_warning("GameSettings: MAZE_CONFIG is not a valid JSON object")
@@ -844,13 +914,7 @@ func _auto_configure() -> void:
 		if _json_edit:
 			_refresh_json()
 		_detect_preset()
-		# Regenerate with full overlay + camera orbit.
 		await _do_regenerate(true)
-	else:
-		# Empty hash → default map, just show overlay briefly + respawn.
-		_start_gen_overlay("Preparing\u2026", 100.0)
-		await get_tree().create_timer(0.4).timeout
-		_hide_gen_overlay()
 
 	# Auto-play: sync positions, respawn, jump timer forward.
 	if _gen:
@@ -882,7 +946,9 @@ func _parse_hash_config(_hash: String) -> String:
 	if _hash.begins_with("ball_game_config="):
 		var payload := _hash.substr(17)  # len("ball_game_config=")
 		if payload.is_empty():
-			return "null"  # Signal: hash present, use defaults.
+			return "null"  # Signal: hash present, use defaults (legacy).
+		if payload == "default":
+			return "__default__"  # Signal: default maze, skip regen.
 		return _decompress_config(payload)
 	return ""
 

@@ -10,8 +10,8 @@ const FREQ_WIN_START := 523.0
 const BG_AUDIO := preload("res://ball_game/audio/background.ogg")
 
 @export var master_volume_db: float = 0.0
-@export var music_volume_db: float = 4.0
-@export var sfx_volume_db: float = -4.0
+@export var music_volume_db: float = 0.0
+@export var sfx_volume_db: float = 0.0
 
 var _bg_player: AudioStreamPlayer
 var _sfx_player: AudioStreamPlayer
@@ -21,6 +21,7 @@ func _ready() -> void:
 	_setup_audio_buses()
 	_setup_background()
 	_setup_sfx()
+	play_background()
 
 func _setup_audio_buses() -> void:
 	_apply_bus_volume()
@@ -53,7 +54,7 @@ func _setup_background() -> void:
 	add_child(_bg_player)
 	_bg_player.stream = BG_AUDIO
 	_bg_player.volume_db = music_volume_db
-	_bg_player.autoplay = false
+	_bg_player.autoplay = true
 
 func _setup_sfx() -> void:
 	_sfx_player = AudioStreamPlayer.new()
@@ -62,12 +63,10 @@ func _setup_sfx() -> void:
 	_sfx_player.volume_db = sfx_volume_db
 
 func play_background() -> void:
-	if _bg_player and not _bg_player.playing:
-		_bg_player.play()
+	_bg_player.play()
 
 func stop_background() -> void:
-	if _bg_player:
-		_bg_player.stop()
+	_bg_player.stop()
 
 ## Play a short beep tone for a given event.
 func play_sfx(event: String) -> void:
@@ -109,11 +108,11 @@ func _play_tone(freq: float, duration: float, wave_type: String) -> void:
 	wav.format = AudioStreamWAV.FORMAT_8_BITS
 	wav.mix_rate = sample_rate
 	wav.stereo = false
-	# Convert float to 8-bit PCM
+	# Convert float to signed 8-bit PCM (Godot reads FORMAT_8_BITS as int8_t)
 	var pcm := PackedByteArray()
 	pcm.resize(frames)
 	for i in range(frames):
-		pcm[i] = int(clampf(samples[i] * 127.0 + 128.0, 0, 255))
+		pcm[i] = int(clampf(samples[i] * 127.0, -128.0, 127.0)) & 0xFF
 	wav.data = pcm
 	_sfx_player.stream = wav
 	_sfx_player.play()

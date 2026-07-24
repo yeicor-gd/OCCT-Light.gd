@@ -4,19 +4,20 @@ class_name AudioWiring
 
 @onready var audio: AudioManager = $".."
 var _spawner: Spawner
-var _last_ball_speed := 0.0
 var _jump_connected: bool = false
+var _was_grounded := false
 
 func _ready() -> void:
-	var maze = get_node_or_null("../Maze")
+	var maze = get_node_or_null("../../Maze")
 	if maze == null:
 		return
 	_spawner = maze.get_node_or_null("Spawner")
 	var death = maze.get_node_or_null("DeathArea")
 	var end = maze.get_node_or_null("EndArea")
-	death.body_entered.connect(_on_death)
-	end.body_entered.connect(_on_win)
-	audio.play_background()
+	if death:
+		death.body_entered.connect(_on_death)
+	if end:
+		end.body_entered.connect(_on_win)
 
 func _on_death(_body: Node3D) -> void:
 	audio.play_sfx("death")
@@ -32,8 +33,11 @@ func _process(_delta: float) -> void:
 			_jump_connected = true
 	if _spawner and not _spawner.current_player:
 		_jump_connected = false
+		_was_grounded = false
 	if _spawner and _spawner.current_player:
 		var ball := _spawner.current_player.get_node_or_null("Ball") as RigidBody3D
 		if ball:
-			var speed := ball.linear_velocity.length()
-			_last_ball_speed = speed
+			var is_grounded: bool = ball.get("grounded") if ball else false
+			if is_grounded and not _was_grounded:
+				audio.play_sfx("land")
+			_was_grounded = is_grounded

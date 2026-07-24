@@ -61,21 +61,6 @@ set(GODOTCPP_DISABLE_EXCEPTIONS ON)
 # Godot C++ bindings
 add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/godot-cpp")
 
-# Strip -sSUPPORT_LONGJMP=wasm from godot-cpp's public interface.  godot-cpp
-# adds it unconditionally on Emscripten, but it causes the side module to
-# import `emscripten_longjmp` which Godot's main module does not export.
-# Safe to remove: both godot-cpp and our GDExtension compile with
-# -fno-exceptions and never call setjmp/longjmp.
-if(CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
-  foreach(_prop COMPILE_OPTIONS INTERFACE_COMPILE_OPTIONS INTERFACE_LINK_OPTIONS)
-    get_target_property(_opts godot-cpp ${_prop})
-    if(_opts)
-      list(REMOVE_ITEM _opts "-sSUPPORT_LONGJMP=wasm")
-      set_target_properties(godot-cpp PROPERTIES ${_prop} "${_opts}")
-    endif()
-  endforeach()
-endif()
-
 # Dependencies
 # OCCT-Light (consumed via vcpkg) transitively provides OpenCASCADE.
 # See OCCTLConfig.cmake and FindOCCT.cmake shipped with the occtl port.
@@ -124,6 +109,11 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
     "-sSIDE_MODULE=2"
     "-sEXPORTED_FUNCTIONS=_gdext_library_init"
   )
+  # With -sSUPPORT_LONGJMP=wasm in the triplet, all vcpkg packages compile
+  # setjmp/longjmp to wasm-native intrinsics (__wasm_setjmp/__wasm_longjmp).
+  # The main module (Godot) does not export these, so we define them locally
+  # using __builtin_setjmp/__builtin_longjmp (see src/setjmp_longjmp_shim.c).
+  target_sources(${PROJECT_NAME} PRIVATE src/setjmp_longjmp_shim.c)
 else()
   add_library(${PROJECT_NAME} SHARED ${SOURCES} ${DOC_GEN_FILE})
 endif()
@@ -209,7 +199,8 @@ set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "${OUTPUT_NAME}")
 set_target_properties(${PROJECT_NAME} PROPERTIES PREFIX "lib") # Unix-like behavior on windows too: lib*.dll
 install(TARGETS ${PROJECT_NAME} LIBRARY DESTINATION "${INSTALL_FOLDER}")
 
-# Post-build: repair Emscripten 4.x wasm validation bugs and optimize the .so.
+# Post-build: repair Emscripten wasm validation bugs (br_table arity mismatches
+# that crash at runtime) and optimize the .so.
 # Mirrors the repair_wasm.py step from yeicor/OCP.wasm.
 if(CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
   find_program(PYTHON3_EXECUTABLE python3 REQUIRED)
@@ -217,6 +208,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
     TARGET ${PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E env
             "DEBUG=$<IF:$<CONFIG:Debug>,1,>"
+            "EMSDK=$ENV{EMSDK}"
             ${PYTHON3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/repair_wasm.py
             $<TARGET_FILE_DIR:${PROJECT_NAME}> $<TARGET_FILE_DIR:${PROJECT_NAME}>
     COMMENT "Repairing and optimizing WASM binary..."

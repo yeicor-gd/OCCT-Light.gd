@@ -1,10 +1,25 @@
 include("triplets/community/wasm32-emscripten.cmake")
 
-# CUSTOM:
-set(VCPKG_CMAKE_CONFIGURE_OPTIONS ${VCPKG_CMAKE_CONFIGURE_OPTIONS}
-  -DCMAKE_POSITION_INDEPENDENT_CODE=ON  # -fPIC required for wasm32 module
-)
+# ── CUSTOM: propagate CFLAGS/CXXFLAGS to all vcpkg port builds ──────────
+#
+# The vcpkg binary evaluates the overlay triplet and passes only *standard*
+# variables (VCPKG_CXX_FLAGS, VCPKG_CRT_LINKAGE, etc.) as -D defines to
+# dependency port cmake processes.  Non-standard variables like
+# VCPKG_CMAKE_CONFIGURE_OPTIONS are silently dropped, so they cannot be
+# used to set CMAKE_CXX_FLAGS for freetype/libpng/opencascade.
+#
+# Instead we:
+#   1. Compute the needed flags below.
+#   2. Forward CFLAGS/CXXFLAGS through vcpkg's env-sanitisation via
+#      VCPKG_ENV_PASSTHROUGH_UNTRACKED (so the vcpkg binary passes them
+#      to every cmake subprocess it spawns for port builds).
+#   3. CMake natively reads CFLAGS → CMAKE_C_FLAGS, CXXFLAGS → CMAKE_CXX_FLAGS.
+# ─────────────────────────────────────────────────────────────────────────
 
+# Always forward CFLAGS/CXXFLAGS through vcpkg's build environment.
+list(APPEND VCPKG_ENV_PASSTHROUGH_UNTRACKED CFLAGS CXXFLAGS)
+
+# --- Read GDEXT_CMAKE_ARGS to detect thread configuration ---
 if(EXISTS "${SOURCE_PATH}/__GDEXT_CMAKE_ARGS")
   file(READ "${SOURCE_PATH}/__GDEXT_CMAKE_ARGS" GDEXT_CMAKE_ARGS)
 elseif(DEFINED ENV{GDEXT_CMAKE_ARGS})
@@ -14,7 +29,6 @@ else()
 endif()
 separate_arguments(GDEXT_CMAKE_ARGS UNIX_COMMAND "${GDEXT_CMAKE_ARGS}")
 
-# Make detection more flexible: match -DGODOTCPP_THREADS=on or -DGODOTCPP_THREADS=ON or -DGODOTCPP_THREADS:on, etc.
 set(_threads_enabled OFF)
 foreach(_arg IN LISTS GDEXT_CMAKE_ARGS)
   if(_arg MATCHES "^-DGODOTCPP_THREADS[:=](on|ON|1|true|TRUE)$")
@@ -23,27 +37,23 @@ foreach(_arg IN LISTS GDEXT_CMAKE_ARGS)
   endif()
 endforeach()
 
-# Collect extra C/CXX flags. Use a single -DCMAKE_CXX_FLAGS / -DCMAKE_C_FLAGS
-# so that later entries don't silently overwrite earlier ones.
-set(_extra_cxx_flags "")
-set(_extra_c_flags "")
+# --- Compute per-language flag strings ---
+set(_common_flags "-fPIC")
 
 if(_threads_enabled)
-  set(_extra_cxx_flags "${_extra_cxx_flags} -matomics -mbulk-memory")  # Required for threads support in wasm32
-  set(_extra_c_flags "${_extra_c_flags} -matomics -mbulk-memory")
+  string(APPEND _common_flags " -matomics -mbulk-memory")
 endif()
 
-# Keep -fexceptions so OCCT try/catch syntax compiles, but disable C++
-# exception handling at the LLVM backend level.  Any throw becomes an
-# unreachable trap (abort).  This avoids importing __cpp_exception Tag or
-# emscripten_longjmp — neither is available in a SIDE_MODULE linked against
-# Godot's main module (see godotengine/godot#104835).
-# NOTE: This flag only affects vcpkg packages (opencascade, occtl), NOT the
-# gdext package — the gdext portfile overrides CMAKE_CXX_FLAGS to strip it,
-# because godot-cpp's -sSUPPORT_LONGJMP=wasm conflicts with this LLVM flag.
-set(_extra_cxx_flags "${_extra_cxx_flags} -fexceptions -mllvm -enable-emscripten-cxx-exceptions=0")
+# wasm-native setjmp/longjmp (patch 0007 disables OCC_CONVERT_SIGNALS,
+# patch 0008 removes -fexceptions, so no conflict with -fwasm-exceptions).
+string(APPEND _common_flags " -sSUPPORT_LONGJMP=wasm")
 
-set(VCPKG_CMAKE_CONFIGURE_OPTIONS ${VCPKG_CMAKE_CONFIGURE_OPTIONS}
-  "-DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS} ${_extra_cxx_flags}"
-  "-DCMAKE_C_FLAGS=${CMAKE_C_FLAGS} ${_extra_c_flags}"
-)
+# wasm-native C++ exceptions (Godot main module provides __cpp_exception tag).
+string(APPEND _common_flags " -fwasm-exceptions")
+
+# --- Set CFLAGS/CXXFLAGS in the triplet's cmake scope ---
+# These become the initial values exported via VCPKG_ENV_PASSTHROUGH_UNTRACKED
+# so every dependency port cmake picks them up.
+set(ENV{CFLAGS}  "${_common_flags}")
+set(ENV{CXXFLAGS} "${_common_flags}")
+

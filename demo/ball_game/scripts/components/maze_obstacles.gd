@@ -5,6 +5,7 @@ class_name MazeObstacles
 ## Standalone obstacle generation node.
 ## Generates positive obstacles (boxes or scripted shapes) along all path pairs,
 ## independent of the tube mesh generation.
+## Uses TaskScheduler + WorkerThreadPool for parallel OCCT geometry build.
 
 @export_group("Obstacles")
 
@@ -41,6 +42,11 @@ class_name MazeObstacles
 ## Generate collision shapes from obstacle face triangles.
 @export var physics_show_faces: bool = true
 
+@export_group("Concurrency")
+
+## Maximum number of worker threads for obstacle generation (0 = unlimited).
+@export var max_concurrent: int = 0
+
 @export_group("Persistence")
 
 ## Base path for saving generated obstacle resources. Empty = memory-only.
@@ -51,9 +57,13 @@ class_name MazeObstacles
 # State — resolved from sibling Meshes (OclMeshBuilder) at build time.
 var _wall_height_cdf: Curve
 var _wall_height_noise: FastNoiseLite
+var _is_regenerating: bool = false
 
 func _ready():
 	pass
+
+func _exit_tree() -> void:
+	_is_regenerating = false
 
 func _ensure_wall_height_cdf(source: Curve):
 	if source == null:
@@ -75,7 +85,12 @@ func _sample_wall_height(noise_input: float) -> float:
 		return 0.8
 	return h
 
-func _build_obstacles():
+func _build_obstacles(sync: bool = false):
+	if _is_regenerating:
+		push_warning("MazeObstacles: regeneration already in progress, skipping.")
+		return
+	_is_regenerating = true
+
 	var start_time := Time.get_ticks_usec()
 
 	# Idempotent: remove all existing children immediately (not queue_free).
@@ -115,11 +130,13 @@ func _build_obstacles():
 
 	if obstacle_positive_frequency <= 0.0:
 		print("[MazeObstacles] Frequency is 0, skipping.")
+		_is_regenerating = false
 		return
 
 	var obstacle_scripts := _discover_obstacle_scripts()
 	if obstacle_scripts.is_empty():
 		print("[MazeObstacles] No obstacle scripts found.")
+		_is_regenerating = false
 		return
 
 	var profile_cfg := ProfileBuilder.Config.new(
@@ -136,6 +153,9 @@ func _build_obstacles():
 
 	# Collect path pairs.
 	var path_pairs := _collect_path_pairs(paths)
+
+	# ── Phase 1: precompute all placements (main thread — curve sampling is NOT thread-safe) ──
+	var work_items: Array[Dictionary] = []
 	var total_obstacles := 0
 
 	for pair in path_pairs:
@@ -171,6 +191,7 @@ func _build_obstacles():
 			var t_val := (obs_i + 0.5) / num_obstacles
 			var seg_idx := int(t_val * seg_count)
 			seg_idx = clampi(seg_idx, 0, path_curve.point_count - 2)
+			# transform_at_index only reads control points — safe for main thread.
 			var xf := CurveUtils.transform_at_index(path_curve, seg_idx, aux_curve)
 
 			var wall_h: float = clampf(segment_wall_heights[seg_idx], 0.0, 1.0)
@@ -226,129 +247,272 @@ func _build_obstacles():
 			obs_xf.basis = xf.basis * rot_basis
 			var obs_aabb := AABB(Vector3.ZERO, aabb_size)
 
-			# Build obstacle into its own graph.
-			var graph = GraphUtils.create_graph()
-			var obs_bits: PackedInt64Array
-			var status: OclCore.status
-			if obstacle_debug_mode:
-				var box_info := OclPrimBoxInfo.new()
-				box_info.placement = OcctConversionUtils.transform3d_to_occt_placement(obs_xf)
-				box_info.dx = aabb_size.x
-				box_info.dy = aabb_size.y
-				box_info.dz = aabb_size.z
-				var box_id := OclNodeId.new()
-				status = OclPrimSolid.box(graph, box_info, box_id) as OclCore.status
-				if status != OclCore.OK:
-					OclTopo.graph_free(graph)
-					continue
-				obs_bits = PackedInt64Array([box_id.get_bits()])
+			# Skip zero-volume obstacles (can happen with extreme random params).
+			if aabb_size.x <= 0.0 or aabb_size.y <= 0.0 or aabb_size.z <= 0.0:
+				continue
+
+			work_items.append({
+				"xf": obs_xf,
+				"aabb": obs_aabb,
+				"node_name": "%s_Obs%d" % [pair_name if pair_name else "Main", total_obstacles],
+			})
+			total_obstacles += 1
+
+	if work_items.is_empty():
+		print("[MazeObstacles] No obstacles to build.")
+		_is_regenerating = false
+		return
+
+	# ── Phase 2 + 3: dispatch workers and poll on main thread ──
+	print("[MazeObstacles] Dispatching %d obstacles across WorkerThreadPool. Polling..." % work_items.size())
+
+	# Capture member/config variables for worker closures (avoids main-thread-only bindings).
+	var captured_debug_mode: bool = obstacle_debug_mode
+	var captured_scripts: Array[Script] = obstacle_scripts
+	var captured_opts: OclMeshOptions = display_options
+	var captured_edge_radius: float = obstacle_edge_radius
+	var captured_vert_radius: float = obstacle_vertex_radius
+
+	var scheduler := TaskScheduler.new(sync)
+	scheduler.max_concurrent = max_concurrent
+
+	for item in work_items:
+		var captured_xf: Transform3D = item["xf"]
+		var captured_aabb: AABB = item["aabb"]
+		var captured_name: String = item["node_name"]
+		scheduler.dispatch_task(func():
+			var result: Dictionary = _worker_build_obstacle(
+				captured_xf, captured_aabb,
+				captured_debug_mode, captured_scripts,
+				captured_opts, captured_edge_radius, captured_vert_radius,
+			)
+			result["node_name"] = captured_name
+			scheduler.submit_result(result)
+		, false, "Obstacle")
+
+	# Collect all results from workers.
+	var results: Array[Dictionary] = []
+	while true:
+		scheduler.reap_completed()
+		for res in scheduler.collect_all():
+			results.append(res as Dictionary)
+		if not scheduler.is_busy():
+			break
+		await get_tree().process_frame
+
+	for res in scheduler.collect_all():
+		results.append(res as Dictionary)
+
+	# ── Phase 4: batch all results into merged geometry (main thread) ──
+	var all_face_surfaces: Array = []
+	var all_edge_xforms := PackedFloat64Array()
+	var all_vert_xforms := PackedFloat64Array()
+	var all_face_tris := PackedVector3Array()
+
+	for result in results:
+		var f: Array = result.get("f", [])
+		if not f.is_empty():
+			all_face_surfaces.append_array(f)
+		var e: PackedFloat64Array = result.get("e", PackedFloat64Array())
+		if not e.is_empty():
+			all_edge_xforms.append_array(e)
+		var v: PackedFloat64Array = result.get("v", PackedFloat64Array())
+		if not v.is_empty():
+			all_vert_xforms.append_array(v)
+		var pf: PackedVector3Array = result.get("pf", PackedVector3Array())
+		if pf.size() >= 3:
+			all_face_tris.append_array(pf)
+
+	var has_faces := not all_face_surfaces.is_empty()
+	var has_edges := all_edge_xforms.size() > 0
+	var has_verts := all_vert_xforms.size() > 0
+	var has_physics := all_face_tris.size() >= 3
+
+	# --- Merged faces node ---
+	if has_faces or has_physics:
+		var faces_root: Node3D
+		if has_physics:
+			faces_root = StaticBody3D.new()
+		else:
+			faces_root = Node3D.new()
+		faces_root.name = "Faces"
+		container.add_child(faces_root, true)
+		if Engine.is_editor_hint():
+			faces_root.owner = get_tree().edited_scene_root if is_inside_tree() else null
+
+		if has_physics:
+			var shape := ConcavePolygonShape3D.new()
+			shape.set_faces(all_face_tris)
+			var cs := CollisionShape3D.new()
+			cs.name = "CollisionFaces"
+			cs.shape = shape
+			faces_root.add_child(cs, true)
+			if Engine.is_editor_hint():
+				cs.owner = get_tree().edited_scene_root if is_inside_tree() else null
+
+		if has_faces:
+			var merged: Array
+			if all_face_surfaces.size() == 1:
+				merged = all_face_surfaces[0]
+				merged.resize(Mesh.ARRAY_MAX)
 			else:
-				obs_bits = obstacle_scripts[rng.randi() % obstacle_scripts.size()].build(graph, obs_aabb, obs_xf)
-
-			if obs_bits.is_empty():
-				OclTopo.graph_free(graph)
-				continue
-
-			# Tessellate the obstacle graph.
+				merged = OclMeshToGodot.merge_surface_arrays(all_face_surfaces)
+				merged.resize(Mesh.ARRAY_MAX)
 			var am := ArrayMesh.new()
-			status = OclMeshToGodot.mesh_faces(graph, am, display_options, null, true, false, false) as OclCore.status
-
-			# Extract edge transforms.
-			var e_mm := MultiMesh.new()
-			var has_edges := obstacle_edge_radius != 0.0 and OclMeshToGodot.mesh_edges(graph, e_mm, display_options, null, obstacle_edge_radius) == OclCore.OK
-
-			# Extract vertex transforms.
-			var v_mm := MultiMesh.new()
-			var has_verts := obstacle_vertex_radius != 0.0 and OclMeshToGodot.mesh_vertices(graph, v_mm, display_options, null, obstacle_vertex_radius) == OclCore.OK
-
-			# Extract face triangles for physics.
-			var face_tris := PackedVector3Array()
-			if physics_show_faces:
-				face_tris = OclMeshToGodot.extract_face_triangles(graph, display_options, null)
-
-			OclTopo.graph_free(graph)
-			if status != OclCore.OK:
-				continue
-
-			# --- Face mesh ---
+			am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, merged)
 			var obs_mat: Material = obstacle_material if obstacle_material else display_faces_material
 			if obs_mat:
 				am.surface_set_material(0, obs_mat)
-
-			var obs_node_name := "%s_Obs%d" % [pair_name if pair_name else "Main", total_obstacles]
-			var has_physics := face_tris.size() >= 3
-			var obs_root: Node3D
-			if has_physics:
-				obs_root = StaticBody3D.new()
-			else:
-				obs_root = Node3D.new()
-			obs_root.name = obs_node_name
-			container.add_child(obs_root)
-			if Engine.is_editor_hint():
-				obs_root.owner = get_tree().edited_scene_root if is_inside_tree() else null
-
 			var mi := MeshInstance3D.new()
 			mi.name = "FacesMesh"
 			mi.mesh = am
-			obs_root.add_child(mi)
+			faces_root.add_child(mi, true)
 			if Engine.is_editor_hint():
 				mi.owner = get_tree().edited_scene_root if is_inside_tree() else null
 
-			# --- Face collision ---
-			if face_tris.size() >= 3:
-				var shape := ConcavePolygonShape3D.new()
-				shape.set_faces(face_tris)
-				var cs := CollisionShape3D.new()
-				cs.name = "CollisionFaces"
-				cs.shape = shape
-				obs_root.add_child(cs)
-				if Engine.is_editor_hint():
-					cs.owner = get_tree().edited_scene_root if is_inside_tree() else null
+	# --- Merged edges node ---
+	if has_edges:
+		var edges_node := Node3D.new()
+		edges_node.name = "Edges"
+		container.add_child(edges_node, true)
+		if Engine.is_editor_hint():
+			edges_node.owner = get_tree().edited_scene_root if is_inside_tree() else null
 
-			# --- Edge display ---
-			if has_edges:
-				var slices := OclMeshBuilder._slices_from_angle(display_options.angle)
-				var cyl := CylinderMesh.new()
-				cyl.height = 1.0
-				cyl.radial_segments = slices
-				cyl.rings = eff_edge_rings
-				cyl.radial_segments = eff_edge_rings
-				cyl.cap_top = false
-				cyl.cap_bottom = false
-				var e_mat: Material = obstacle_edges_material if obstacle_edges_material else display_edges_material
-				if e_mat:
-					cyl.surface_set_material(0, e_mat)
-				e_mm.mesh = cyl
-				var e_mmi := MultiMeshInstance3D.new()
-				e_mmi.name = "EdgesMesh"
-				e_mmi.multimesh = e_mm
-				obs_root.add_child(e_mmi)
-				if Engine.is_editor_hint():
-					e_mmi.owner = get_tree().edited_scene_root if is_inside_tree() else null
+		var mm := MultiMesh.new()
+		mm.transform_format = MultiMesh.TRANSFORM_3D
+		var cyl := CylinderMesh.new()
+		cyl.height = 1.0
+		cyl.radial_segments = eff_edge_rings
+		cyl.rings = eff_edge_rings
+		cyl.cap_top = false
+		cyl.cap_bottom = false
+		var e_mat: Material = obstacle_edges_material if obstacle_edges_material else display_edges_material
+		if e_mat:
+			cyl.surface_set_material(0, e_mat)
+		mm.mesh = cyl
+		var n := int(all_edge_xforms.size() / 16.0)
+		if n > 0:
+			mm.instance_count = n
+			for i in range(n):
+				mm.set_instance_transform(i, OclMeshBuilder._decode_transform(all_edge_xforms, i))
+		var mmi := MultiMeshInstance3D.new()
+		mmi.name = "EdgesMesh"
+		mmi.multimesh = mm
+		edges_node.add_child(mmi, true)
+		if Engine.is_editor_hint():
+			mmi.owner = get_tree().edited_scene_root if is_inside_tree() else null
 
-			# --- Vertex display ---
-			if has_verts:
-				var sph := SphereMesh.new()
-				sph.radius = 1.0
-				sph.radial_segments = eff_vertex_rings
-				sph.rings = eff_vertex_rings
-				var v_mat: Material = obstacle_vertices_material if obstacle_vertices_material else display_vertices_material
-				if v_mat:
-					sph.surface_set_material(0, v_mat)
-				v_mm.mesh = sph
-				var v_mmi := MultiMeshInstance3D.new()
-				v_mmi.name = "VerticesMesh"
-				v_mmi.multimesh = v_mm
-				obs_root.add_child(v_mmi)
-				if Engine.is_editor_hint():
-					v_mmi.owner = get_tree().edited_scene_root if is_inside_tree() else null
+	# --- Merged vertices node ---
+	if has_verts:
+		var verts_node := Node3D.new()
+		verts_node.name = "Vertices"
+		container.add_child(verts_node, true)
+		if Engine.is_editor_hint():
+			verts_node.owner = get_tree().edited_scene_root if is_inside_tree() else null
 
-			total_obstacles += 1
+		var mm := MultiMesh.new()
+		mm.transform_format = MultiMesh.TRANSFORM_3D
+		var sph := SphereMesh.new()
+		sph.radius = 1.0
+		sph.radial_segments = eff_vertex_rings
+		sph.rings = eff_vertex_rings
+		var v_mat: Material = obstacle_vertices_material if obstacle_vertices_material else display_vertices_material
+		if v_mat:
+			sph.surface_set_material(0, v_mat)
+		mm.mesh = sph
+		var n := int(all_vert_xforms.size() / 16.0)
+		if n > 0:
+			mm.instance_count = n
+			for i in range(n):
+				mm.set_instance_transform(i, OclMeshBuilder._decode_transform(all_vert_xforms, i))
+		var mmi := MultiMeshInstance3D.new()
+		mmi.name = "VerticesMesh"
+		mmi.multimesh = mm
+		verts_node.add_child(mmi, true)
+		if Engine.is_editor_hint():
+			mmi.owner = get_tree().edited_scene_root if is_inside_tree() else null
 
 	print("[MazeObstacles] Built %d obstacles in %.2f ms" % [total_obstacles, (Time.get_ticks_usec() - start_time) / 1000.0])
 
 	if Engine.is_editor_hint():
 		_persist_resources()
+	_is_regenerating = false
+
+
+# =============================================================================
+# Worker function  (runs on WorkerThreadPool threads)
+# =============================================================================
+
+## Builds one obstacle's OCCT geometry and tessellates it.
+## Returns a Dictionary with serialized mesh data suitable for batching:
+##   "f"  : Array of surface arrays (face mesh data)
+##   "e"  : PackedFloat64Array of edge transforms
+##   "v"  : PackedFloat64Array of vertex transforms
+##   "pf" : PackedVector3Array of face triangles for physics
+static func _worker_build_obstacle(
+	obs_xf: Transform3D,
+	obs_aabb: AABB,
+	debug_mode: bool,
+	obstacle_scripts: Array[Script],
+	opts: OclMeshOptions,
+	edge_radius: float,
+	vertex_radius: float,
+) -> Dictionary:
+	var result: Dictionary = {
+		"f": [],
+		"e": PackedFloat64Array(),
+		"v": PackedFloat64Array(),
+		"pf": PackedVector3Array(),
+	}
+
+	# Create a fresh graph for this obstacle.
+	var graph = GraphUtils.create_graph()
+	var obs_bits: PackedInt64Array
+	var status: OclCore.status
+	if debug_mode:
+		var box_info := OclPrimBoxInfo.new()
+		box_info.placement = OcctConversionUtils.transform3d_to_occt_placement(obs_xf)
+		box_info.dx = obs_aabb.size.x
+		box_info.dy = obs_aabb.size.y
+		box_info.dz = obs_aabb.size.z
+		var box_id := OclNodeId.new()
+		status = OclPrimSolid.box(graph, box_info, box_id) as OclCore.status
+		if status != OclCore.OK:
+			OclTopo.graph_free(graph)
+			return result
+		obs_bits = PackedInt64Array([box_id.get_bits()])
+	else:
+		# Pick a random obstacle script. Use a hash of the transform for determinism.
+		var idx := hash(Vector4(obs_xf.origin.x, obs_xf.origin.y, obs_xf.origin.z, obs_aabb.size.x)) % obstacle_scripts.size()
+		obs_bits = obstacle_scripts[idx].build(graph, obs_aabb, obs_xf)
+
+	if obs_bits.is_empty():
+		OclTopo.graph_free(graph)
+		return result
+
+	# --- Face mesh → extract surface arrays ---
+	var tmp_am := ArrayMesh.new()
+	status = OclMeshToGodot.mesh_faces(graph, tmp_am, opts, null, true, false, false) as OclCore.status
+	if status == OclCore.OK:
+		result["f"] = _extract_surface_arrays(tmp_am)
+
+	# --- Edge transforms ---
+	if edge_radius != 0.0:
+		var e_mm := MultiMesh.new()
+		if OclMeshToGodot.mesh_edges(graph, e_mm, opts, null, edge_radius) == OclCore.OK:
+			result["e"] = _extract_multimesh_transforms(e_mm)
+
+	# --- Vertex transforms ---
+	if vertex_radius != 0.0:
+		var v_mm := MultiMesh.new()
+		if OclMeshToGodot.mesh_vertices(graph, v_mm, opts, null, vertex_radius) == OclCore.OK:
+			result["v"] = _extract_multimesh_transforms(v_mm)
+
+	# --- Face triangles for physics ---
+	result["pf"] = OclMeshToGodot.extract_face_triangles(graph, opts, null)
+
+	OclTopo.graph_free(graph)
+	return result
 
 
 # Surface type for obstacle placement.
@@ -456,3 +620,49 @@ func _set_owner_recursive(node: Node, mowner: Node) -> void:
 	node.owner = mowner
 	for child in node.get_children():
 		_set_owner_recursive(child, mowner)
+
+
+# =============================================================================
+# Worker helpers (static, shared with MazeMarkers)
+# =============================================================================
+
+## Extract face surface arrays from an ArrayMesh for later merging.
+static func _extract_surface_arrays(am: ArrayMesh) -> Array:
+	var result: Array = []
+	for surf_idx in range(am.get_surface_count()):
+		var arrays := am.surface_get_arrays(surf_idx)
+		arrays.resize(Mesh.ARRAY_MAX)
+		result.append(arrays)
+	return result
+
+
+## Encode all instance transforms from a MultiMesh into a PackedFloat64Array
+## (16 doubles per transform, column-major Basis + origin).
+static func _extract_multimesh_transforms(mm: MultiMesh) -> PackedFloat64Array:
+	var n: int = mm.instance_count
+	if n == 0:
+		return PackedFloat64Array()
+	var out: PackedFloat64Array = PackedFloat64Array()
+	out.resize(n * 16)
+	for i in range(n):
+		var t: Transform3D = mm.get_instance_transform(i)
+		var b: Basis = t.basis
+		var o: Vector3 = t.origin
+		var base: int = i * 16
+		out[base + 0]  = b.x.x
+		out[base + 1]  = b.y.x
+		out[base + 2]  = b.z.x
+		out[base + 3]  = 0.0
+		out[base + 4]  = b.x.y
+		out[base + 5]  = b.y.y
+		out[base + 6]  = b.z.y
+		out[base + 7]  = 0.0
+		out[base + 8]  = b.x.z
+		out[base + 9]  = b.y.z
+		out[base + 10] = b.z.z
+		out[base + 11] = 0.0
+		out[base + 12] = o.x
+		out[base + 13] = o.y
+		out[base + 14] = o.z
+		out[base + 15] = 1.0
+	return out

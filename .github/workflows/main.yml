@@ -510,9 +510,11 @@ jobs:
         shell: bash
         run: |
           set -e
-          mkdir -p addon-export
-          cp -r demo/addons/*.gd addon-export/
-          cp LICENSE addon-export/addons/*.gd
+          mkdir -p addon-export/addons
+          for addon in demo/addons/*.gd; do
+            cp -r "$addon" addon-export/addons/
+            cp LICENSE "addon-export/addons/$(basename "$addon")/"
+          done
           MODIFIED_REF=$(echo ${{ github.ref_name }} | sed 's/\//-/g')
           echo "MODIFIED_REF=$MODIFIED_REF" >> $GITHUB_ENV
 
@@ -608,12 +610,12 @@ jobs:
             { triplet: x86-linux, preset: "Linux x86", os: ubuntu-24.04 },
             { triplet: arm64-linux, preset: "Linux arm64", os: ubuntu-24.04-arm },
             { triplet: arm-linux, preset: "Linux arm", os: ubuntu-24.04-arm },
-            { triplet: x64-mingw-static, preset: "Windows Desktop", os: windows-2025-vs2026 },
-            { triplet: x86-mingw-static, preset: "Windows Desktop x86", os: windows-2025-vs2026 },
-            { triplet: arm64-mingw-static, preset: "Windows Desktop arm64", os: windows-2025-vs2026 },
+            { triplet: x64-windows-static, preset: "Windows Desktop", os: windows-2025-vs2026 },
+            { triplet: x86-windows-static, preset: "Windows Desktop x86", os: windows-2025-vs2026 },
+            { triplet: arm64-windows-static, preset: "Windows Desktop arm64", os: windows-2025-vs2026 },
             { triplet: universal-osx, preset: "macOS", os: macos-15 },
             { triplet: wasm32-emscripten, preset: "Web Threads", os: ubuntu-24.04 },
-            { triplet: arm64-android, preset: "Android arm64-v8a", os: ubuntu-24.04 },
+            { triplet: arm64-android, preset: "Android", os: ubuntu-24.04 },
             { triplet: arm-neon-android, preset: "Android armeabi-v7a", os: ubuntu-24.04 },
             { triplet: x64-android, preset: "Android x86_64", os: ubuntu-24.04 },
             { triplet: x86-android, preset: "Android x86", os: ubuntu-24.04 },

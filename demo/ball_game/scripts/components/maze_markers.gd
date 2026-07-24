@@ -22,6 +22,11 @@ class_name MazeMarkers
 ## Number of latitudinal rings for vertex spheres (0 = use Mesher value).
 @export_range(0, 16, 1) var marker_vertex_rings: int = 0
 
+@export_group("Concurrency")
+
+## Maximum number of worker threads for marker generation (0 = unlimited).
+@export var max_concurrent: int = 0
+
 @export_group("Persistence")
 
 ## Base path for saving generated marker resources. Empty = memory-only.
@@ -30,18 +35,20 @@ class_name MazeMarkers
 @export_tool_button("Regenerate Markers") var regen_ = func(): _build_markers()
 
 var _resolved_font: String = ""
-# Resolved from Mesher at build time.
-var _display_options: OclMeshOptions
-var _eff_faces_material: Material
-var _eff_edges_material: Material
-var _eff_vertices_material: Material
-var _eff_edge_rings: int
-var _eff_vertex_rings: int
+var _is_regenerating: bool = false
 
 func _ready():
 	_resolved_font = _resolve_font()
 
-func _build_markers():
+func _exit_tree() -> void:
+	_is_regenerating = false
+
+func _build_markers(sync: bool = false):
+	if _is_regenerating:
+		push_warning("MazeMarkers: regeneration already in progress, skipping.")
+		return
+	_is_regenerating = true
+
 	var start_time := Time.get_ticks_usec()
 
 	# Idempotent: remove all existing children immediately (not queue_free).
@@ -50,28 +57,40 @@ func _build_markers():
 		child.free()
 
 	var gen := _find_generator()
-	if gen == null: return
+	if gen == null:
+		push_error("MazeMarkers: MazeGenerator parent not found")
+		_is_regenerating = false
+		return
 	var paths = gen.get_node_or_null("Paths")
-	if paths == null: return
+	if paths == null:
+		push_error("MazeMarkers: MazeGenerator/Paths node not found")
+		_is_regenerating = false
+		return
 
 	var main_path = paths.get_node_or_null("MainPath") as Path3D
 	var aux_path = paths.get_node_or_null("MainPathBinormal") as Path3D
-	if main_path == null or aux_path == null: return
+	if main_path == null or aux_path == null:
+		push_error("MazeMarkers: Paths/MainPath or Paths/MainPathBinormal node not found")
+		_is_regenerating = false
+		return
 	var curve = main_path.curve
 	var aux_curve = aux_path.curve
-	if curve == null or curve.point_count < 2: return
+	if curve == null or curve.point_count < 2:
+		push_error("MazeMarkers: MainPath curve is null or has fewer than 2 points")
+		_is_regenerating = false
+		return
 
 	var total_len = curve.get_baked_length()
 	assert(total_len > 0.0, "MazeMarkers: MainPath curve has zero length")
 
 	# Read shared config from the canonical source — OclMeshBuilder (Meshes).
 	var meshes := gen.get_node_or_null("Meshes") as OclMeshBuilder
-	_display_options = meshes.display_options if meshes else OclMeshOptions.new()
-	_eff_faces_material = marker_faces_material if marker_faces_material else (meshes.display_faces_material if meshes else null)
-	_eff_edges_material = marker_edges_material if marker_edges_material else (meshes.display_edges_material if meshes else null)
-	_eff_vertices_material = marker_vertices_material if marker_vertices_material else (meshes.display_vertices_material if meshes else null)
-	_eff_edge_rings = marker_edge_rings if marker_edge_rings > 0 else (meshes.edge_rings if meshes else 4)
-	_eff_vertex_rings = marker_vertex_rings if marker_vertex_rings > 0 else (meshes.vertex_rings if meshes else 4)
+	var display_options: OclMeshOptions = meshes.display_options if meshes else OclMeshOptions.new()
+	var eff_faces_material: Material = marker_faces_material if marker_faces_material else (meshes.display_faces_material if meshes else null)
+	var eff_edges_material: Material = marker_edges_material if marker_edges_material else (meshes.display_edges_material if meshes else null)
+	var eff_vertices_material: Material = marker_vertices_material if marker_vertices_material else (meshes.display_vertices_material if meshes else null)
+	var eff_edge_rings: int = marker_edge_rings if marker_edge_rings > 0 else (meshes.edge_rings if meshes else 4)
+	var eff_vertex_rings: int = marker_vertex_rings if marker_vertex_rings > 0 else (meshes.vertex_rings if meshes else 4)
 
 	# Intermediate container — all generated markers go here so that
 	# _persist_resources can save them as a single .scn.
@@ -81,8 +100,11 @@ func _build_markers():
 	if Engine.is_editor_hint():
 		container.owner = get_tree().edited_scene_root if is_inside_tree() else null
 
+	# ── Phase 1: precompute all placements (main thread — curve sampling is NOT thread-safe) ──
+	var work_items: Array[Dictionary] = []
+
 	# Main path markers at regular intervals (skip 0% and 100%).
-	_place_interval_markers(container, curve, aux_curve, 0.0, total_len, 0.0, 100.0)
+	_collect_interval_items(work_items, curve, aux_curve, total_len, 0.0, 100.0)
 
 	# Shortcut path markers — labeled with main-path percentages.
 	var rope_physics: OclDemoOnlyRopePhysics = paths.get("rope_physics")
@@ -106,25 +128,159 @@ func _build_markers():
 			assert(anchor_e >= 0 and anchor_e <= curve.point_count, "SC_IDX: %d -- anchor_s: %s (rebuild paths?)" % [sc_idx, anchor_e])
 			var end_pct = _find_closest_baked_length(curve, curve.get_point_position(anchor_e)) / total_len * 100.0
 
-			# Place markers at round percentages of the main path that fall
-			# strictly between the anchor endpoints, positioned along the
-			# shortcut curve.
 			var sc_total_len := sc_curve.get_baked_length()
-			_place_interval_markers(container, sc_curve, sc_aux_curve, 0.0, sc_total_len, start_pct, end_pct)
+			_collect_interval_items(work_items, sc_curve, sc_aux_curve, sc_total_len, start_pct, end_pct)
+
+	if work_items.is_empty():
+		print("[MazeMarkers] No markers to build.")
+		_is_regenerating = false
+		return
+
+	# ── Phase 2 + 3: dispatch workers and poll on main thread ──
+	print("[MazeMarkers] Dispatching %d markers across WorkerThreadPool. Polling..." % work_items.size())
+
+	# Capture member/config variables for worker closures (avoids main-thread-only bindings).
+	var captured_font: String = _resolved_font
+	var captured_text_height: float = text_height
+	var captured_opts: OclMeshOptions = display_options
+	var captured_edge_radius: float = marker_edge_radius
+	var captured_vert_radius: float = marker_vertex_radius
+
+	var scheduler := TaskScheduler.new(sync)
+	scheduler.max_concurrent = max_concurrent
+
+	for item in work_items:
+		var captured_xf: Transform3D = item["xf"]
+		var captured_label: String = item["label"]
+		scheduler.dispatch_task(func():
+			var result: Dictionary = _worker_build_marker(
+				captured_xf, captured_label,
+				captured_font, captured_text_height,
+				captured_opts, captured_edge_radius, captured_vert_radius,
+			)
+			scheduler.submit_result(result)
+		, false, "Marker")
+
+	# Collect all results from workers.
+	var results: Array[Dictionary] = []
+	while true:
+		scheduler.reap_completed()
+		for res in scheduler.collect_all():
+			results.append(res as Dictionary)
+		if not scheduler.is_busy():
+			break
+		await get_tree().process_frame
+
+	for res in scheduler.collect_all():
+		results.append(res as Dictionary)
+
+	# ── Phase 4: batch all results into merged geometry (main thread) ──
+	var all_face_surfaces: Array = []
+	var all_edge_xforms := PackedFloat64Array()
+	var all_vert_xforms := PackedFloat64Array()
+
+	for result in results:
+		var f: Array = result.get("f", [])
+		if not f.is_empty():
+			all_face_surfaces.append_array(f)
+		var e: PackedFloat64Array = result.get("e", PackedFloat64Array())
+		if not e.is_empty():
+			all_edge_xforms.append_array(e)
+		var v: PackedFloat64Array = result.get("v", PackedFloat64Array())
+		if not v.is_empty():
+			all_vert_xforms.append_array(v)
+
+	var has_faces := not all_face_surfaces.is_empty()
+	var has_edges := all_edge_xforms.size() > 0
+	var has_verts := all_vert_xforms.size() > 0
+
+	# --- Merged faces node ---
+	if has_faces:
+		var merged: Array
+		if all_face_surfaces.size() == 1:
+			merged = all_face_surfaces[0]
+			merged.resize(Mesh.ARRAY_MAX)
+		else:
+			merged = OclMeshToGodot.merge_surface_arrays(all_face_surfaces)
+			merged.resize(Mesh.ARRAY_MAX)
+		var am := ArrayMesh.new()
+		am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, merged)
+		if eff_faces_material:
+			am.surface_set_material(0, eff_faces_material)
+		var mi := MeshInstance3D.new()
+		mi.name = "MarkersMesh"
+		mi.mesh = am
+		container.add_child(mi, true)
+		if Engine.is_editor_hint():
+			mi.owner = get_tree().edited_scene_root if is_inside_tree() else null
+
+	# --- Merged edges node ---
+	if has_edges:
+		var mm := MultiMesh.new()
+		mm.transform_format = MultiMesh.TRANSFORM_3D
+		var cyl := CylinderMesh.new()
+		cyl.height = 1.0
+		cyl.radial_segments = eff_edge_rings
+		cyl.rings = eff_edge_rings
+		cyl.cap_top = false
+		cyl.cap_bottom = false
+		if eff_edges_material:
+			cyl.surface_set_material(0, eff_edges_material)
+		mm.mesh = cyl
+		var n := int(all_edge_xforms.size() / 16.0)
+		if n > 0:
+			mm.instance_count = n
+			for i in range(n):
+				mm.set_instance_transform(i, OclMeshBuilder._decode_transform(all_edge_xforms, i))
+		var mmi := MultiMeshInstance3D.new()
+		mmi.name = "EdgesMesh"
+		mmi.multimesh = mm
+		container.add_child(mmi, true)
+		if Engine.is_editor_hint():
+			mmi.owner = get_tree().edited_scene_root if is_inside_tree() else null
+
+	# --- Merged vertices node ---
+	if has_verts:
+		var mm := MultiMesh.new()
+		mm.transform_format = MultiMesh.TRANSFORM_3D
+		var sph := SphereMesh.new()
+		sph.radius = 1.0
+		sph.radial_segments = eff_edge_rings
+		sph.rings = eff_vertex_rings
+		if eff_vertices_material:
+			sph.surface_set_material(0, eff_vertices_material)
+		mm.mesh = sph
+		var n := int(all_vert_xforms.size() / 16.0)
+		if n > 0:
+			mm.instance_count = n
+			for i in range(n):
+				mm.set_instance_transform(i, OclMeshBuilder._decode_transform(all_vert_xforms, i))
+		var mmi := MultiMeshInstance3D.new()
+		mmi.name = "VerticesMesh"
+		mmi.multimesh = mm
+		container.add_child(mmi, true)
+		if Engine.is_editor_hint():
+			mmi.owner = get_tree().edited_scene_root if is_inside_tree() else null
 
 	print("[MazeMarkers] Built markers every %.0f%% in %.2f ms" % [interval_pct, (Time.get_ticks_usec() - start_time) / 1000.0])
 
 	if Engine.is_editor_hint():
 		_persist_resources()
+	_is_regenerating = false
 
 
-## Place markers at every multiple of [interval_pct] in (pct_min, pct_max).
+# =============================================================================
+# Placement precomputation (main thread)
+# =============================================================================
+
+## Collect work items at every multiple of [interval_pct] in (pct_min, pct_max).
 ## [total_len] is the baked length of [curve] (spine).
-## The auxiliary curve is sampled via 1:1 control point correspondence
-## so the binormal stays correct regardless of arc-length differences.
-func _place_interval_markers(parent: Node3D, curve: Curve3D, aux_curve: Curve3D,
-		_total_len: float, total_len: float,
-		pct_min: float, pct_max: float) -> void:
+func _collect_interval_items(
+	items: Array[Dictionary],
+	curve: Curve3D, aux_curve: Curve3D,
+	total_len: float,
+	pct_min: float, pct_max: float,
+) -> void:
 	var pct := ceilf(pct_min / interval_pct) * interval_pct
 	if pct <= pct_min + 0.01:
 		pct += interval_pct
@@ -132,21 +288,48 @@ func _place_interval_markers(parent: Node3D, curve: Curve3D, aux_curve: Curve3D,
 		var frac := (pct - pct_min) / (pct_max - pct_min)
 		var bl := total_len * frac
 		var aux_bl := CurveUtils.aux_baked_for_spine(curve, aux_curve, bl) if aux_curve else 0.0
+		# transform_at_baked only reads bake cache — safe on main thread.
 		var xf := CurveUtils.transform_at_baked(curve, bl, true, aux_curve, aux_bl)
-		_build_marker(parent, xf, "%.0f%%" % pct)
+		items.append({
+			"xf": xf,
+			"label": "%.0f%%" % pct,
+		})
 		pct += interval_pct
 
 
-func _build_marker(parent: Node3D, xf: Transform3D, label: String):
-	if _resolved_font.is_empty():
-		return
+# =============================================================================
+# Worker function  (runs on WorkerThreadPool threads)
+# =============================================================================
+
+## Builds one marker's OCCT text geometry and tessellates it.
+## Returns a Dictionary with serialized mesh data suitable for batching:
+##   "f" : Array of surface arrays (face mesh data)
+##   "e" : PackedFloat64Array of edge transforms
+##   "v" : PackedFloat64Array of vertex transforms
+static func _worker_build_marker(
+	xf: Transform3D,
+	label: String,
+	font_path: String,
+	text_height: float,
+	opts: OclMeshOptions,
+	edge_radius: float,
+	vertex_radius: float,
+) -> Dictionary:
+	var result: Dictionary = {
+		"f": [],
+		"e": PackedFloat64Array(),
+		"v": PackedFloat64Array(),
+	}
+
+	if font_path.is_empty():
+		return result
 
 	var graph = GraphUtils.create_graph()
 
 	var info = OclTextInfo.new()
 	info.set_utf8_text(label)
 	info.set_height(text_height)
-	info.set_font_path(_resolved_font)
+	info.set_font_path(font_path)
 	info.set_font_aspect(OclText.TEXT_FONT_ASPECT_BOLD)
 	info.set_horizontal_align(OclText.TEXT_HALIGN_CENTER)
 	info.set_vertical_align(OclText.TEXT_VALIGN_CENTER)
@@ -154,7 +337,9 @@ func _build_marker(parent: Node3D, xf: Transform3D, label: String):
 
 	var faces_id = OclNodeId.new()
 	var st = OclText.make_faces(graph, info, faces_id)
-	assert(st == OclCore.OK, "Got status %s - %s" % [OclCore.status_to_string(st), var_to_str(OclCore.error_last())])
+	if st != OclCore.OK:
+		OclTopo.graph_free(graph)
+		return result
 
 	# Extrude the text face into a solid via prism.
 	var prism_info := OclPrimPrismInfo.new()
@@ -163,70 +348,33 @@ func _build_marker(parent: Node3D, xf: Transform3D, label: String):
 	prism_info.copy = 1
 	var extrude_id = OclNodeId.new()
 	st = OclPrimSweep.prism(graph, prism_info, extrude_id)
-	assert(st == OclCore.OK, "Got status %s - %s" % [OclCore.status_to_string(st), var_to_str(OclCore.error_last())])
+	if st != OclCore.OK:
+		OclTopo.graph_free(graph)
+		return result
 
-	st = OclTopoBuild.topo_remove_subgraph(graph, faces_id.bits)
-	assert(st == OclCore.OK, "Got status %s - %s" % [OclCore.status_to_string(st), var_to_str(OclCore.error_last())])
-
+	OclTopoBuild.topo_remove_subgraph(graph, faces_id.bits)
 	GraphUtils.delete_orphans(graph, [OclCore.KIND_SOLID], [OclCore.KIND_FACE])
 
-	# Mesh options — use Mesher settings for consistency.
-	var opts = OclMeshOptions.new()
-	opts.set_deflection(_display_options.deflection if _display_options else 0.02)
-	opts.set_angle(_display_options.angle if _display_options else 0.3)
+	# --- Face mesh → extract surface arrays ---
+	var tmp_am := ArrayMesh.new()
+	st = OclMeshToGodot.mesh_faces(graph, tmp_am, opts, null, true, false, false)
+	if st == OclCore.OK:
+		result["f"] = MazeObstacles._extract_surface_arrays(tmp_am)
 
-	# --- Face mesh ---
-	var am = ArrayMesh.new()
-	st = OclMeshToGodot.mesh_faces(graph, am, opts, null, true, false, false)
-	assert(st == OclCore.OK, "Got status %s - %s" % [OclCore.status_to_string(st), var_to_str(OclCore.error_last())])
-
-	if _eff_faces_material:
-		am.surface_set_material(0, _eff_faces_material)
-
-	var mi := MeshInstance3D.new()
-	mi.name = "Marker_%s" % label.replace("%", "pct")
-	mi.mesh = am
-	parent.add_child(mi)
-	if Engine.is_editor_hint():
-		mi.owner = get_tree().edited_scene_root if is_inside_tree() else null
-
-	# --- Edge mesh ---
-	if marker_edge_radius != 0.0 and _eff_edges_material:
+	# --- Edge transforms ---
+	if edge_radius != 0.0:
 		var e_mm := MultiMesh.new()
-		if OclMeshToGodot.mesh_edges(graph, e_mm, opts, null, marker_edge_radius) == OclCore.OK and e_mm.instance_count > 0:
-			var cyl := CylinderMesh.new()
-			cyl.height = 1.0
-			cyl.radial_segments = _eff_edge_rings
-			cyl.rings = _eff_edge_rings
-			cyl.cap_top = false
-			cyl.cap_bottom = false
-			cyl.surface_set_material(0, _eff_edges_material)
-			e_mm.mesh = cyl
-			var e_mmi := MultiMeshInstance3D.new()
-			e_mmi.name = "Edges_%s" % label.replace("%", "pct")
-			e_mmi.multimesh = e_mm
-			parent.add_child(e_mmi)
-			if Engine.is_editor_hint():
-				e_mmi.owner = get_tree().edited_scene_root if is_inside_tree() else null
+		if OclMeshToGodot.mesh_edges(graph, e_mm, opts, null, edge_radius) == OclCore.OK:
+			result["e"] = MazeObstacles._extract_multimesh_transforms(e_mm)
 
-	# --- Vertex mesh ---
-	if marker_vertex_radius != 0.0 and _eff_vertices_material:
+	# --- Vertex transforms ---
+	if vertex_radius != 0.0:
 		var v_mm := MultiMesh.new()
-		if OclMeshToGodot.mesh_vertices(graph, v_mm, opts, null, marker_vertex_radius) == OclCore.OK and v_mm.instance_count > 0:
-			var sph := SphereMesh.new()
-			sph.radius = 1.0
-			sph.radial_segments = _eff_edge_rings
-			sph.rings = _eff_vertex_rings
-			sph.surface_set_material(0, _eff_vertices_material)
-			v_mm.mesh = sph
-			var v_mmi := MultiMeshInstance3D.new()
-			v_mmi.name = "Vertices_%s" % label.replace("%", "pct")
-			v_mmi.multimesh = v_mm
-			parent.add_child(v_mmi)
-			if Engine.is_editor_hint():
-				v_mmi.owner = get_tree().edited_scene_root if is_inside_tree() else null
+		if OclMeshToGodot.mesh_vertices(graph, v_mm, opts, null, vertex_radius) == OclCore.OK:
+			result["v"] = MazeObstacles._extract_multimesh_transforms(v_mm)
 
 	OclTopo.graph_free(graph)
+	return result
 
 
 func _find_closest_baked_length(curve: Curve3D, target_pos: Vector3) -> float:
@@ -262,6 +410,7 @@ func _find_generator() -> MazeGenerator:
 		if p is MazeGenerator:
 			return p
 		p = p.get_parent()
+	push_error("MazeMarkers: MazeGenerator ancestor not found in parent chain")
 	return null
 
 func _resolve_font() -> String:

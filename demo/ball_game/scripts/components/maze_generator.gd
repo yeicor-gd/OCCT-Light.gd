@@ -66,11 +66,11 @@ func regenerate_all(sync: bool):
 	else: $Meshes.regenerate(sync)
 	var mesh_ms := (Time.get_ticks_usec() - mesh_start) / 1000.0
 
-	# 3. Regenerate obstacles.
-	$Obstacles._build_obstacles()
+	# 3. Regenerate obstacles (async — workers build OCCT geometry in parallel).
+	await $Obstacles._build_obstacles(sync)
 
-	# 4. Regenerate markers.
-	$Markers._build_markers()
+	# 4. Regenerate markers (async — workers build OCCT geometry in parallel).
+	await $Markers._build_markers(sync)
 
 	var total_ms := (Time.get_ticks_usec() - total_start) / 1000.0
 	mesh_generation_finished.emit(total_ms, paths_ms, mesh_ms)

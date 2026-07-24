@@ -27,6 +27,16 @@ if [ "$GODOT_VERSION" != "system" ]; then
     export GDEXT_CMAKE_ARGS="$GDEXT_CMAKE_ARGS -DENABLE_SANITIZERS=on"
 fi
 
+# For wasm32-emscripten builds, export CFLAGS/CXXFLAGS so that ALL vcpkg
+# dependency ports (freetype, libpng, opencascade, …) compile with the
+# flags needed for a SIDE_MODULE build.  The vcpkg binary sanitises the
+# environment for port builds; VCPKG_ENV_PASSTHROUGH_UNTRACKED in our
+# overlay triplet forwards these variables to every cmake subprocess.
+if [ "$VCPKG_DEFAULT_TRIPLET" = "wasm32-emscripten" ]; then
+    export CFLAGS="-fPIC -sSUPPORT_LONGJMP=wasm -fwasm-exceptions -matomics -mbulk-memory"
+    export CXXFLAGS="$CFLAGS"
+fi
+
 DO_BUILD="${DO_BUILD:-1}"
 
 run_checked() {
@@ -58,10 +68,8 @@ if [ "$DO_BUILD" = "1" ] || [ "$DO_BUILD" = "true" ]; then
     fi
 
     "$VCPKG_ROOT/vcpkg" remove gdext 2>/dev/null || true
-    rm -rf "$HOME/.cache/vcpkg/archives/" 2>/dev/null || true
 
     BUILD_LOG=$(mktemp)
-    trap "rm -f '$BUILD_LOG'" EXIT
 
     echo "Building extension..."
     "$VCPKG_ROOT/vcpkg" install gdext 2>&1 | tee "$BUILD_LOG"
@@ -161,7 +169,6 @@ else
     if [ ! -f "$GODOT_BIN" ]; then
         cd "$GODOT_SOURCE_DIR"
         GODOT_BUILD_LOG=$(mktemp)
-        trap "rm -f '$BUILD_LOG' '$GODOT_BUILD_LOG'" EXIT
 
         echo "Compiling Godot with ASAN, UBSAN, and LSAN..."
         scons -j$(nproc) \
@@ -193,9 +200,8 @@ fi
 cd "$SCRIPT_DIR"
 
 IMPORT_LOG=$(mktemp)
-trap "rm -f '$IMPORT_LOG'" EXIT
 RUNTIME_LOG=$(mktemp)
-trap "rm -f '$RUNTIME_LOG'" EXIT
+trap "rm -f '${BUILD_LOG:-}' '${GODOT_BUILD_LOG:-}' '$IMPORT_LOG' '$RUNTIME_LOG'" EXIT
 
 # Set up environment variables for running Godot
 if [ "$GODOT_VERSION" != "system" ]; then

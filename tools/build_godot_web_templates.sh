@@ -1,17 +1,22 @@
 #!/usr/bin/env bash
-# Build custom Godot web export templates for Web with C++ exceptions enabled.
+# Build custom Godot web export templates for Web with wasm-native C++ exceptions.
 #
 # The default Godot web export templates are built with exceptions disabled
-# (disable_exceptions=yes).  Our GDExtension uses OCCT headers that contain
-# inline throw statements, which generate __cxa_allocate_exception imports
-# in the SIDE_MODULE.  The main module must therefore export these symbols.
+# (disable_exceptions=yes).  Our GDExtension SIDE_MODULE is built with
+# -fwasm-exceptions (wasm-native C++ EH) which requires:
 #
-# This script builds custom Godot web export templates with
-# `disable_exceptions=no` so the main module exports the __cxa_* symbols
-# needed by our GDExtension SIDE_MODULE.
+#   1. The __cpp_exception WebAssembly.Tag  (emscripten's loadWebAssemblyModule
+#      proxy does not serve Tag objects, so we patch godot.js to provide it).
 #
-# No Godot source patches are applied.  We pass the Emscripten exception flag
-# via scons `linkflags` instead.
+#   2. The __wasm_lpad_context symbol from the wasm-eh runtime, which lives
+#      in the main module when it is also built with -fwasm-exceptions.
+#
+# This script builds custom Godot web export templates with:
+#   - disable_exceptions=no  (enable C++ exceptions)
+#   - -fwasm-exceptions      (wasm-native EH, matching our SIDE_MODULE)
+#
+# The JS glue patch is a known emscripten limitation (loadWebAssemblyModule
+# cannot resolve WebAssembly.Tag imports) and is stable across versions.
 #
 # By default, builds all 2 combinations: debug/release (threads only).
 # Use flags to restrict to specific variants.
@@ -47,7 +52,19 @@ CLEAN=0
 OUTPUT_DIR="${PROJECT_DIR}/demo/templates"
 GODOT_VERSION=""  # Empty = auto-detect
 
-EM_LINKFLAGS=""
+# Use wasm-native C++ exceptions for the main module so it matches our
+# SIDE_MODULE (built with -fwasm-exceptions).  This ensures the main module
+# contains __wasm_lpad_context and other wasm-eh runtime symbols that the
+# side module imports via GOT.
+#
+# The side module defines __wasm_setjmp/__wasm_longjmp locally (see
+# src/setjmp_longjmp_shim.c), so no setjmp/longjmp symbols need to be
+# exported from the main module.  We export _setjmp/_longjmp anyway for
+# backward compatibility with any JS code that may reference them.
+EM_LINKFLAGS="-fwasm-exceptions -sEXPORTED_FUNCTIONS=_setjmp,_longjmp -sEXPORTED_RUNTIME_METHODS=setjmp,longjmp"
+export EMCC_CFLAGS="${EMCC_CFLAGS:-} -fwasm-exceptions"
+export EMCC_CXXFLAGS="${EMCC_CXXFLAGS:-} -fwasm-exceptions"
+export EM_LINKFLAGS
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -243,6 +260,88 @@ build_one_variant() {
     cd "$PROJECT_DIR"
 }
 
+# Patch godot.js inside a template zip to provide the __cpp_exception tag.
+#
+# Our SIDE_MODULE is built with -fwasm-exceptions (wasm-native C++ EH) which
+# generates an import for the __cpp_exception tag from the "env" module.
+# Emscripten's loadWebAssemblyModule proxy does NOT serve WebAssembly.Tag
+# objects, so the tag import fails at instantiation time.
+#
+# This function patches the proxyHandler in godot.js to detect __cpp_exception
+# tag look-ups and return a reusable WebAssembly.Tag instance.
+patch_template_js() {
+    local zip_path="$1"
+
+    local _tmp_dir
+    _tmp_dir=$(mktemp -d)
+
+    unzip -oq "$zip_path" godot.js -d "$_tmp_dir"
+
+    local js_file="${_tmp_dir}/godot.js"
+    local sentinel='case"__cpp_exception":'
+    if grep -q "$sentinel" "$js_file"; then
+        echo "  godot.js already patched, skipping"
+        rm -rf "$_tmp_dir"
+        return 0
+    fi
+
+    python3 - "$js_file" << 'PYEOF'
+import sys
+
+path = sys.argv[1]
+with open(path) as f:
+    content = f.read()
+
+# Patch 1: proxyHandler – serve the __cpp_exception WebAssembly.Tag
+old1 = 'case"__memory_base":return memoryBase;case"__table_base":return tableBase}'
+new1 = 'case"__memory_base":return memoryBase;case"__table_base":return tableBase;case"__cpp_exception":if(!globalThis.__cpp_exception_tag)globalThis.__cpp_exception_tag=new WebAssembly.Tag({parameters:["i32"]});return globalThis.__cpp_exception_tag}'
+if old1 not in content:
+    print("Warning: proxyHandler pattern not found", file=sys.stderr)
+    sys.exit(1)
+if new1 in content:
+    print("  Patch 1 (tag) already applied")
+else:
+    content = content.replace(old1, new1, 1)
+    print("  Applied patch 1 (__cpp_exception tag)")
+
+# Patch 2: resolveGlobalSymbol – fall through to wasmExports
+old2 = 'var resolveGlobalSymbol=(symName,direct=false)=>{var sym;if(isSymbolDefined(symName)){sym=wasmImports[symName]}return{sym,name:symName}};'
+new2 = 'var resolveGlobalSymbol=(symName,direct=false)=>{var sym;if(isSymbolDefined(symName)){sym=wasmImports[symName]}else if(typeof wasmExports!=="undefined"){var e=wasmExports[symName];if(typeof e==="function")sym=e;else if(e&&typeof e.value!=="undefined")sym=+e.value}return{sym,name:symName}};'
+if old2 not in content:
+    print("Warning: resolveGlobalSymbol pattern not found", file=sys.stderr)
+    sys.exit(1)
+if new2 in content:
+    print("  Patch 2 (resolveGlobalSymbol) already applied")
+else:
+    content = content.replace(old2, new2, 1)
+    print("  Applied patch 2 (resolveGlobalSymbol)")
+
+with open(path, 'w') as f:
+    f.write(content)
+PYEOF
+
+    if [ $? -ne 0 ]; then
+        echo "  Warning: failed to patch godot.js" >&2
+        rm -rf "$_tmp_dir"
+        return 1
+    fi
+    if ! grep -q "$sentinel" "$js_file"; then
+        echo "  Warning: failed to patch godot.js (tag pattern not found)" >&2
+        rm -rf "$_tmp_dir"
+        return 1
+    fi
+    if ! grep -q 'wasmExports\[symName\]' "$js_file"; then
+        echo "  Warning: failed to patch godot.js (resolveGlobalSymbol pattern not found)" >&2
+        rm -rf "$_tmp_dir"
+        return 1
+    fi
+
+    # Re-pack into the zip
+    (cd "$_tmp_dir" && zip -qf "$zip_path" godot.js)
+    rm -rf "$_tmp_dir"
+    echo "  Patched godot.js in $(basename "$zip_path") (tag + resolveGlobalSymbol)"
+}
+
 # Install a template zip to the output dir
 install_template_zip() {
     local target="$1"   # template_debug or template_release
@@ -265,6 +364,9 @@ install_template_zip() {
     mkdir -p "$dest_dir"
     cp "$zip_file" "${dest_dir}/web_${mode_name}.zip"
     echo "Installed: ${dest_dir}/web_${mode_name}.zip"
+
+    # Patch godot.js inside the zip for __cpp_exception tag support
+    patch_template_js "${dest_dir}/web_${mode_name}.zip"
 }
 
 # Install editor binary to the output dir
@@ -284,6 +386,9 @@ install_editor_binary() {
     mkdir -p "$dest_dir"
     cp "$zip_file" "${dest_dir}/web_editor.zip"
     echo "Installed: ${dest_dir}/web_editor.zip"
+
+    # Patch godot.js inside the zip for __cpp_exception tag support
+    patch_template_js "${dest_dir}/web_editor.zip"
 }
 
 # Build all selected variants

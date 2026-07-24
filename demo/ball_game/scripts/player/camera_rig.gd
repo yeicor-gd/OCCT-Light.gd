@@ -27,6 +27,9 @@ var time_since_manual := 999.0
 
 var orbit_mode := false
 
+var _mouse_dragging := false
+var _mouse_delta := Vector2.ZERO
+
 signal rotation_changed(_global_basis)
 
 
@@ -43,6 +46,19 @@ func _ready():
 			forward = Vector3.FORWARD
 
 		forward = forward.normalized()
+
+
+func _input(event: InputEvent) -> void:
+	if event is InputEventMouseButton:
+		if event.button_index == MOUSE_BUTTON_RIGHT:
+			_mouse_dragging = event.pressed
+			DisplayServer.mouse_set_mode(
+				DisplayServer.MOUSE_MODE_CAPTURED if event.pressed
+				else DisplayServer.MOUSE_MODE_VISIBLE)
+	elif event is InputEventMouseMotion and _mouse_dragging:
+		var viewport_size := get_viewport().get_visible_rect().size
+		_mouse_delta.x -= event.relative.x / (viewport_size.x * 0.5)
+		_mouse_delta.y -= event.relative.y / (viewport_size.y * 0.5)
 
 
 func _physics_process(delta):
@@ -67,7 +83,7 @@ func _physics_process(delta):
 	forward = forward.normalized()
 
 	#
-	# Manual camera.
+	# Manual camera (keyboard / gamepad).
 	#
 
 	var input = _camera_input()
@@ -85,12 +101,19 @@ func _physics_process(delta):
 
 		time_since_manual += delta
 
-	#
-	# Pitch.
-	#
-
 	pitch += input.y * pitch_speed * delta
 	pitch = clamp(pitch, min_pitch, max_pitch)
+
+	#
+	# Manual camera (mouse drag, accumulated between physics frames).
+	#
+
+	if _mouse_delta.length_squared() > 0.000001:
+		forward = forward.rotated(up, _mouse_delta.x * rotate_speed)
+		time_since_manual = 0.0
+		pitch += _mouse_delta.y * pitch_speed
+		pitch = clamp(pitch, min_pitch, max_pitch)
+		_mouse_delta = Vector2.ZERO
 
 	#
 	# Automatic follow.
@@ -150,8 +173,8 @@ func _physics_process(delta):
 func _camera_input() -> Vector2:
 
 	return Input.get_vector(
-		"camera_left",
 		"camera_right",
+		"camera_left",
 		"camera_down",
 		"camera_up"
 	)
