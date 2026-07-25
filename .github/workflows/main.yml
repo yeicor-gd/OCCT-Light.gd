@@ -183,93 +183,7 @@ jobs:
 
       - name: Download cached build artifact
         shell: bash
-        run: |
-          set +e  # Don't fail if cache is not found
-          CACHE_ARTIFACT="${{ steps.ccache-artifact.outputs.artifact }}"
-          echo "Attempting to download cache artifact: ${CACHE_ARTIFACT}"
-
-          # Strategy 1: Try same branch first
-          BRANCH="${{ github.ref_name }}"
-          SAME_BRANCH_RUNS=$(gh run list \
-            --workflow="${{ github.workflow }}" \
-            --branch="${BRANCH}" \
-            --limit=25 \
-            --json databaseId \
-            -q '.[].databaseId' 2>/dev/null || echo "")
-
-          try_download_run() {
-            local RUN="$1"
-            local ARTIFACT_NAME="$2"
-            echo "  Trying run ${RUN}..."
-
-            TMP=$(mktemp -d)
-            trap "echo \"    Cleaning up temporary directory ${TMP}\"; rm -rf ${TMP}" RETURN
-
-            if gh run download "${RUN}" --name "${ARTIFACT_NAME}" --dir "${TMP}" 2>/dev/null; then
-              echo "    ✓ Found and successfully downloaded ${ARTIFACT_NAME}, copying contents to workspace..."
-              cp -r "${TMP}"/. "${{ github.workspace }}/"
-              return 0
-            fi
-            echo "    ✗ No artifact named ${ARTIFACT_NAME} in run ${RUN}"
-            return 1
-          }
-
-          # Try branch-specific runs
-          deleting=false
-          for RUN in ${SAME_BRANCH_RUNS}; do
-            if [ "$deleting" = true ]; then
-              echo "Deleting older run artifact ${RUN}..."
-              ARTIFACT_ID=$(
-                gh api \
-                  "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN}/artifacts" \
-                  --jq ".artifacts[] | select(.name == \"${CACHE_ARTIFACT}\") | .id" \
-                  2>/dev/null
-              )
-              if [[ "$ARTIFACT_ID" =~ ^[0-9]+$ ]]; then
-                echo "  Found artifact ID $ARTIFACT_ID for run $RUN, deleting..."
-                gh api \
-                  -X DELETE \
-                  "repos/${GITHUB_REPOSITORY}/actions/artifacts/${ARTIFACT_ID}"
-                echo "  Deleted artifact $ARTIFACT_ID from run $RUN."
-              else
-                echo "  No valid artifact ID found for run $RUN."
-              fi
-              if [ -n "$ARTIFACT_ID" ]; then
-                echo "  Found artifact ID $ARTIFACT_ID for run $RUN, deleting..."
-                gh api -X DELETE "repos/${GITHUB_REPOSITORY}/actions/artifacts/${ARTIFACT_ID}"
-                echo "  Deleted artifact $ARTIFACT_ID from run $RUN."
-              else
-                echo "  No artifact named ${CACHE_ARTIFACT} found in run $RUN."
-              fi
-            elif try_download_run "${RUN}" "${CACHE_ARTIFACT}"; then
-              echo "✓ Downloaded cache from branch run ${RUN}"
-              echo "Since this is the same branch, we will delete all older runs to save space, as they are unlikely to be relevant anymore."
-              deleting=true
-            fi
-          done
-          if [ "$deleting" = true ]; then
-            exit 0  # Cache found and downloaded from same branch, no need to try other runs
-          fi
-
-          # Strategy 2: Try all recent runs if branch strategy failed
-          echo "No cache found on branch, trying all recent runs..."
-          ALL_RUNS=$(gh run list \
-            --workflow="${{ github.workflow }}" \
-            --limit=25 \
-            --json databaseId \
-            -q '.[].databaseId' 2>/dev/null || echo "")
-
-          for RUN in ${ALL_RUNS}; do
-            if try_download_run "${RUN}" "${CACHE_ARTIFACT}"; then
-              echo "✓ Downloaded cache from run ${RUN}"
-              echo "Since this is a different branch, we won't delete any runs, as they may still be relevant for their respective branches."
-              exit 0
-            fi
-          done
-
-          echo "::warning::No usable cache artifacts found, proceeding with fresh build..."
-          exit 0
-
+        run: .github/scripts/download-cached-artifact.sh --same-branch-first --delete-older "${{ steps.ccache-artifact.outputs.artifact }}" "${{ github.workspace }}"
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -461,10 +375,20 @@ jobs:
           esac
 
       - name: Download addon artifacts
-        uses: actions/download-artifact@v8
-        with:
-          pattern: ${{ steps.platform.outputs.pattern }}
-          merge-multiple: true
+        shell: bash
+        run: |
+          set -e
+          PATTERN="${{ steps.platform.outputs.pattern }}"
+          echo "Downloading artifacts matching: $PATTERN"
+          TMP=$(mktemp -d)
+          gh run download "${{ github.run_id }}" --pattern "$PATTERN" --dir "$TMP"
+          # Flatten artifact subdirectories into workspace root (equivalent to merge-multiple: true)
+          for dir in "$TMP"/*/; do
+            cp -r "$dir". .
+          done
+          rm -rf "$TMP"
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - name: Setup Linux dependencies
         if: matrix.target.export_name == 'Linux'
@@ -619,10 +543,20 @@ jobs:
           submodules: recursive
 
       - name: Download addon artifacts
-        uses: actions/download-artifact@v8
-        with:
-          pattern: gdext-${{ matrix.target.triplet }}-*
-          merge-multiple: true
+        shell: bash
+        run: |
+          set -e
+          PATTERN="gdext-${{ matrix.target.triplet }}-*"
+          echo "Downloading artifacts matching: $PATTERN"
+          TMP=$(mktemp -d)
+          gh run download "${{ github.run_id }}" --pattern "$PATTERN" --dir "$TMP"
+          # Flatten artifact subdirectories into workspace root (equivalent to merge-multiple: true)
+          for dir in "$TMP"/*/; do
+            cp -r "$dir". .
+          done
+          rm -rf "$TMP"
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - name: Setup Android NDK
         if: contains(matrix.target.triplet, '-android')

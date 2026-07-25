@@ -36,6 +36,7 @@ var regenerate_all_ := func(): await regenerate_all(false)
 signal paths_generation_started
 signal paths_generation_finished(elapsed_ms: float)
 signal mesh_generation_finished(total_ms: float, paths_ms: float, mesh_ms: float)
+signal regeneration_finished
 
 # -----------------------------------------------------------------------------
 # Actions
@@ -75,6 +76,7 @@ func regenerate_all(sync: bool):
 	var total_ms := (Time.get_ticks_usec() - total_start) / 1000.0
 	mesh_generation_finished.emit(total_ms, paths_ms, mesh_ms)
 	print("[Maze] Total generation time: ", total_ms, "ms (paths: ", paths_ms, "ms, mesh: ", mesh_ms, "ms)")
+	regeneration_finished.emit()
 
 
 ## Clear the cached mesh files and regenerate from scratch.

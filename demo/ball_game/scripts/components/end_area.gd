@@ -7,11 +7,9 @@ extends Area3D
 @export var ui_overlay: UIOverlay
 
 func _ready():
-	# Use a timer to defer until the parent generator is fully ready.
-	var timer := Timer.new()
-	timer.timeout.connect(_sync_from_parent)
-	add_child(timer)
-	timer.start(0.0)
+	var parent := get_parent_node_3d()
+	if parent is MazeGenerator:
+		parent.regeneration_finished.connect(_sync_from_parent)
 
 func _sync_from_parent():
 	var parent = get_parent_node_3d()

@@ -12,11 +12,9 @@ var mesh_noise: FastNoiseLite
 
 func _ready():
 	mesh_noise = (((mesh.material_override as StandardMaterial3D).albedo_texture as NoiseTexture2D).noise as FastNoiseLite)
-	# Use a timer to defer until the parent generator is fully ready.
-	var timer := Timer.new()
-	timer.timeout.connect(_sync_from_parent)
-	add_child(timer)
-	timer.start(0.0)
+	var parent := get_parent_node_3d()
+	if parent is MazeGenerator:
+		parent.regeneration_finished.connect(_sync_from_parent)
 	if not Engine.is_editor_hint():
 		_sync_from_parent()
 		visible = true

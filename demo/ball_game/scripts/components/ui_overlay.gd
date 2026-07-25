@@ -36,6 +36,11 @@ func _ready() -> void:
 		btn.pressed.connect(entry[2])
 		_social_row.add_child(btn)
 
+	var copy_challenge_btn := Button.new()
+	copy_challenge_btn.text = "📋 Copy Challenge"
+	copy_challenge_btn.pressed.connect(_on_copy_challenge_pressed)
+	_social_row.add_child(copy_challenge_btn)
+
 	_copy_config_btn = Button.new()
 	_copy_config_btn.text = "📋 Copy Config (Advanced)"
 	_copy_config_btn.visible = false
@@ -143,6 +148,11 @@ func _share_reddit() -> void:
 	var url := _get_share_url()
 	var _title := _get_challenge_text()
 	OS.shell_open("https://reddit.com/submit?url=" + url.uri_encode() + "&title=" + _title.uri_encode())
+
+
+func _on_copy_challenge_pressed() -> void:
+	var text := _get_challenge_text() + "\n" + _get_share_url()
+	DisplayServer.clipboard_set(text)
 
 
 func _on_copy_config_pressed() -> void:

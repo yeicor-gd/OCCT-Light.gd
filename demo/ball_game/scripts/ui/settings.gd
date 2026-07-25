@@ -918,15 +918,8 @@ func _auto_configure() -> void:
 
 	# Auto-play: sync positions, respawn, jump timer forward.
 	if _gen:
-		var death_area := _gen.get_node_or_null("DeathArea")
-		if death_area and death_area.has_method("_sync_from_parent"):
-			death_area._sync_from_parent()
-		var end_area := _gen.get_node_or_null("EndArea")
-		if end_area and end_area.has_method("_sync_from_parent"):
-			end_area._sync_from_parent()
 		var spawner := _gen.get_node_or_null("Spawner") as Spawner
 		if spawner:
-			spawner._sync_from_parent()
 			spawner.respawn()
 			spawner.start_usec = Time.get_ticks_usec() - 1000000  # 1 s head-start
 

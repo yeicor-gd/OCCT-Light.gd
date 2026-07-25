@@ -4,11 +4,9 @@ extends Node3D
 
 # Called when the node enters the scene tree for the first time.
 func _ready() -> void:
-	# Use a timer to defer until the parent generator is fully ready.
-	var timer := Timer.new()
-	timer.timeout.connect(_sync_from_parent)
-	add_child(timer)
-	timer.start(0.0)
+	var parent := $"../Maze" if has_node("../Maze") else null
+	if parent and parent is MazeGenerator:
+		parent.regeneration_finished.connect(_sync_from_parent)
 	if not Engine.is_editor_hint():
 		_sync_from_parent()
 		visible = true
