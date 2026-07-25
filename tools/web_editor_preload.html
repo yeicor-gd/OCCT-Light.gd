@@ -28,7 +28,7 @@
 		// Godot's web platform calls dlopen() with just the bare filename (os_web.cpp:278),
 		// and Emscripten's __emscripten_find_dylib searches relative to CWD.
 		// The default CWD in Emscripten is "/", so the file must be at "/".
-		const soName = "libgdext.web.debug.template_debug.wasm32.so";
+		const soName = "libgdext.web.release.template_release.wasm32.so";
 		try {
 			console.log("Fetching " + soName + "...");
 			const soResp = await fetch(soName);

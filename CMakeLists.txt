@@ -109,6 +109,13 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
     "-sSIDE_MODULE=2"
     "-sEXPORTED_FUNCTIONS=_gdext_library_init"
   )
+  # In Release builds, emscripten's -O2+ triggers wasm-opt which crashes on
+  # br_table arity mismatches before repair_wasm.py can fix them.
+  # Override with -O1 at link time (OPT_LEVEL < 2 skips wasm-opt) so the
+  # raw WASM passes through and repair_wasm.py handles it post-build.
+  if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    target_link_options(${PROJECT_NAME} PRIVATE "-O1")
+  endif()
   # With -sSUPPORT_LONGJMP=wasm in the triplet, all vcpkg packages compile
   # setjmp/longjmp to wasm-native intrinsics (__wasm_setjmp/__wasm_longjmp).
   # The main module (Godot) does not export these, so we define them locally

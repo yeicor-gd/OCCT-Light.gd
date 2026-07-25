@@ -111,7 +111,7 @@ else:
                 "\t\t\t// Pre-load GDExtension .so via async loadDynamicLibrary\n"
                 "\t\t\t// (avoids >8MB WebAssembly.Module compile/instantiate on main thread)\n"
                 "\t\t\tif (projectPath && typeof Module !== 'undefined' && Module.loadDynamicLibrary) {\n"
-                "\t\t\t\tvar _soName = 'libgdext.web.debug.template_debug.wasm32.so';\n"
+                "\t\t\t\t				var _soName = 'libgdext.web.release.template_release.wasm32.so';\n"
                 "\t\t\t\ttry {\n"
                 "\t\t\t\t\tconsole.log('Pre-loading GDExtension:', _soName);\n"
                 "\t\t\t\t\tawait Module.loadDynamicLibrary(_soName, {loadAsync: true, global: true, nodelete: true});\n"

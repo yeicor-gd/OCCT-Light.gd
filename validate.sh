@@ -22,7 +22,11 @@ export VCPKG_DISABLE_METRICS=1
 #export VCPKG_DEFAULT_TRIPLET=x64-linux
 export VCPKG_OVERLAY_TRIPLETS="$SCRIPT_DIR/vcpkg_triplets"
 export VCPKG_OVERLAY_PORTS="$SCRIPT_DIR/vcpkg_ports"
-export GDEXT_CMAKE_ARGS="-DGODOTCPP_TARGET=template_debug -DGODOTCPP_PRECISION=single -DGODOTCPP_THREADS=on -DENABLE_WERROR=on"
+export GDEXT_CMAKE_ARGS="\
+-DGODOTCPP_TARGET=${GODOTCPP_TARGET:-template_debug} \
+-DGODOTCPP_PRECISION=${GODOTCPP_PRECISION:-single} \
+-DGODOTCPP_THREADS=${GODOTCPP_THREADS:-on} \
+-DENABLE_WERROR=${ENABLE_WERROR:-on}"
 if [ "$GODOT_VERSION" != "system" ]; then
     export GDEXT_CMAKE_ARGS="$GDEXT_CMAKE_ARGS -DENABLE_SANITIZERS=on"
 fi
@@ -38,6 +42,40 @@ if [ "$VCPKG_DEFAULT_TRIPLET" = "wasm32-emscripten" ]; then
 fi
 
 DO_BUILD="${DO_BUILD:-1}"
+
+# ── Cache-busting for GDEXT_CMAKE_ARGS ─────────────────────────────────────
+# vcpkg's binary-cache ABI does not include GDEXT_CMAKE_ARGS (env / file),
+# so switching e.g. template_debug → template_release silently restores the
+# old archive.  Fix: embed a content hash of GDEXT_CMAKE_ARGS into the
+# vcpkg.json version string so each config gets its own ABI / cache entry.
+# ────────────────────────────────────────────────────────────────────────────
+echo -n "$GDEXT_CMAKE_ARGS" >"$SCRIPT_DIR/__GDEXT_CMAKE_ARGS"
+
+_GDEXT_HASH_FILE="$SCRIPT_DIR/.gdext_cmake_args_hash"
+_GDEXT_NEW_HASH=$(printf '%s' "$GDEXT_CMAKE_ARGS" | sha256sum | cut -d' ' -f1)
+_GDEXT_CONFIG_CHANGED=0
+
+if [ -f "$_GDEXT_HASH_FILE" ]; then
+    _GDEXT_OLD_HASH=$(cat "$_GDEXT_HASH_FILE")
+    if [ "$_GDEXT_OLD_HASH" != "$_GDEXT_NEW_HASH" ]; then
+        _GDEXT_CONFIG_CHANGED=1
+    fi
+else
+    _GDEXT_CONFIG_CHANGED=1
+fi
+
+_GDEXT_VCPKG_JSON="$SCRIPT_DIR/vcpkg_ports/gdext/vcpkg.json"
+_GDEXT_VCPKG_JSON_BAK="$_GDEXT_VCPKG_JSON.bak"
+
+if [ "$_GDEXT_CONFIG_CHANGED" = "1" ]; then
+    echo "GDEXT_CMAKE_ARGS changed – stamping new package version for cache separation…"
+    cp "$_GDEXT_VCPKG_JSON" "$_GDEXT_VCPKG_JSON_BAK"
+    jq --arg ver "0.0.9-${_GDEXT_NEW_HASH:0:8}" '.version = $ver' \
+        "$_GDEXT_VCPKG_JSON" > "$_GDEXT_VCPKG_JSON.tmp"
+    mv "$_GDEXT_VCPKG_JSON.tmp" "$_GDEXT_VCPKG_JSON"
+    rm -rf "$VCPKG_ROOT/buildtrees/gdext"
+fi
+echo "$_GDEXT_NEW_HASH" >"$_GDEXT_HASH_FILE"
 
 run_checked() {
     tmp_output=$(mktemp)
@@ -140,7 +178,16 @@ if [ "$DO_BUILD" = "1" ] || [ "$DO_BUILD" = "true" ]; then
                 fi
             } 2>/dev/null
         fi
+        # Restore original vcpkg.json before exiting
+        if [ -f "$_GDEXT_VCPKG_JSON_BAK" ]; then
+            mv "$_GDEXT_VCPKG_JSON_BAK" "$_GDEXT_VCPKG_JSON"
+        fi
         exit 1
+    fi
+
+    # Restore original vcpkg.json if it was temporarily modified
+    if [ -f "$_GDEXT_VCPKG_JSON_BAK" ]; then
+        mv "$_GDEXT_VCPKG_JSON_BAK" "$_GDEXT_VCPKG_JSON"
     fi
 
     echo "Build succeeded! Running runtime validation..."

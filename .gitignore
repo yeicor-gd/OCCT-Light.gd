@@ -16,3 +16,5 @@
 # VCPKG
 /vcpkg_ports/*/.last_build
 /vcpkg_installed/
+/__GDEXT_CMAKE_ARGS
+/.gdext_cmake_args_hash
