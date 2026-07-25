@@ -449,21 +449,10 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Determine platform for artifact download
-        id: platform
-        shell: bash
-        run: |
-          case "${{ matrix.target.os }}" in
-            ubuntu-*) echo "pattern=gdext-*-linux-*" >> $GITHUB_OUTPUT ;;
-            windows-*) echo "pattern=gdext-*-windows-*" >> $GITHUB_OUTPUT ;;
-            macos-*) echo "pattern=gdext-*-osx-*" >> $GITHUB_OUTPUT ;;
-            *) echo "pattern=gdext-*" >> $GITHUB_OUTPUT ;;
-          esac
-
       - name: Download addon artifacts
         uses: actions/download-artifact@v8
         with:
-          pattern: ${{ steps.platform.outputs.pattern }}
+          # pattern: ${{ steps.platform.outputs.pattern }} # Causes this bug? Error: Unable to download artifact(s): Failed to GetSignedArtifactURL: Received non-retryable error: Failed request: (404) Not Found: workflow run not found
           merge-multiple: true
 
       - name: Setup Linux dependencies
@@ -621,7 +610,7 @@ jobs:
       - name: Download addon artifacts
         uses: actions/download-artifact@v8
         with:
-          pattern: gdext-${{ matrix.target.triplet }}-*
+          # pattern: gdext-${{ matrix.target.triplet }}-* # Causes this bug? Error: Unable to download artifact(s): Failed to GetSignedArtifactURL: Received non-retryable error: Failed request: (404) Not Found: workflow run not found
           merge-multiple: true
 
       - name: Setup Android NDK
