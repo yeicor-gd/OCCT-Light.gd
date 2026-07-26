@@ -13,7 +13,7 @@
 #   3. persistentDrops disabled in editor mode
 #   4. After editor.init(), copy window.__preloadFiles into the virtual FS
 #   5. Inject the preload script before </body>
-#   6. Pre-load GDExtension .so via Module.loadDynamicLibrary (async, avoids >8MB limit)
+#   6. Fix loadWebAssemblyModule async path to handle pre-compiled WebAssembly.Module
 #
 # Examples:
 #   # Local (from repo root):
@@ -105,56 +105,31 @@ sed -i '/<\/html>/d' "$HTML"
 cat "$PRELOAD" >> "$HTML"
 printf '</body>\n</html>\n' >> "$HTML"
 
-# 6. Pre-load GDExtension .so via Module.loadDynamicLibrary (async, avoids 8MB main-thread limit)
-python3 - "$HTML" << 'PYEOF'
+# 6. Fix loadWebAssemblyModule async path to handle pre-compiled WebAssembly.Module
+#    The editor build uses an older Emscripten that's missing the instanceof check:
+#      WebAssembly.instantiate(module, imports) returns Instance (not {module, instance})
+#    when binary is already a WebAssembly.Module (from __preloadedWasmModules / sharedModules).
+JSFILE="${HTML%.html}.js"
+if [ -f "$JSFILE" ]; then
+    python3 - "$JSFILE" << 'PYEOF'
 import sys
 path = sys.argv[1]
 with open(path) as f:
     content = f.read()
-if '__gdext_preloaded' in content:
-    print("  GDExtension pre-load already present, skipping")
+old = '({module:binary,instance}=await WebAssembly.instantiate(binary,info));return postInstantiation(binary,instance)})()'
+new = 'if(binary instanceof WebAssembly.Module){instance=new WebAssembly.Instance(binary,info)}else{({module:binary,instance}=await WebAssembly.instantiate(binary,info))}return postInstantiation(binary,instance)})()'
+if old in content:
+    content = content.replace(old, new)
+    with open(path, 'w') as f:
+        f.write(content)
+    print("  Fixed loadWebAssemblyModule async path")
+elif new in content:
+    print("  loadWebAssemblyModule async path already fixed, skipping")
 else:
-    # Make the editor.init().then() callback async
-    marker = "editor.init('godot.editor').then(function () {"
-    replacement = "editor.init('godot.editor').then(async function () {"
-    if marker not in content:
-        print("Warning: editor.init pattern not found, skipping GDExtension pre-load", file=sys.stderr)
-    else:
-        content = content.replace(marker, replacement, 1)
-        # Insert pre-loading code after setLoaderEnabled(false); in the main editor.init().then() block
-        # Use showTab('editor') as anchor since it only appears in the main flow (not OnEditorExit)
-        anchor = "\t\t\tshowTab('editor');\n\t\t\tsetLoaderEnabled(false);\n"
-        idx = content.find(anchor)
-        if idx == -1:
-            print("Warning: setLoaderEnabled anchor not found, skipping GDExtension pre-load", file=sys.stderr)
-        else:
-            preload_code = (
-                "\t\t\t// Pre-load GDExtension .so via async loadDynamicLibrary\n"
-                "\t\t\t// (avoids >8MB WebAssembly.Module compile/instantiate on main thread)\n"
-                "\t\t\t// The editor is a debug build, so Godot requests the debug name.\n"
-                "\t\t\t// We serve the release .so under both filenames.\n"
-                "\t\t\tif (projectPath && typeof Module !== 'undefined' && Module.loadDynamicLibrary) {\n"
-                "\t\t\t\tvar _soNames = [\n"
-                "\t\t\t\t\t'libgdext.web.debug.template_debug.wasm32.so',\n"
-                "\t\t\t\t\t'libgdext.web.release.template_release.wasm32.so'\n"
-                "\t\t\t\t];\n"
-                "\t\t\t\tfor (var _i = 0; _i < _soNames.length; _i++) {\n"
-                "\t\t\t\t\tvar _soName = _soNames[_i];\n"
-                "\t\t\t\t\ttry {\n"
-                "\t\t\t\t\t\tconsole.log('Pre-loading GDExtension:', _soName);\n"
-                "\t\t\t\t\t\tawait Module.loadDynamicLibrary(_soName, {loadAsync: true, global: true, nodelete: true});\n"
-                "\t\t\t\t\t\tconsole.log('GDExtension pre-loaded (__gdext_preloaded):', _soName);\n"
-                "\t\t\t\t\t} catch (e) {\n"
-                "\t\t\t\t\t\tconsole.warn('GDExtension pre-load failed:', _soName, e);\n"
-                "\t\t\t\t\t\tdelete Module.LDSO.loadedLibsByName[_soName];\n"
-                "\t\t\t\t\t}\n"
-                "\t\t\t\t}\n"
-                "\t\t\t}\n"
-            )
-            content = content[:idx + len(anchor)] + preload_code + content[idx + len(anchor):]
-            with open(path, 'w') as f:
-                f.write(content)
-            print("  Injected GDExtension pre-load")
+    print("  Warning: async path pattern not found, skipping", file=sys.stderr)
 PYEOF
+else
+    echo "  Warning: $JSFILE not found, skipping async path fix"
+fi
 
 echo "Patched: $HTML"

@@ -164,10 +164,11 @@ jobs:
           submodules: recursive
 
       - name: Download Godot API dump
-        uses: actions/download-artifact@v8
-        with:
-          name: godot-api-${{ matrix.float-precision }}
-          path: godot-cpp/gdextension/
+        shell: bash
+        run: gh run download "$RUN_ID" --name "godot-api-${{ matrix.float-precision }}" --dir godot-cpp/gdextension/
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.run_id }}
 
       - name: Build ccache artifact name
         id: ccache-artifact
@@ -594,10 +595,11 @@ jobs:
 
       - name: Download custom web templates
         if: contains(matrix.target.triplet, 'wasm32-emscripten')
-        uses: actions/download-artifact@v8
-        with:
-          name: web-template-threads-${{ matrix.mode }}
-          path: web-templates
+        shell: bash
+        run: gh run download "$RUN_ID" --name "web-template-threads-${{ matrix.mode }}" --dir web-templates
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.run_id }}
 
       - name: Install custom web templates
         if: contains(matrix.target.triplet, 'wasm32-emscripten')
@@ -659,6 +661,7 @@ jobs:
           set -e
           TMP=$(mktemp -d)
           gh run download "${{ github.run_id }}" --pattern "gdext-wasm32-emscripten-template_release-*" --dir "$TMP"
+          gh run download "${{ github.run_id }}" --pattern "gdext-wasm32-emscripten-template_debug-*" --dir "$TMP"
           for dir in "$TMP"/*/; do
             cp -r "$dir". .
           done
@@ -666,11 +669,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
+      - name: Copy GDExtension .so files as static files
+        run: |
+          set -e
+          cp demo/addons/OCCT-Light.gd/libgdext.web.debug.template_debug.wasm32.so web/editor/
+          cp demo/addons/OCCT-Light.gd/libgdext.web.release.template_release.wasm32.so web/editor/
+
       - name: Download web demo artifact
-        uses: actions/download-artifact@v8
-        with:
-          name: demo-web-threads-release
-          path: web
+        shell: bash
+        run: gh run download "$RUN_ID" --name demo-web-threads-release --dir web
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.run_id }}
 
       - name: Download and extract web editor
         shell: bash
@@ -703,13 +713,6 @@ jobs:
             'demo/addons/*/libgdext.*'
           ls -lh web/editor/preload.zip
 
-      - name: Copy GDExtension .so as static files
-        run: |
-          set -e
-          SO_SRC="demo/addons/OCCT-Light.gd/libgdext.web.release.template_release.wasm32.so"
-          cp "$SO_SRC" web/editor/libgdext.web.release.template_release.wasm32.so
-          cp "$SO_SRC" web/editor/libgdext.web.debug.template_debug.wasm32.so
-
       - name: Patch editor HTML with project preload
         run: tools/patch_editor_html.sh web/editor/godot.editor.html tools/web_editor_preload.html
 
@@ -726,13 +729,15 @@ jobs:
     needs: test
     if: github.ref_type == 'tag'
     permissions:
+      actions: read
       contents: write
     steps:
       - name: Download addon artifact
-        uses: actions/download-artifact@v8
-        with:
-          name: ${{ github.event.repository.name }}-${{ github.ref_name }}-addon
-          path: .
+        shell: bash
+        run: gh run download "$RUN_ID" --name "${{ github.event.repository.name }}-${{ github.ref_name }}-addon" --dir .
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.run_id }}
 
       - name: Recreate addon zip
         shell: bash

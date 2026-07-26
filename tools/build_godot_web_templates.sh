@@ -32,6 +32,11 @@
 #   --version TAG   Godot version tag to build (default: auto-detect latest stable)
 #   OUTPUT_DIR      Where to place the output template zips (default: demo/templates)
 #
+# When --editor is used with --mode, the output zip is named accordingly:
+#   --editor --mode=debug   -> web_editor_debug.zip
+#   --editor --mode=release -> web_editor_release.zip
+#   --editor (no mode)      -> web_editor.zip
+#
 # Prerequisites:
 #   - Emscripten SDK installed and activated (emcc in PATH)
 #   - Python 3.9+
@@ -102,6 +107,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --mode=debug    Build only debug variant"
             echo "  --mode=release  Build only release variant"
             echo "  --editor        Build the editor instead of export templates"
+            echo "                  Output zip is named web_editor[_mode].zip"
             echo "  --clean         Clean build (remove previous build directory)"
             echo "  --version TAG   Godot version tag to build (default: auto-detect latest stable)"
             echo "  OUTPUT_DIR      Where to place the output (default: demo/templates)"
@@ -444,7 +450,10 @@ install_template_zip() {
 }
 
 # Install editor binary to the output dir
+#   $1 = mode_name: "debug", "release", or "" (unnamed)
 install_editor_binary() {
+    local mode_name="$1"
+
     local godot_dir="${PROJECT_DIR}/build/godot-${GODOT_VERSION}"
 
     local zip_file="${godot_dir}/bin/godot.web.editor.wasm32.dlink.zip"
@@ -458,11 +467,14 @@ install_editor_binary() {
 
     local dest_dir="${OUTPUT_DIR}/editor/threads"
     mkdir -p "$dest_dir"
-    cp "$zip_file" "${dest_dir}/web_editor.zip"
-    echo "Installed: ${dest_dir}/web_editor.zip"
+
+    local dest_name="web_editor"
+    [ -n "$mode_name" ] && dest_name="${dest_name}_${mode_name}"
+    cp "$zip_file" "${dest_dir}/${dest_name}.zip"
+    echo "Installed: ${dest_dir}/${dest_name}.zip"
 
     # Patch godot.js inside the zip for __cpp_exception tag support
-    patch_template_js "${dest_dir}/web_editor.zip"
+    patch_template_js "${dest_dir}/${dest_name}.zip"
 }
 
 # Build all selected variants
@@ -484,10 +496,20 @@ build_web() {
         echo "  Version: ${GODOT_VERSION}"
         echo "  Exceptions: enabled (disable_exceptions=no)"
         echo "  Threads: yes"
+        echo "  Variants: debug=${BUILD_DEBUG} release=${BUILD_RELEASE}"
         echo ""
 
         build_one_variant "editor"
-        install_editor_binary
+
+        local editor_mode_name=""
+        if [ "$BUILD_DEBUG" = "yes" ] && [ "$BUILD_RELEASE" = "yes" ]; then
+            editor_mode_name=""
+        elif [ "$BUILD_DEBUG" = "yes" ]; then
+            editor_mode_name="debug"
+        else
+            editor_mode_name="release"
+        fi
+        install_editor_binary "$editor_mode_name"
     else
         echo ""
         echo "=== Building Godot Web export templates ==="
@@ -531,7 +553,15 @@ main() {
     echo ""
     echo "Done! Output installed to: ${OUTPUT_DIR}"
     if [ $BUILD_EDITOR -eq 1 ]; then
-        echo "  editor/threads/web_editor.zip"
+        local editor_mode_name=""
+        if [ "$BUILD_DEBUG" = "yes" ] && [ "$BUILD_RELEASE" = "yes" ]; then
+            editor_mode_name=""
+        elif [ "$BUILD_DEBUG" = "yes" ]; then
+            editor_mode_name="_debug"
+        else
+            editor_mode_name="_release"
+        fi
+        echo "  editor/threads/web_editor${editor_mode_name}.zip"
     else
         echo "  threads/web_debug.zip, threads/web_release.zip"
     fi
