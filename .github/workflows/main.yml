@@ -703,8 +703,12 @@ jobs:
             'demo/addons/*/libgdext.*'
           ls -lh web/editor/preload.zip
 
-      - name: Copy GDExtension .so as static file
-        run: cp demo/addons/OCCT-Light.gd/libgdext.web.release.template_release.wasm32.so web/editor/
+      - name: Copy GDExtension .so as static files
+        run: |
+          set -e
+          SO_SRC="demo/addons/OCCT-Light.gd/libgdext.web.release.template_release.wasm32.so"
+          cp "$SO_SRC" web/editor/libgdext.web.release.template_release.wasm32.so
+          cp "$SO_SRC" web/editor/libgdext.web.debug.template_debug.wasm32.so
 
       - name: Patch editor HTML with project preload
         run: tools/patch_editor_html.sh web/editor/godot.editor.html tools/web_editor_preload.html
