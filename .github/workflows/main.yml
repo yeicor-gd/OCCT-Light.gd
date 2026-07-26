@@ -165,7 +165,9 @@ jobs:
 
       - name: Download Godot API dump
         shell: bash
-        run: gh run download "$RUN_ID" --name "godot-api-${{ matrix.float-precision }}" --dir godot-cpp/gdextension/
+        run: |
+          rm -f godot-cpp/gdextension/extension_api.json
+          gh run download "$RUN_ID" --name "godot-api-${{ matrix.float-precision }}" --dir godot-cpp/gdextension/
         env:
           GH_TOKEN: ${{ github.token }}
           RUN_ID: ${{ github.run_id }}
