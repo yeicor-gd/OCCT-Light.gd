@@ -13,8 +13,7 @@
 		const files = [];
 		zip.forEach((path, entry) => {
 			if (entry.dir) return;
-			const idx = path.indexOf("demo/");
-			if (idx === -1) return;
+			if (!path.startsWith("demo/")) return;
 			const rel = path.substring(5);
 			if (!rel) return;
 			files.push([PROJECT_PATH + "/" + rel, entry]);

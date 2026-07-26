@@ -640,6 +640,7 @@ jobs:
     needs: export-demo
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     permissions:
+      actions: read
       contents: read
       pages: write
       id-token: write
@@ -651,6 +652,19 @@ jobs:
         uses: actions/checkout@v6
         with:
           submodules: false
+
+      - name: Download web addon artifacts
+        shell: bash
+        run: |
+          set -e
+          TMP=$(mktemp -d)
+          gh run download "${{ github.run_id }}" --pattern "gdext-wasm32-emscripten-template_release-*" --dir "$TMP"
+          for dir in "$TMP"/*/; do
+            cp -r "$dir". .
+          done
+          rm -rf "$TMP"
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - name: Download web demo artifact
         uses: actions/download-artifact@v8

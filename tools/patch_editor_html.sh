@@ -44,13 +44,31 @@ fi
 echo "Patching $HTML ..."
 
 # 1. Accept optional projectPath parameter
-sed -i 's/function startEditor(zip) {/function startEditor(zip, projectPath) {/' "$HTML"
+if grep -q 'function startEditor(zip) {' "$HTML"; then
+    sed -i 's/function startEditor(zip) {/function startEditor(zip, projectPath) {/' "$HTML"
+    echo "  Patched startEditor signature"
+else
+    echo "Error: startEditor(zip) pattern not found in $HTML — Godot editor format may have changed" >&2
+    exit 1
+fi
 
 # 2. Use --editor --path when projectPath is given
-sed -i "s|const args = \['--project-manager', '--single-window'\];|const args = projectPath ? ['--editor', '--path', projectPath, '--single-window'] : ['--project-manager', '--single-window'];|" "$HTML"
+if grep -q "const args = \['--project-manager', '--single-window'\];" "$HTML"; then
+    sed -i "s|const args = \['--project-manager', '--single-window'\];|const args = projectPath ? ['--editor', '--path', projectPath, '--single-window'] : ['--project-manager', '--single-window'];|" "$HTML"
+    echo "  Patched args override"
+else
+    echo "Error: args pattern not found — Godot editor format may have changed" >&2
+    exit 1
+fi
 
 # 3. Only use persistentDrops in project-manager mode
-sed -i "s|'persistentDrops': true|'persistentDrops': !projectPath|" "$HTML"
+if grep -q "'persistentDrops': true" "$HTML"; then
+    sed -i "s|'persistentDrops': true|'persistentDrops': !projectPath|" "$HTML"
+    echo "  Patched persistentDrops"
+else
+    echo "Error: persistentDrops pattern not found — Godot editor format may have changed" >&2
+    exit 1
+fi
 
 # 4. After editor.init(), copy preloaded files into the virtual FS
 python3 - "$HTML" << 'PYEOF'
@@ -66,16 +84,19 @@ else:
     if idx == -1:
         print("Warning: marker not found, skipping __preloadFiles injection", file=sys.stderr)
     else:
-        end = content.index("}", idx + len(marker))
-        insert = (
-            "\n\t\t\tif (projectPath && window.__preloadFiles) {"
-            "\n\t\t\t\twindow.__preloadFiles.forEach(function(f) { editor.copyToFS(f[0], f[1]); });"
-            "\n\t\t\t}"
-        )
-        content = content[:end+1] + insert + content[end+1:]
-        with open(path, 'w') as f:
-            f.write(content)
-        print("  Injected __preloadFiles copy")
+        end = content.find("}", idx + len(marker))
+        if end == -1:
+            print("Warning: closing brace not found after copyToFS marker, skipping __preloadFiles injection", file=sys.stderr)
+        else:
+            insert = (
+                "\n\t\t\tif (projectPath && window.__preloadFiles) {"
+                "\n\t\t\t\twindow.__preloadFiles.forEach(function(f) { editor.copyToFS(f[0], f[1]); });"
+                "\n\t\t\t}"
+            )
+            content = content[:end+1] + insert + content[end+1:]
+            with open(path, 'w') as f:
+                f.write(content)
+            print("  Injected __preloadFiles copy")
 PYEOF
 
 # 5. Inject preload script before </body>
