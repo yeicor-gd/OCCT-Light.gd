@@ -132,4 +132,12 @@ else
     echo "  Warning: $JSFILE not found, skipping async path fix"
 fi
 
+# 7. Inject coi-serviceworker for SharedArrayBuffer (threads on GitHub Pages)
+if grep -q 'coi-serviceworker.js' "$HTML"; then
+    echo "  coi-serviceworker already injected, skipping"
+else
+    sed -i 's|</head>|<script src="coi-serviceworker.js"></script>\n\t</head>|' "$HTML"
+    echo "  Injected coi-serviceworker script tag"
+fi
+
 echo "Patched: $HTML"

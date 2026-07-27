@@ -725,6 +725,14 @@ jobs:
       - name: Patch editor HTML with project preload
         run: tools/patch_editor_html.sh web/editor/godot.editor.html tools/web_editor_preload.html
 
+      - name: Add coi-serviceworker for SharedArrayBuffer (threads)
+        shell: bash
+        run: |
+          set -e
+          # Copy service worker to root (for game export) and editor directory
+          cp tools/coi-serviceworker.js web/coi-serviceworker.js
+          cp tools/coi-serviceworker.js web/editor/coi-serviceworker.js
+
       - name: Upload pages artifact
         uses: actions/upload-pages-artifact@v4
         with:
