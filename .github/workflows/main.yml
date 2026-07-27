@@ -454,8 +454,7 @@ jobs:
           # Templates: 2 variants (debug/release, threads only)
           - { type: template, mode: debug, flags: "--mode=debug" }
           - { type: template, mode: release, flags: "--mode=release" }
-          # Editor: 2 variants (debug/release)
-          - { type: editor, mode: debug, flags: "--editor --mode=debug" }
+          # Editor: release only (deploy-pages only uses release)
           - { type: editor, mode: release, flags: "--editor --mode=release" }
     steps:
       - name: Checkout repository
@@ -513,6 +512,13 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.artifact.outputs.run }}
+          path: web-build/
+
+      - name: Upload cache artifact (versioned name for cross-run cache lookups)
+        if: steps.cache.conclusion == 'success'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.artifact.outputs.cache }}
           path: web-build/
 
   export-demo:
