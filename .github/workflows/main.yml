@@ -674,6 +674,7 @@ jobs:
       - name: Copy GDExtension .so files as static files
         run: |
           set -e
+          mkdir -p web/editor/
           cp demo/addons/OCCT-Light.gd/libgdext.web.debug.template_debug.wasm32.so web/editor/
           cp demo/addons/OCCT-Light.gd/libgdext.web.release.template_release.wasm32.so web/editor/
 
