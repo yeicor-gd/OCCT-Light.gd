@@ -749,6 +749,11 @@ jobs:
       actions: read
       contents: write
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          submodules: false
+
       - name: Download addon artifact
         shell: bash
         run: gh run download "$RUN_ID" --name "${{ github.event.repository.name }}-${{ github.ref_name }}-addon" --dir .
