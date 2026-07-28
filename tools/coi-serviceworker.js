@@ -48,6 +48,14 @@ if (typeof window === 'undefined') {
                     }
                     newHeaders.set("Cross-Origin-Opener-Policy", "same-origin");
 
+                    // GDExtension side modules for Web are Emscripten .so files
+                    // that are actually WebAssembly.  GitHub Pages serves them as
+                    // application/x-sharedlib or octet-stream which makes
+                    // instantiateStreaming (used by the loader) reject them.
+                    if (new URL(event.request.url).pathname.includes('.wasm32.so')) {
+                        newHeaders.set("Content-Type", "application/wasm");
+                    }
+
                     return new Response(response.body, {
                         status: response.status,
                         statusText: response.statusText,

@@ -733,6 +733,22 @@ jobs:
           cp tools/coi-serviceworker.js web/coi-serviceworker.js
           cp tools/coi-serviceworker.js web/editor/coi-serviceworker.js
 
+      - name: Inject COI service worker into exported demo
+        shell: bash
+        run: |
+          set -e
+          html_file="web/gdext-tests.html"
+          if [ -f "$html_file" ]; then
+            if grep -q 'coi-serviceworker.js' "$html_file"; then
+              echo "coi-serviceworker already injected in $html_file"
+            else
+              sed -i 's|</head>|<script src="coi-serviceworker.js"></script>\n</head>|' "$html_file"
+              echo "Injected coi-serviceworker into $html_file"
+            fi
+          else
+            echo "Warning: $html_file not found, was the demo exported?"
+          fi
+
       - name: Upload pages artifact
         uses: actions/upload-pages-artifact@v4
         with:
