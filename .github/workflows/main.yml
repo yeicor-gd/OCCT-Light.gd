@@ -474,13 +474,7 @@ jobs:
         id: artifact
         shell: bash
         run: |
-          # Full name used for cache lookups — includes version + rebuild hash
-          # to prevent stale caches across Godot version bumps or source changes.
-          CACHE_NAME="web-${{ matrix.type }}-threads-${{ matrix.mode }}-${{ needs.read-versions.outputs.godot_max_version }}"
-          # Current-run name used by downstream jobs (short, no version).
-          RUN_NAME="web-${{ matrix.type }}-threads-${{ matrix.mode }}"
-          echo "cache=${CACHE_NAME}" >> $GITHUB_OUTPUT
-          echo "run=${RUN_NAME}" >> $GITHUB_OUTPUT
+          echo "cache=web-${{ matrix.type }}-threads-${{ matrix.mode }}-${{ needs.read-versions.outputs.godot_max_version }}" >> $GITHUB_OUTPUT
 
       - name: Download cached build artifact
         id: cache
@@ -507,14 +501,7 @@ jobs:
             --version "${{ needs.read-versions.outputs.godot_max_version }}" \
             web-build
 
-      - name: Upload artifact
-        if: steps.cache.conclusion == 'success'
-        uses: actions/upload-artifact@v7
-        with:
-          name: ${{ steps.artifact.outputs.run }}
-          path: web-build/
-
-      - name: Upload cache artifact (versioned name for cross-run cache lookups)
+      - name: Upload artifact (versioned name for cross-run cache lookups)
         if: steps.cache.conclusion == 'success'
         uses: actions/upload-artifact@v7
         with:
@@ -604,7 +591,7 @@ jobs:
       - name: Download custom web templates
         if: contains(matrix.target.triplet, 'wasm32-emscripten')
         shell: bash
-        run: gh run download "$RUN_ID" --name "web-template-threads-${{ matrix.mode }}" --dir web-templates
+        run: gh run download "$RUN_ID" --name "web-template-threads-${{ matrix.mode }}-${{ needs.read-versions.outputs.godot_max_version }}" --dir web-templates
         env:
           GH_TOKEN: ${{ github.token }}
           RUN_ID: ${{ github.run_id }}
@@ -750,12 +737,12 @@ jobs:
           fi
 
       - name: Upload pages artifact
-        uses: actions/upload-pages-artifact@v4
+        uses: actions/upload-pages-artifact@v5
         with:
           path: web
 
       - name: Deploy to GitHub Pages
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
 
   release:
     runs-on: ubuntu-24.04
