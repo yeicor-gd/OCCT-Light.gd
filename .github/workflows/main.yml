@@ -332,7 +332,7 @@ jobs:
       - name: Upload addon artifact
         uses: actions/upload-artifact@v7
         with:
-          name: gdext-${{ matrix.target.vcpkg_triplet }}-${{ matrix.target-type }}-${{ matrix.float-precision }}-${{ matrix.target.threads || '' }}
+          name: gdext-${{ matrix.target.vcpkg_triplet }}-${{ matrix.target-type }}-${{ matrix.float-precision }}${{ matrix.target.threads && '-' }}${{ matrix.target.threads }}
           path: |
             demo/addons/*.gd/*
             ${{ github.workspace }}/.fake-path-to-force-artifact-root
@@ -759,36 +759,56 @@ jobs:
 
   release:
     runs-on: ubuntu-24.04
-    needs: test
+    needs: [test, export-demo]
     if: github.ref_type == 'tag'
     permissions:
       actions: read
       contents: write
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-        with:
-          submodules: false
-
-      - name: Download addon artifact
-        shell: bash
-        run: gh run download "$RUN_ID" --name "${{ github.event.repository.name }}-${{ github.ref_name }}-addon" --dir .
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RUN_ID: ${{ github.run_id }}
-
-      - name: Recreate addon zip
-        shell: bash
-        run: |
-          set -e
-          zip -r "${{ github.event.repository.name }}-${{ github.ref_name }}-addon.zip" addons
-
-      - name: Upload to release
+      - name: Upload artifacts to release
         shell: bash
         run: |
           set -e
           gh auth status
-          gh release upload ${{ github.ref_name }} "${{ github.event.repository.name }}-${{ github.ref_name }}-addon.zip"
+
+          TAG="${{ github.ref_name }}"
+
+          gh api "/repos/$GH_REPO/actions/runs/${{ github.run_id }}/artifacts" \
+            --paginate \
+            -q '.artifacts[] | select(.name | test("^(gdext|demo)-")) | "\(.id) \(.name)"' \
+            | while read -r id name; do
+              echo "Uploading $name ..."
+              gh api "/repos/$GH_REPO/actions/artifacts/$id/zip" > "${name}.zip"
+              gh release upload "$TAG" "${name}.zip" --clobber
+              rm -f "${name}.zip"
+            done
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+
+      - name: Update release notes
+        shell: bash
+        run: |
+          set -e
+          TAG="${{ github.ref_name }}"
+
+          NOTES="/tmp/release-notes-${TAG}.md"
+          cat <<NOTES_EOF > "$NOTES"
+          ## GDExtension libraries (\`gdext-*.zip\`)
+
+          Pre-built OCCT-Light.gd GDExtension libraries per platform, precision (\`single\` / \`double\`), and build type (\`template_debug\` / \`template_release\`). Extract the file matching your target into your project's \`addons/\` directory.
+
+          ## Demo exports (\`demo-*.zip\`)
+
+          Complete Godot demo exports for each platform and mode (\`debug\` / \`release\`). Extract and run directly.
+
+          ## Full addon
+
+          The combined addon with all platform libraries merged (\`gdext-*.zip\`) exceeds GitHub's per-asset size limit and is not attached here. It is available temporarily as the \`OCCT-Light.gd-${TAG}-addon\` workflow artifact from the CI run that created this release.
+          NOTES_EOF
+
+          gh release edit "$TAG" --notes-file "$NOTES"
+          rm -f "$NOTES"
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
