@@ -359,10 +359,13 @@ if is_editor:
         content = content.replace(old4, new4, 1)
         print("  Applied patch 4 (preloadedWasmModules)", flush=True)
 
-    # Patch 5: loadWebAssemblyModule async path – simplify since editor
-    # always uses WebAssembly.instantiate (never instanceof Module).
+    # Patch 5: loadWebAssemblyModule async path – handle binary as WebAssembly.Module.
+    # When the main thread has already compiled the .so and posted the Module to
+    # workers, the worker receives it as a WebAssembly.Module (not ArrayBuffer).
+    # WebAssembly.instantiate(Module, imports) returns Instance (not {module, instance}),
+    # so the bare destructuring gives instance = undefined.  Keep instanceof check.
     old5 = 'if(flags.loadAsync){return(async()=>{var instance;if(binary instanceof WebAssembly.Module){instance=new WebAssembly.Instance(binary,info)}else{({module:binary,instance}=await WebAssembly.instantiate(binary,info))}return postInstantiation(binary,instance)})()}'
-    new5 = 'if(flags.loadAsync){return(async()=>{var instance;({module:binary,instance}=await WebAssembly.instantiate(binary,info));return postInstantiation(binary,instance)})()}'
+    new5 = 'if(flags.loadAsync){return(async()=>{var instance;if(binary instanceof WebAssembly.Module){instance=new WebAssembly.Instance(binary,info)}else{({module:binary,instance}=await WebAssembly.instantiate(binary,info))}return postInstantiation(binary,instance)})()}'
     if old5 not in content:
         print("Warning: loadWebAssemblyModule async pattern not found", flush=True)
         failed = True
