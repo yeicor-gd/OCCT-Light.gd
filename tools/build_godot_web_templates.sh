@@ -342,12 +342,9 @@ else:
     content = content.replace(old3, new3, 1)
     print("  Applied patch 3 (findLibraryFS fallback)", flush=True)
 
-# Patches 4 and 5 are editor-only: export templates already handle these
-# code paths correctly (the instanceof check in loadWebAssemblyModule, and
-# sharedModules lookups in loadLibData).  The editor uses an older Emscripten
-# that needs __preloadedWasmModules support and a simplified async path.
+# Patch 4: loadLibData – check global __preloadedWasmModules registry.
+# Editor-only: export templates already handle sharedModules lookups correctly.
 if is_editor:
-    # Patch 4: loadLibData – check global __preloadedWasmModules registry
     old4 = 'function loadLibData(){var sharedMod=sharedModules[libName];'
     new4 = 'function loadLibData(){var sharedMod=(typeof __preloadedWasmModules!=="undefined"&&__preloadedWasmModules[libName])||sharedModules[libName];'
     if old4 not in content:
@@ -359,21 +356,21 @@ if is_editor:
         content = content.replace(old4, new4, 1)
         print("  Applied patch 4 (preloadedWasmModules)", flush=True)
 
-    # Patch 5: loadWebAssemblyModule async path – handle binary as WebAssembly.Module.
-    # When the main thread has already compiled the .so and posted the Module to
-    # workers, the worker receives it as a WebAssembly.Module (not ArrayBuffer).
-    # WebAssembly.instantiate(Module, imports) returns Instance (not {module, instance}),
-    # so the bare destructuring gives instance = undefined.  Keep instanceof check.
-    old5 = 'if(flags.loadAsync){return(async()=>{var instance;if(binary instanceof WebAssembly.Module){instance=new WebAssembly.Instance(binary,info)}else{({module:binary,instance}=await WebAssembly.instantiate(binary,info))}return postInstantiation(binary,instance)})()}'
-    new5 = 'if(flags.loadAsync){return(async()=>{var instance;if(binary instanceof WebAssembly.Module){instance=new WebAssembly.Instance(binary,info)}else{({module:binary,instance}=await WebAssembly.instantiate(binary,info))}return postInstantiation(binary,instance)})()}'
-    if old5 not in content:
-        print("Warning: loadWebAssemblyModule async pattern not found", flush=True)
-        failed = True
-    elif new5 in content:
-        print("  Patch 5 (async instantiate) already applied", flush=True)
-    else:
-        content = content.replace(old5, new5, 1)
-        print("  Applied patch 5 (async instantiate)", flush=True)
+# Patch 5: loadWebAssemblyModule async path – handle binary as WebAssembly.Module.
+# When the main thread has already compiled the .so and posted the Module to
+# workers, the worker receives it as a WebAssembly.Module (not ArrayBuffer).
+# WebAssembly.instantiate(Module, imports) returns Instance (not {module, instance}),
+# so the bare destructuring gives instance = undefined.  Add instanceof check.
+old5 = 'if(flags.loadAsync){return(async()=>{var instance;({module:binary,instance}=await WebAssembly.instantiate(binary,info));return postInstantiation(binary,instance)})()}'
+new5 = 'if(flags.loadAsync){return(async()=>{var instance;if(binary instanceof WebAssembly.Module){instance=new WebAssembly.Instance(binary,info)}else{({module:binary,instance}=await WebAssembly.instantiate(binary,info))}return postInstantiation(binary,instance)})()}'
+if old5 not in content:
+    print("Warning: loadWebAssemblyModule async pattern not found", flush=True)
+    failed = True
+elif new5 in content:
+    print("  Patch 5 (async instantiate) already applied", flush=True)
+else:
+    content = content.replace(old5, new5, 1)
+    print("  Applied patch 5 (async instantiate)", flush=True)
 
 with open(path, 'w') as f:
     f.write(content)
@@ -400,6 +397,10 @@ PYEOF
     fi
     if ! grep -q '_flr=' "$js_file"; then
         echo "  Warning: findLibraryFS fallback not found after patching" >&2
+        verify_failed=1
+    fi
+    if ! grep -q 'new WebAssembly.Instance(binary' "$js_file"; then
+        echo "  Warning: async Module instantiation not found after patching" >&2
         verify_failed=1
     fi
     # Only verify editor-specific patches on editor zips
