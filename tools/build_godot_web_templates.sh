@@ -287,14 +287,20 @@ patch_template_js() {
     unzip -l "$zip_path" | grep -q 'godot\.editor\.js' && js_name="godot.editor.js"
     unzip -oq "$zip_path" "$js_name" -d "$_tmp_dir"
 
+    # Editor builds use preloadedWasmModules and an older Emscripten that needs
+    # extra patches. Export templates already handle both code paths correctly.
+    local is_editor=0
+    [ "$js_name" = "godot.editor.js" ] && is_editor=1
+
     local js_file="${_tmp_dir}/${js_name}"
     local sentinel='case"__cpp_exception":'
 
     local py_rc=0
-    python3 -u - "$js_file" << 'PYEOF' || py_rc=$?
+    python3 -u - "$js_file" "$is_editor" << 'PYEOF' || py_rc=$?
 import sys
 
 path = sys.argv[1]
+is_editor = int(sys.argv[2])
 with open(path) as f:
     content = f.read()
 
@@ -336,29 +342,35 @@ else:
     content = content.replace(old3, new3, 1)
     print("  Applied patch 3 (findLibraryFS fallback)", flush=True)
 
-# Patch 4: loadLibData – check global __preloadedWasmModules registry
-old4 = 'function loadLibData(){var sharedMod=sharedModules[libName];'
-new4 = 'function loadLibData(){var sharedMod=(typeof __preloadedWasmModules!=="undefined"&&__preloadedWasmModules[libName])||sharedModules[libName];'
-if old4 not in content:
-    print("Warning: loadLibData pattern not found", flush=True)
-    failed = True
-elif new4 in content:
-    print("  Patch 4 (preloadedWasmModules) already applied", flush=True)
-else:
-    content = content.replace(old4, new4, 1)
-    print("  Applied patch 4 (preloadedWasmModules)", flush=True)
+# Patches 4 and 5 are editor-only: export templates already handle these
+# code paths correctly (the instanceof check in loadWebAssemblyModule, and
+# sharedModules lookups in loadLibData).  The editor uses an older Emscripten
+# that needs __preloadedWasmModules support and a simplified async path.
+if is_editor:
+    # Patch 4: loadLibData – check global __preloadedWasmModules registry
+    old4 = 'function loadLibData(){var sharedMod=sharedModules[libName];'
+    new4 = 'function loadLibData(){var sharedMod=(typeof __preloadedWasmModules!=="undefined"&&__preloadedWasmModules[libName])||sharedModules[libName];'
+    if old4 not in content:
+        print("Warning: loadLibData pattern not found", flush=True)
+        failed = True
+    elif new4 in content:
+        print("  Patch 4 (preloadedWasmModules) already applied", flush=True)
+    else:
+        content = content.replace(old4, new4, 1)
+        print("  Applied patch 4 (preloadedWasmModules)", flush=True)
 
-# Patch 5: loadWebAssemblyModule async path – use WebAssembly.instantiate for Module inputs
-old5 = 'if(flags.loadAsync){return(async()=>{var instance;if(binary instanceof WebAssembly.Module){instance=new WebAssembly.Instance(binary,info)}else{({module:binary,instance}=await WebAssembly.instantiate(binary,info))}return postInstantiation(binary,instance)})()}'
-new5 = 'if(flags.loadAsync){return(async()=>{var instance;({module:binary,instance}=await WebAssembly.instantiate(binary,info));return postInstantiation(binary,instance)})()}'
-if old5 not in content:
-    print("Warning: loadWebAssemblyModule async pattern not found", flush=True)
-    failed = True
-elif new5 in content:
-    print("  Patch 5 (async instantiate) already applied", flush=True)
-else:
-    content = content.replace(old5, new5, 1)
-    print("  Applied patch 5 (async instantiate)", flush=True)
+    # Patch 5: loadWebAssemblyModule async path – simplify since editor
+    # always uses WebAssembly.instantiate (never instanceof Module).
+    old5 = 'if(flags.loadAsync){return(async()=>{var instance;if(binary instanceof WebAssembly.Module){instance=new WebAssembly.Instance(binary,info)}else{({module:binary,instance}=await WebAssembly.instantiate(binary,info))}return postInstantiation(binary,instance)})()}'
+    new5 = 'if(flags.loadAsync){return(async()=>{var instance;({module:binary,instance}=await WebAssembly.instantiate(binary,info));return postInstantiation(binary,instance)})()}'
+    if old5 not in content:
+        print("Warning: loadWebAssemblyModule async pattern not found", flush=True)
+        failed = True
+    elif new5 in content:
+        print("  Patch 5 (async instantiate) already applied", flush=True)
+    else:
+        content = content.replace(old5, new5, 1)
+        print("  Applied patch 5 (async instantiate)", flush=True)
 
 with open(path, 'w') as f:
     f.write(content)
@@ -387,9 +399,12 @@ PYEOF
         echo "  Warning: findLibraryFS fallback not found after patching" >&2
         verify_failed=1
     fi
-    if ! grep -q '__preloadedWasmModules' "$js_file"; then
-        echo "  Warning: preloadedWasmModules not found after patching" >&2
-        verify_failed=1
+    # Only verify editor-specific patches on editor zips
+    if [ "$is_editor" -eq 1 ]; then
+        if ! grep -q '__preloadedWasmModules' "$js_file"; then
+            echo "  Warning: preloadedWasmModules not found after patching" >&2
+            verify_failed=1
+        fi
     fi
     if [ $verify_failed -ne 0 ]; then
         rm -rf "$_tmp_dir"
@@ -419,7 +434,9 @@ PYEOF
         echo "  Error: zip repack failed (exit code $zip_rc)" >&2
         return 1
     fi
-    echo "  Patched godot.js in $(basename "$zip_path") (tag + resolveGlobalSymbol + findLibraryFS + preloadedWasm + asyncInstantiate)"
+    local patches_desc="tag + resolveGlobalSymbol + findLibraryFS"
+    [ "$is_editor" -eq 1 ] && patches_desc="${patches_desc} + preloadedWasm + asyncInstantiate"
+    echo "  Patched godot.js in $(basename "$zip_path") (${patches_desc})"
 }
 
 # Install a template zip to the output dir

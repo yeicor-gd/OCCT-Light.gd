@@ -106,10 +106,19 @@ if (typeof window === 'undefined') {
                 (registration) => {
                     !coi.quiet && console.log("COOP/COEP Service Worker registered", registration.scope);
 
-                    registration.addEventListener("updatefound", () => {
-                        !coi.quiet && console.log("Reloading page to make use of updated COOP/COEP Service Worker.");
-                        coi.doReload();
-                    });
+                    // Only reload on updatefound when updating an existing active SW,
+                    // not during first install — the first install reload is handled
+                    // by the active-but-not-controlling check below.  Without this
+                    // guard, Chrome can enter a forever refresh loop: updatefound
+                    // fires during initial registration, reloads before the SW takes
+                    // control, then on the new load the SW still isn't controlling,
+                    // so it registers again and updatefound fires again.
+                    if (registration.active) {
+                        registration.addEventListener("updatefound", () => {
+                            !coi.quiet && console.log("Reloading page to make use of updated COOP/COEP Service Worker.");
+                            coi.doReload();
+                        });
+                    }
 
                     // If the registration is active, but it's not controlling the page
                     if (registration.active && !n.serviceWorker.controller) {
