@@ -13,7 +13,6 @@
 #   3. persistentDrops disabled in editor mode
 #   4. After editor.init(), copy window.__preloadFiles into the virtual FS
 #   5. Inject the preload script before </body>
-#   6. Fix loadWebAssemblyModule async path to handle pre-compiled WebAssembly.Module
 #
 # Examples:
 #   # Local (from repo root):
@@ -105,34 +104,7 @@ sed -i '/<\/html>/d' "$HTML"
 cat "$PRELOAD" >> "$HTML"
 printf '</body>\n</html>\n' >> "$HTML"
 
-# 6. Fix loadWebAssemblyModule async path to handle pre-compiled WebAssembly.Module
-#    The editor build uses an older Emscripten that's missing the instanceof check:
-#      WebAssembly.instantiate(module, imports) returns Instance (not {module, instance})
-#    when binary is already a WebAssembly.Module (from __preloadedWasmModules / sharedModules).
-JSFILE="${HTML%.html}.js"
-if [ -f "$JSFILE" ]; then
-    python3 - "$JSFILE" << 'PYEOF'
-import sys
-path = sys.argv[1]
-with open(path) as f:
-    content = f.read()
-old = '({module:binary,instance}=await WebAssembly.instantiate(binary,info));return postInstantiation(binary,instance)})()'
-new = 'if(binary instanceof WebAssembly.Module){instance=new WebAssembly.Instance(binary,info)}else{({module:binary,instance}=await WebAssembly.instantiate(binary,info))}return postInstantiation(binary,instance)})()'
-if old in content:
-    content = content.replace(old, new)
-    with open(path, 'w') as f:
-        f.write(content)
-    print("  Fixed loadWebAssemblyModule async path")
-elif new in content:
-    print("  loadWebAssemblyModule async path already fixed, skipping")
-else:
-    print("  Warning: async path pattern not found, skipping", file=sys.stderr)
-PYEOF
-else
-    echo "  Warning: $JSFILE not found, skipping async path fix"
-fi
-
-# 7. Inject coi-serviceworker for SharedArrayBuffer (threads on GitHub Pages)
+# 6. Inject coi-serviceworker for SharedArrayBuffer (threads on GitHub Pages)
 if grep -q 'coi-serviceworker.js' "$HTML"; then
     echo "  coi-serviceworker already injected, skipping"
 else
