@@ -684,10 +684,10 @@ jobs:
           set -e
           mkdir -p web/editor
           gh run download "${{ github.run_id }}" \
-            --name web-editor-threads-release \
+            --pattern "web-editor-threads-release-*" \
             --dir editor-dl
           cd editor-dl
-          unzip -q editor/threads/web_editor_release.zip -d "${{ github.workspace }}/web/editor"
+          unzip -q */editor/threads/web_editor_release.zip -d "${{ github.workspace }}/web/editor"
           rm -rf editor-dl
         env:
           GH_TOKEN: ${{ github.token }}
