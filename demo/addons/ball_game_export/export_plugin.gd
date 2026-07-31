@@ -25,30 +25,51 @@ func _export_begin(
 		push_error("Missing node: Maze/Meshes")
 		return
 
-	if meshes.get_child_count() == 0:
-		print("Maze is empty; generating before export...")
-
-		var maze := root.get_node_or_null("Maze")
-		if maze == null:
-			push_error("Missing node: Maze")
-			return
-
-		maze.regenerate_all(true)
-
-		var packed := PackedScene.new()
-		var err := packed.pack(root)
-		if err != OK:
-			push_error("Failed to pack scene (%s)." % err)
-			return
-
-		err = ResourceSaver.save(packed, BALL_GAME_SCENE)
-		if err != OK:
-			push_error("Failed to save scene (%s)." % err)
-			return
-
-		_add_generated_files(meshes.resource_save_path)
-	else:
+	if _maze_is_usable(meshes):
 		push_warning("Reusing previously built maze for export.")
+		return
+
+	print("Maze is empty or missing; generating before export...")
+
+	var maze := root.get_node_or_null("Maze")
+	if maze == null:
+		push_error("Missing node: Maze")
+		return
+
+	maze.regenerate_all(true)
+
+	var packed := PackedScene.new()
+	var err := packed.pack(root)
+	if err != OK:
+		push_error("Failed to pack scene (%s)." % err)
+		return
+
+	err = ResourceSaver.save(packed, BALL_GAME_SCENE)
+	if err != OK:
+		push_error("Failed to save scene (%s)." % err)
+		return
+
+	_add_generated_files(meshes.resource_save_path)
+
+	var obstacles := root.get_node_or_null("Maze/Obstacles")
+	if obstacles != null:
+		_add_generated_files(obstacles.resource_save_path)
+
+	var markers := root.get_node_or_null("Maze/Markers")
+	if markers != null:
+		_add_generated_files(markers.resource_save_path)
+
+
+## A usable maze has real mesh batches. Placeholder nodes mean the generated
+## .scn files were missing (e.g. a fresh checkout), so the maze must be
+## regenerated instead of reused.
+func _maze_is_usable(meshes: Node) -> bool:
+	if meshes.get_child_count() == 0:
+		return false
+	for child in meshes.get_children():
+		if child is MissingNode:
+			return false
+	return true
 
 
 func _add_generated_files(dir_path: String) -> void:

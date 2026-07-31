@@ -68,10 +68,18 @@ func regenerate_all(sync: bool):
 	var mesh_ms := (Time.get_ticks_usec() - mesh_start) / 1000.0
 
 	# 3. Regenerate obstacles (async — workers build OCCT geometry in parallel).
-	await $Obstacles._build_obstacles(sync)
+	# With sync=true the whole build completes on the caller's frame, which is
+	# required by the export plugin (it cannot await a suspended coroutine).
+	if sync:
+		$Obstacles._build_obstacles(true)
+	else:
+		await $Obstacles._build_obstacles(false)
 
 	# 4. Regenerate markers (async — workers build OCCT geometry in parallel).
-	await $Markers._build_markers(sync)
+	if sync:
+		$Markers._build_markers(true)
+	else:
+		await $Markers._build_markers(false)
 
 	var total_ms := (Time.get_ticks_usec() - total_start) / 1000.0
 	mesh_generation_finished.emit(total_ms, paths_ms, mesh_ms)
