@@ -103,12 +103,12 @@ if (typeof window === 'undefined') {
         // In some environments (e.g. Chrome incognito mode) this won't be available
         if (n.serviceWorker) {
             n.serviceWorker.register(window.document.currentScript.src).then(
-                (registration) => {
+                async (registration) => {
                     !coi.quiet && console.log("COOP/COEP Service Worker registered", registration.scope);
 
                     // Only reload on updatefound when updating an existing active SW,
                     // not during first install — the first install reload is handled
-                    // by the active-but-not-controlling check below.  Without this
+                    // by the cross-origin-isolation check below.  Without this
                     // guard, Chrome can enter a forever refresh loop: updatefound
                     // fires during initial registration, reloads before the SW takes
                     // control, then on the new load the SW still isn't controlling,
@@ -120,10 +120,39 @@ if (typeof window === 'undefined') {
                         });
                     }
 
-                    // If the registration is active, but it's not controlling the page
-                    if (registration.active && !n.serviceWorker.controller) {
-                        !coi.quiet && console.log("Reloading page to make use of COOP/COEP Service Worker.");
-                        coi.doReload();
+                    // If the document is not cross-origin isolated yet, it was served
+                    // before the service worker could add the COOP/COEP headers to it
+                    // (first visit, or the SW took control mid-load).  Wait until the
+                    // SW is active and controlling the page, then reload so the SW can
+                    // serve the navigation with the COOP/COEP headers.  A per-session
+                    // counter (persisted across reloads in sessionStorage) allows a few
+                    // retries in case a reload races the SW activation, but prevents an
+                    // infinite reload loop if cross-origin isolation can't be achieved.
+                    await Promise.race([
+                        n.serviceWorker.ready,
+                        new Promise((resolve) => setTimeout(resolve, 10000)),
+                    ]);
+                    if (!n.serviceWorker.controller) {
+                        await Promise.race([
+                            new Promise((resolve) => {
+                                n.serviceWorker.addEventListener("controllerchange", resolve, { once: true });
+                            }),
+                            new Promise((resolve) => setTimeout(resolve, 5000)),
+                        ]);
+                    }
+                    if (window.crossOriginIsolated === false) {
+                        const RELOAD_KEY = "coi-reload-count";
+                        let reloadCount = 0;
+                        try {
+                            reloadCount = parseInt(window.sessionStorage.getItem(RELOAD_KEY) || "0", 10) || 0;
+                        } catch (e) { /* sessionStorage may be unavailable */ }
+                        if (reloadCount < 3) {
+                            try {
+                                window.sessionStorage.setItem(RELOAD_KEY, String(reloadCount + 1));
+                            } catch (e) { /* ignore */ }
+                            !coi.quiet && console.log("Reloading page to make use of the cross-origin-isolated COOP/COEP Service Worker.");
+                            coi.doReload();
+                        }
                     }
                 },
                 (err) => {

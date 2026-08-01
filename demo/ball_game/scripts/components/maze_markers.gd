@@ -445,15 +445,21 @@ func _persist_resources() -> void:
 	_save_branch(container, path)
 
 	# Hot-swap: replace the in-memory container with the persisted instance.
+	var parent := container.get_parent()
+	if parent == null:
+		return
 	var packed := ResourceLoader.load(path, "", ResourceLoader.CACHE_MODE_IGNORE) as PackedScene
 	var instance := packed.instantiate()
 	instance.name = "Generated"
 
 	var idx := container.get_index()
-	remove_child(container)
-	add_child(instance)
-	move_child(instance, idx)
-	instance.owner = get_tree().edited_scene_root if is_inside_tree() else null
+	parent.remove_child(container)
+	parent.add_child(instance)
+	parent.move_child(instance, idx)
+	# Keep the parent's owner (like ocl_mesh_builder) so PackedScene.pack keeps
+	# the instance as an ext_resource reference.  edited_scene_root is null
+	# during headless exports, which used to drop obstacles/markers entirely.
+	instance.owner = parent.owner
 
 
 func _save_branch(branch: Node, path: String) -> Error:

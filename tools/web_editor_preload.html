@@ -1,9 +1,30 @@
 <script src="jszip.min.js"></script>
 <script>
+// The threaded Godot editor needs SharedArrayBuffer, which requires the page to
+// be cross-origin isolated.  GitHub Pages cannot send COOP/COEP headers, so the
+// coi-serviceworker.js script in <head> must serve the document with those
+// headers.  On the first visit the document is loaded before the service worker
+// takes control, so coi-serviceworker.js reloads the page once the SW is ready;
+// that reload destroys this script, and on the new page COI is already true.  We
+// only need to wait here so the editor doesn't start (nor download/compile the
+// big assets) before cross-origin isolation is established.
+async function ensureCrossOriginIsolation() {
+	if (window.crossOriginIsolated) {
+		return;
+	}
+	const deadline = Date.now() + 15000;
+	while (Date.now() < deadline && !window.crossOriginIsolated) {
+		await new Promise((resolve) => setTimeout(resolve, 100));
+	}
+	if (!window.crossOriginIsolated) {
+		console.warn("Page is not cross-origin isolated; threads (and thus the editor) may fail to start.");
+	}
+}
 (async function () {
 	"use strict";
 	const PROJECT_PATH = "/home/web_user/demo";
 	try {
+		await ensureCrossOriginIsolation();
 		console.log("Loading preload.zip...");
 		const resp = await fetch("preload.zip");
 		if (!resp.ok) throw new Error("Failed to fetch preload.zip: " + resp.status);
