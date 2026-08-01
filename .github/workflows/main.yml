@@ -508,8 +508,86 @@ jobs:
           name: ${{ steps.artifact.outputs.cache }}
           path: web-build/
 
+  # Generate the (expensive) maze data exactly once on linux x64 and publish
+  # the modified demo project so every export-demo target can reuse the
+  # pre-generated meshes instead of rebuilding them (which takes ~1h per job).
+  generate-demo-maze:
+    needs: [read-versions, build]
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Download Linux addon artifacts
+        shell: bash
+        run: |
+          set -e
+          PATTERN="gdext-x64-linux-*"
+          echo "Downloading artifacts matching: $PATTERN"
+          TMP=$(mktemp -d)
+          gh run download "${{ github.run_id }}" --pattern "$PATTERN" --dir "$TMP"
+          # Flatten artifact subdirectories into workspace root (equivalent to merge-multiple: true)
+          for dir in "$TMP"/*/; do
+            cp -r "$dir". .
+          done
+          rm -rf "$TMP"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Setup Godot
+        uses: chickensoft-games/setup-godot@v2
+        with:
+          version: ${{ needs.read-versions.outputs.godot_max_version }}
+          use-dotnet: false
+          include-templates: true
+          cache: false
+
+      - name: Generate autowrapper bindings (required to load the demo scenes)
+        shell: bash
+        run: |
+          set -e
+          cd *.gd-autowrapper
+          ./generate.sh
+
+      # Running the export triggers the ball_game_export plugin, which
+      # regenerates the maze, persists the generated .scn files and rewrites
+      # game.tscn to reference them (editor hint is required for persistence).
+      - name: Generate maze data
+        shell: bash
+        run: |
+          set -e
+          mkdir demo/exports
+          godot --export-release "Linux" --path demo --headless
+
+      - name: Verify pre-generated maze data
+        shell: bash
+        run: |
+          set -e
+          scn_count=$(ls demo/ball_game/generated/maze_meshes/*.scn 2>/dev/null | wc -l)
+          echo "Found $scn_count maze mesh .scn files"
+          if [ "$scn_count" -eq 0 ]; then
+            echo "ERROR: Maze generation produced no .scn files"
+            exit 1
+          fi
+          grep -q 'generated/maze_meshes' demo/ball_game/game.tscn
+          grep -q 'generated/maze_markers' demo/ball_game/game.tscn
+          grep -q 'generated/maze_obstacles' demo/ball_game/game.tscn
+
+      - name: Upload pre-generated demo maze data
+        uses: actions/upload-artifact@v7
+        with:
+          name: demo-maze-prepared
+          path: |
+            demo/ball_game/generated/**
+            demo/ball_game/game.tscn*
+
   export-demo:
-    needs: [read-versions, build, build-godot-web]
+    needs: [read-versions, build, build-godot-web, generate-demo-maze]
     strategy:
       fail-fast: false
       matrix:
@@ -550,6 +628,20 @@ jobs:
           for dir in "$TMP"/*/; do
             cp -r "$dir". .
           done
+          rm -rf "$TMP"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Download pre-generated demo maze data
+        shell: bash
+        run: |
+          set -e
+          TMP=$(mktemp -d)
+          gh run download "${{ github.run_id }}" --name demo-maze-prepared --dir "$TMP"
+          # Overlay the pre-generated maze (meshes/markers/obstacles + game.tscn
+          # linking them) so the export reuses it instead of regenerating (~1h).
+          cp -rf "$TMP"/demo-maze-prepared/demo/ball_game/generated demo/ball_game/
+          cp -f "$TMP"/demo-maze-prepared/demo/ball_game/game.tscn* demo/ball_game/
           rm -rf "$TMP"
         env:
           GH_TOKEN: ${{ github.token }}
@@ -649,6 +741,20 @@ jobs:
         uses: actions/checkout@v6
         with:
           submodules: false
+
+      - name: Download pre-generated demo maze data
+        shell: bash
+        run: |
+          set -e
+          TMP=$(mktemp -d)
+          gh run download "${{ github.run_id }}" --name demo-maze-prepared --dir "$TMP"
+          # Reuse the pre-generated maze (meshes/markers/obstacles + game.tscn)
+          # so the web editor preload ships a real maze on all platforms.
+          cp -rf "$TMP"/demo-maze-prepared/demo/ball_game/generated demo/ball_game/
+          cp -f "$TMP"/demo-maze-prepared/demo/ball_game/game.tscn* demo/ball_game/
+          rm -rf "$TMP"
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - name: Download web addon artifacts
         shell: bash
