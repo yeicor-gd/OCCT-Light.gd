@@ -640,8 +640,11 @@ jobs:
           gh run download "${{ github.run_id }}" --name demo-maze-prepared --dir "$TMP"
           # Overlay the pre-generated maze (meshes/markers/obstacles + game.tscn
           # linking them) so the export reuses it instead of regenerating (~1h).
-          cp -rf "$TMP"/demo-maze-prepared/demo/ball_game/generated demo/ball_game/
-          cp -f "$TMP"/demo-maze-prepared/demo/ball_game/game.tscn* demo/ball_game/
+          # NOTE: a single --name download extracts directly into --dir, and
+          # upload-artifact strips the common demo/ball_game root, so the
+          # artifact root contains generated/ and game.tscn directly.
+          cp -rf "$TMP"/generated demo/ball_game/
+          cp -f "$TMP"/game.tscn* demo/ball_game/
           rm -rf "$TMP"
         env:
           GH_TOKEN: ${{ github.token }}
@@ -750,8 +753,11 @@ jobs:
           gh run download "${{ github.run_id }}" --name demo-maze-prepared --dir "$TMP"
           # Reuse the pre-generated maze (meshes/markers/obstacles + game.tscn)
           # so the web editor preload ships a real maze on all platforms.
-          cp -rf "$TMP"/demo-maze-prepared/demo/ball_game/generated demo/ball_game/
-          cp -f "$TMP"/demo-maze-prepared/demo/ball_game/game.tscn* demo/ball_game/
+          # NOTE: a single --name download extracts directly into --dir, and
+          # upload-artifact strips the common demo/ball_game root, so the
+          # artifact root contains generated/ and game.tscn directly.
+          cp -rf "$TMP"/generated demo/ball_game/
+          cp -f "$TMP"/game.tscn* demo/ball_game/
           rm -rf "$TMP"
         env:
           GH_TOKEN: ${{ github.token }}
